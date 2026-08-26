@@ -10,11 +10,10 @@ import 'package:sqflite/sqflite.dart';
 const _eps = 1e-9;
 
 class TradeService {
-  TradeService(this._db)
-      : assets = AssetRepository(_db),
-        trades = TradeRepository(_db);
+  TradeService(Database db)
+      : assets = AssetRepository(db),
+        trades = TradeRepository(db);
 
-  final Database _db;
   final AssetRepository assets;
   final TradeRepository trades;
 

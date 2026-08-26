@@ -64,7 +64,8 @@ class TradesPage extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<int>(
-                  value: choice!.id,
+                  key: ValueKey(choice!.id),
+                  initialValue: choice!.id,
                   items: state.assets
                       .map((a) => DropdownMenuItem(
                             value: a.id,
