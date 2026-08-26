@@ -53,13 +53,19 @@ jobs:
       - name: Annotate APK build errors
         if: failure() && hashFiles('apk-build.log') != ''
         run: |
-          # Surface last lines as public check annotations (readable without auth).
-          tail -n 100 apk-build.log | while IFS= read -r line || [ -n "$line" ]; do
-            # Skip empty lines; truncate overly long lines for annotation limits.
+          # Prefer the actionable Gradle/Flutter sections; fall back to log tail.
+          {
+            echo "===== excerpt ====="
+            grep -n -E "What went wrong|Flutter Fix|Error:|FAILURE:|Preferred|requires|Gradle version|AGP|NDK|Exception|Caused by" apk-build.log | tail -n 60 || true
+            echo "===== tail ====="
+            tail -n 40 apk-build.log
+          } > excerpt.txt
+          # One annotation per line keeps messages public via check-runs API.
+          while IFS= read -r line || [ -n "$line" ]; do
             [ -z "$line" ] && continue
-            short=$(printf '%s' "$line" | cut -c1-200)
+            short=$(printf '%s' "$line" | cut -c1-240)
             echo "::error title=flutter build apk::$short"
-          done
+          done < excerpt.txt
 
       - name: Upload APK build log
         if: failure()
