@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/data/app_database.dart';
+import 'package:invest/domain/services/trade_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -9,19 +9,28 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
+  late Database db;
   late TradeService service;
 
   setUp(() async {
-    final db = await databaseFactoryFfi.openDatabase(
-      inMemoryDatabasePath,
+    // Unique DB path per test so data does not leak across cases.
+    final path =
+        inMemoryDatabasePath + '_${DateTime.now().microsecondsSinceEpoch}';
+    db = await databaseFactoryFfi.openDatabase(
+      path,
       options: OpenDatabaseOptions(
         version: 1,
+        singleInstance: false,
         onCreate: (db, version) async {
           await AppDatabase.migrateFresh(db);
         },
       ),
     );
     service = TradeService(db);
+  });
+
+  tearDown(() async {
+    await db.close();
   });
 
   test('isGoldAsset heuristics', () {

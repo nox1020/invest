@@ -1,9 +1,9 @@
 ---
-description: Always commit and push finished edits to origin
+description: Always commit/push edits and fix failing GitHub Actions
 alwaysApply: true
 ---
 
-# Auto push
+# Auto push + fix CI
 
 After completing implementation work in this repo:
 
@@ -12,3 +12,12 @@ After completing implementation work in this repo:
 3. Never force-push to `main`/`master`.
 4. Never commit secrets (`.env`, `*.jks`, `key.properties`, credentials).
 5. If push fails (auth/network), say so clearly and stop.
+
+## GitHub Actions
+
+Whenever the user mentions CI/Actions failures, or after a push that may trigger workflows:
+
+1. Check the latest workflow runs on GitHub (`gh run list` / Actions URL).
+2. If a run failed, fetch failing logs, fix root causes in code or workflow.
+3. Commit and push the fix without waiting to be asked.
+4. Repeat until the latest run on `main` is green (or report a blocker you cannot fix).
