@@ -1,5 +1,6 @@
 name: Android APK
 
+# CI: analyze, test, release APK
 on:
   push:
     branches: [main, master]
