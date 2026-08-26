@@ -5,6 +5,8 @@ alwaysApply: true
 
 # Auto push + fix CI
 
+Never ask the user for permission to commit, push, or fix CI — just do it.
+
 After completing implementation work in this repo:
 
 1. Commit relevant changes with a short message (why, not just what).
