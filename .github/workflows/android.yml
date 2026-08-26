@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -37,9 +37,20 @@ jobs:
         run: flutter test
 
       - name: Build APK
-        run: flutter build apk --release
+        run: |
+          set -o pipefail
+          flutter build apk --release 2>&1 | tee apk-build.log
+
+      - name: Upload APK build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-build-log
+          path: apk-build.log
+          if-no-files-found: ignore
 
       - name: Upload APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: invest-apk
@@ -47,7 +58,7 @@ jobs:
           if-no-files-found: error
 
       - name: Release on tag
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && success()
         uses: softprops/action-gh-release@v2
         with:
           files: build/app/outputs/flutter-apk/app-release.apk
