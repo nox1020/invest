@@ -1,0 +1,14 @@
+---
+description: Always commit and push finished edits to origin
+alwaysApply: true
+---
+
+# Auto push
+
+After completing implementation work in this repo:
+
+1. Commit relevant changes with a short message (why, not just what).
+2. Push to `origin` on the current branch immediately — do not wait for the user to ask.
+3. Never force-push to `main`/`master`.
+4. Never commit secrets (`.env`, `*.jks`, `key.properties`, credentials).
+5. If push fails (auth/network), say so clearly and stop.
