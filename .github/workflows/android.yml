@@ -11,6 +11,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,6 +30,11 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Android licenses
+        run: |
+          yes | flutter doctor --android-licenses || true
+          flutter doctor -v
+
       - name: Pub get
         run: flutter pub get
 
@@ -37,9 +45,21 @@ jobs:
         run: flutter test
 
       - name: Build APK
+        id: apk
         run: |
           set -o pipefail
           flutter build apk --release 2>&1 | tee apk-build.log
+
+      - name: Annotate APK build errors
+        if: failure() && hashFiles('apk-build.log') != ''
+        run: |
+          # Surface last lines as public check annotations (readable without auth).
+          tail -n 100 apk-build.log | while IFS= read -r line || [ -n "$line" ]; do
+            # Skip empty lines; truncate overly long lines for annotation limits.
+            [ -z "$line" ] && continue
+            short=$(printf '%s' "$line" | cut -c1-200)
+            echo "::error title=flutter build apk::$short"
+          done
 
       - name: Upload APK build log
         if: failure()
