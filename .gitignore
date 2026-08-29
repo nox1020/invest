@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/*.db
+data/logs/
+*.xlsx
+*.pdf
+*.lnk
+.DS_Store
+Thumbs.db
+*.env
+*.env.*
+credentials.json
