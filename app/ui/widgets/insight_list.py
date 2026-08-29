@@ -20,7 +20,13 @@ from app.utils.i18n import t
 class InsightListWidget(QWidget):
     """Renders precomputed InsightViewModel rows — no analytics in the widget."""
 
-    def __init__(self, parent=None, *, show_title: bool = True) -> None:
+    def __init__(
+        self,
+        parent=None,
+        *,
+        show_title: bool = True,
+        scrollable: bool = True,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("insightPanel")
         self._root = QVBoxLayout(self)
@@ -35,20 +41,29 @@ class InsightListWidget(QWidget):
             header.addStretch()
             self._root.addLayout(header)
 
-        self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setObjectName("insightScroll")
-
         self._inner = QWidget()
         self._inner.setObjectName("insightInner")
         self._list = QVBoxLayout(self._inner)
         self._list.setContentsMargins(0, 0, 2, 0)
         self._list.setSpacing(8)
         self._list.addStretch()
-        self._scroll.setWidget(self._inner)
-        self._root.addWidget(self._scroll, 1)
+
+        if scrollable:
+            self._scroll = QScrollArea()
+            self._scroll.setWidgetResizable(True)
+            self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+            self._scroll.setHorizontalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            self._scroll.setObjectName("insightScroll")
+            self._scroll.setWidget(self._inner)
+            self._root.addWidget(self._scroll, 1)
+        else:
+            self._scroll = None
+            self._inner.setSizePolicy(
+                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+            )
+            self._root.addWidget(self._inner)
 
         self._empty = QLabel(t("no_insights"))
         self._empty.setObjectName("mutedText")

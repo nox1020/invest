@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCharts import QChart, QChartView
 from PySide6.QtCore import QThread, Qt, Signal, QTimer
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QPainter, QWheelEvent
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -55,6 +55,21 @@ def _stat_row(label: str, value: str, *, tone: str | None = None) -> QFrame:
     lay.addStretch()
     lay.addWidget(name)
     return row
+
+
+class _DashboardChartView(QChartView):
+    """Chart view that forwards wheel events to the page scroll area."""
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        parent = self.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QScrollArea):
+                bar = parent.verticalScrollBar()
+                bar.setValue(bar.value() - event.angleDelta().y())
+                event.accept()
+                return
+            parent = parent.parentWidget()
+        super().wheelEvent(event)
 
 
 class DashboardPage(QWidget):
@@ -142,11 +157,12 @@ class DashboardPage(QWidget):
         self.chart.setAnimationOptions(QChart.AnimationOption.SeriesAnimations)
         self.chart.legend().hide()
         self.chart.setTitle("")
-        self.chart_view = QChartView(self.chart)
+        self.chart_view = _DashboardChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.chart_view.setMinimumHeight(320)
+        self.chart_view.setMinimumHeight(280)
+        self.chart_view.setMaximumHeight(340)
         self.chart_view.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
 
         chart_frame = QFrame()
@@ -155,7 +171,7 @@ class DashboardPage(QWidget):
         chart_l.setContentsMargins(18, 16, 18, 14)
         chart_l.setSpacing(8)
         chart_l.addWidget(_section_label(t("capital_trend")))
-        chart_l.addWidget(self.chart_view, 1)
+        chart_l.addWidget(self.chart_view)
 
         self.asset_summary = QFrame()
         self.asset_summary.setObjectName("sidePanel")
@@ -164,22 +180,15 @@ class DashboardPage(QWidget):
         self.asset_summary_layout.setSpacing(10)
         self.asset_summary_layout.addWidget(_section_label(t("asset_summary")))
 
-        self._asset_scroll = QScrollArea()
-        self._asset_scroll.setWidgetResizable(True)
-        self._asset_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._asset_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        self._asset_scroll.setMinimumHeight(160)
         self._asset_inner = QWidget()
+        self._asset_inner.setObjectName("assetInner")
         self._asset_rows = QVBoxLayout(self._asset_inner)
         self._asset_rows.setContentsMargins(0, 0, 0, 0)
         self._asset_rows.setSpacing(8)
         self._asset_rows.addStretch()
-        self._asset_scroll.setWidget(self._asset_inner)
         self.asset_list = QLabel(t("no_data"))
         self.asset_list.hide()
-        self.asset_summary_layout.addWidget(self._asset_scroll, 1)
+        self.asset_summary_layout.addWidget(self._asset_inner)
 
         self.stats_panel = QFrame()
         self.stats_panel.setObjectName("sidePanel")
@@ -191,19 +200,19 @@ class DashboardPage(QWidget):
         self._stats_container.setContentsMargins(0, 4, 0, 0)
         self._stats_container.setSpacing(0)
         stats_l.addLayout(self._stats_container)
-        stats_l.addStretch()
 
         side = QVBoxLayout()
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(12)
-        side.addWidget(self.asset_summary, 3)
-        side.addWidget(self.stats_panel, 2)
+        side.addWidget(self.asset_summary)
+        side.addWidget(self.stats_panel)
 
         main_stage = QFrame()
         main_stage.setObjectName("mainStage")
         stage_l = QHBoxLayout(main_stage)
         stage_l.setContentsMargins(0, 0, 0, 0)
         stage_l.setSpacing(14)
+        stage_l.setAlignment(Qt.AlignmentFlag.AlignTop)
         stage_l.addWidget(chart_frame, 5)
         stage_l.addLayout(side, 2)
 
@@ -213,9 +222,7 @@ class DashboardPage(QWidget):
         iw_l = QVBoxLayout(insights_wrap)
         iw_l.setContentsMargins(18, 16, 18, 16)
         iw_l.setSpacing(8)
-        self.insights_panel = InsightListWidget(show_title=True)
-        self.insights_panel.setMinimumHeight(168)
-        self.insights_panel.setMaximumHeight(240)
+        self.insights_panel = InsightListWidget(show_title=True, scrollable=False)
         iw_l.addWidget(self.insights_panel)
 
         # --- Collapsible extra details ---
@@ -288,6 +295,7 @@ class DashboardPage(QWidget):
         # Page shell
         body = QWidget()
         body.setObjectName("dashboardBody")
+        body.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         root = QVBoxLayout(body)
         root.setContentsMargins(28, 22, 28, 28)
         root.setSpacing(20)
@@ -295,10 +303,9 @@ class DashboardPage(QWidget):
         root.addWidget(hero)
         root.addWidget(market_block)
         root.addWidget(gold_block)
-        root.addWidget(main_stage, 1)
+        root.addWidget(main_stage)
         root.addWidget(insights_wrap)
         root.addWidget(details)
-        root.addStretch(0)
 
         scroll = QScrollArea()
         scroll.setObjectName("dashboardScroll")
@@ -306,6 +313,7 @@ class DashboardPage(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(body)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)

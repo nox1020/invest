@@ -4,18 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -185,15 +188,29 @@ class SettingsPage(QWidget):
         data_layout.addWidget(self.btn_pdf)
         data_layout.addWidget(self.btn_analytics_xlsx)
         data_layout.addWidget(self.btn_analytics_csv)
-        data_layout.addStretch()
 
-        layout = QVBoxLayout(self)
+        body = QWidget()
+        body.setObjectName("settingsBody")
+        body.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        layout = QVBoxLayout(body)
         layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(16)
         layout.addWidget(cal_box)
         layout.addWidget(prefs)
         layout.addWidget(api_box)
         layout.addWidget(data_box)
-        layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setObjectName("settingsScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(body)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
 
         self.reload_fields()
 
