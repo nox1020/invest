@@ -1,0 +1,12 @@
+﻿# This file configures the analyzer to use the lint set provided by flutter_lints.
+
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    prefer_const_constructors: false
+    avoid_print: true
+
+analyzer:
+  errors:
+    invalid_dependency: ignore

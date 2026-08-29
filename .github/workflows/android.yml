@@ -1,0 +1,94 @@
+name: Android APK
+
+# CI: analyze, test, release APK
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Android licenses
+        run: |
+          yes | flutter doctor --android-licenses || true
+          flutter doctor -v
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Test
+        run: flutter test
+
+      - name: Build APK
+        id: apk
+        run: |
+          set -o pipefail
+          flutter build apk --release 2>&1 | tee apk-build.log
+
+      - name: Annotate APK build errors
+        if: failure() && hashFiles('apk-build.log') != ''
+        run: |
+          # Prefer the actionable Gradle/Flutter sections; fall back to log tail.
+          {
+            echo "===== excerpt ====="
+            grep -n -E "What went wrong|Flutter Fix|Error:|FAILURE:|Preferred|requires|Gradle version|AGP|NDK|Exception|Caused by" apk-build.log | tail -n 60 || true
+            echo "===== tail ====="
+            tail -n 40 apk-build.log
+          } > excerpt.txt
+          # One annotation per line keeps messages public via check-runs API.
+          while IFS= read -r line || [ -n "$line" ]; do
+            [ -z "$line" ] && continue
+            short=$(printf '%s' "$line" | cut -c1-240)
+            echo "::error title=flutter build apk::$short"
+          done < excerpt.txt
+
+      - name: Upload APK build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-build-log
+          path: apk-build.log
+          if-no-files-found: ignore
+
+      - name: Upload APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: invest-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      - name: Release on tag
+        if: startsWith(github.ref, 'refs/tags/v') && success()
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
