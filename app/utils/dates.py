@@ -54,11 +54,28 @@ def iter_dates(start: date | str, end: date | str):
         cur = cur + timedelta(days=1)
 
 
+def normalize_calendar(value: str | None) -> str:
+    """Map stored/legacy calendar values to jalali (shamsi) or gregorian."""
+    if value is None or not str(value).strip():
+        return CALENDAR_JALALI
+    v = str(value).strip().lower()
+    if v in {
+        CALENDAR_GREGORIAN,
+        "gregorian",
+        "miladi",
+        "میلادی",
+        "western",
+    }:
+        return CALENDAR_GREGORIAN
+    return CALENDAR_JALALI
+
+
 def format_display_date(value: str | date | None, calendar: str) -> str:
     """Format a stored ISO date for UI display."""
     if value is None or value == "":
         return "—"
     d = value if isinstance(value, date) else parse_iso_date(str(value))
+    calendar = normalize_calendar(calendar)
     if calendar == CALENDAR_JALALI:
         j = jdatetime.date.fromgregorian(date=d)
         return f"{j.day:02d} {_JALALI_MONTHS[j.month - 1]} {j.year}"
@@ -69,6 +86,7 @@ def format_short_date(value: str | date | None, calendar: str) -> str:
     if value is None or value == "":
         return "—"
     d = value if isinstance(value, date) else parse_iso_date(str(value))
+    calendar = normalize_calendar(calendar)
     if calendar == CALENDAR_JALALI:
         j = jdatetime.date.fromgregorian(date=d)
         return f"{j.year}/{j.month:02d}/{j.day:02d}"
@@ -77,6 +95,7 @@ def format_short_date(value: str | date | None, calendar: str) -> str:
 
 def format_month_label(value: str | date, calendar: str) -> str:
     d = value if isinstance(value, date) else parse_iso_date(str(value))
+    calendar = normalize_calendar(calendar)
     if calendar == CALENDAR_JALALI:
         j = jdatetime.date.fromgregorian(date=d)
         return f"{_JALALI_MONTHS[j.month - 1]} {j.year}"
@@ -104,6 +123,7 @@ def jalali_parts(value: str | date | None = None) -> tuple[int, int, int]:
 
 
 def iso_from_parts(year: int, month: int, day: int, calendar: str) -> str:
+    calendar = normalize_calendar(calendar)
     if calendar == CALENDAR_JALALI:
         return jalali_to_iso(year, month, day)
     return date(year, month, day).isoformat()
@@ -112,6 +132,7 @@ def iso_from_parts(year: int, month: int, day: int, calendar: str) -> str:
 def period_key(value: str, period: str, calendar: str) -> str:
     """Group key for daily/monthly/yearly reports."""
     d = parse_iso_date(value)
+    calendar = normalize_calendar(calendar)
     if calendar == CALENDAR_JALALI:
         j = jdatetime.date.fromgregorian(date=d)
         if period == "daily":
@@ -140,6 +161,7 @@ __all__ = [
     "jalali_parts",
     "iso_from_parts",
     "period_key",
+    "normalize_calendar",
     "CALENDAR_JALALI",
     "CALENDAR_GREGORIAN",
 ]

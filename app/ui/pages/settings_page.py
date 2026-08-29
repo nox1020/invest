@@ -35,6 +35,7 @@ from app.config import (
 from app.ui.dialogs.confirm import confirm_delete
 from app.ui.error_handlers import show_user_error
 from app.ui.workers.quotes_worker import QuotesTestWorker
+from app.utils.dates import normalize_calendar
 from app.utils.i18n import t
 from app.utils.money import format_number
 
@@ -65,9 +66,16 @@ class SettingsPage(QWidget):
         self.currency.currentIndexChanged.connect(self._auto_save)
         self.theme.currentIndexChanged.connect(self._auto_save)
 
+        cal_box = QGroupBox(t("calendar"))
+        cal_form = QFormLayout(cal_box)
+        cal_form.addRow(t("calendar"), self.calendar)
+        cal_hint = QLabel(t("calendar_hint"))
+        cal_hint.setObjectName("mutedText")
+        cal_hint.setWordWrap(True)
+        cal_form.addRow("", cal_hint)
+
         prefs = QGroupBox("تنظیمات ظاهری و واحدها")
         form = QFormLayout(prefs)
-        form.addRow(t("calendar"), self.calendar)
         form.addRow(t("currency"), self.currency)
         form.addRow(t("theme"), self.theme)
 
@@ -181,6 +189,7 @@ class SettingsPage(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
+        layout.addWidget(cal_box)
         layout.addWidget(prefs)
         layout.addWidget(api_box)
         layout.addWidget(data_box)
@@ -214,10 +223,13 @@ class SettingsPage(QWidget):
 
     @staticmethod
     def _set_combo(combo: QComboBox, value: str) -> None:
+        normalized = normalize_calendar(value)
         for i in range(combo.count()):
-            if combo.itemData(i) == value:
+            if combo.itemData(i) == normalized:
                 combo.setCurrentIndex(i)
                 return
+        if combo.count():
+            combo.setCurrentIndex(0)
 
     @staticmethod
     def _set_combo_data(combo: QComboBox, value) -> None:
@@ -271,7 +283,7 @@ class SettingsPage(QWidget):
         if not changed:
             return
 
-        self.ctx.settings.calendar = new_calendar
+        self.ctx.settings.calendar = normalize_calendar(new_calendar)
         self.ctx.settings.currency = new_currency
         self.ctx.settings.theme = new_theme
         self.ctx.settings.goal_roi_pct = goal_val

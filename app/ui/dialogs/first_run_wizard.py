@@ -21,6 +21,7 @@ from app.config import (
     THEMES,
 )
 from app.models.settings import AppSettings
+from app.utils.dates import normalize_calendar
 from app.utils.i18n import t
 
 
@@ -78,7 +79,7 @@ class FirstRunWizard(QDialog):
     def result_settings(self) -> AppSettings:
         # Preserve price-API and other prefs; only change wizard fields.
         updated = AppSettings.from_dict(self._settings.to_dict())
-        updated.calendar = self.calendar.currentData()
+        updated.calendar = normalize_calendar(self.calendar.currentData())
         updated.currency = self.currency.currentData()
         updated.theme = self.theme.currentData()
         updated.first_run_done = True

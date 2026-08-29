@@ -24,6 +24,7 @@ from app.config import (
     SETTING_WALLEX_URL,
     THEME_DARK,
 )
+from app.utils.dates import normalize_calendar
 
 
 def _as_bool(value: str | None, default: bool = True) -> bool:
@@ -71,7 +72,7 @@ class AppSettings:
         refresh = _as_int(merged.get(SETTING_PRICE_REFRESH_SEC), 60)
         refresh = max(15, min(refresh, 3600))
         return cls(
-            calendar=merged.get(SETTING_CALENDAR, CALENDAR_JALALI),
+            calendar=normalize_calendar(merged.get(SETTING_CALENDAR)),
             currency=merged.get(SETTING_CURRENCY, CURRENCY_TOMAN),
             theme=merged.get(SETTING_THEME, THEME_DARK),
             first_run_done=merged.get(SETTING_FIRST_RUN, "0") == "1",

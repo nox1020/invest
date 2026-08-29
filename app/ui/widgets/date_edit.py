@@ -12,6 +12,7 @@ from app.utils.dates import (
     gregorian_parts,
     iso_from_parts,
     jalali_parts,
+    normalize_calendar,
     parse_iso_date,
 )
 
@@ -71,7 +72,7 @@ class DateEdit(QWidget):
         self.set_date(date.today())
 
     def set_calendar(self, calendar: str) -> None:
-        self._calendar = calendar
+        self._calendar = normalize_calendar(calendar)
         self.month.blockSignals(True)
         self.month.clear()
         if calendar == CALENDAR_JALALI:

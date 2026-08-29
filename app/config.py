@@ -75,7 +75,7 @@ CURRENCY_LABELS: dict[str, str] = {
 }
 
 CALENDAR_LABELS: dict[str, str] = {
-    CALENDAR_JALALI: "شمسی (جلالی)",
+    CALENDAR_JALALI: "شمسی",
     CALENDAR_GREGORIAN: "میلادی",
 }
 

@@ -53,7 +53,7 @@ class _SettingsPageState extends State<SettingsPage> {
           trailing: DropdownButton<String>(
             value: draft.calendar,
             items: const [
-              DropdownMenuItem(value: AppConfig.calendarJalali, child: Text('جلالی')),
+              DropdownMenuItem(value: AppConfig.calendarJalali, child: Text('شمسی')),
               DropdownMenuItem(
                   value: AppConfig.calendarGregorian, child: Text('میلادی')),
             ],

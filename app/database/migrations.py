@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 
-from app.config import DEFAULT_SETTINGS, SETTING_THEME, THEME_DARK
+from app.config import DEFAULT_SETTINGS, SETTING_CALENDAR, SETTING_THEME, THEME_DARK, CALENDAR_JALALI
 from app.utils.dates import now_iso
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 """
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 _MIGRATION_2_SQL = """
 CREATE TABLE IF NOT EXISTS portfolio_snapshots (
@@ -110,6 +110,26 @@ def _migrate_3(conn: sqlite3.Connection) -> None:
     logger.info("Applied schema migration version 3 (theme default if missing)")
 
 
+def _migrate_4(conn: sqlite3.Connection) -> None:
+    """Ensure calendar defaults to shamsi (jalali) when missing or legacy."""
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+        (SETTING_CALENDAR, CALENDAR_JALALI),
+    )
+    conn.execute(
+        """
+        UPDATE settings
+        SET value = ?
+        WHERE key = ?
+          AND (value IS NULL OR TRIM(value) = ''
+               OR LOWER(TRIM(value)) IN ('shamsi', 'persian', 'jalali'))
+        """,
+        (CALENDAR_JALALI, SETTING_CALENDAR),
+    )
+    conn.commit()
+    logger.info("Applied schema migration version 4 (calendar default shamsi)")
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     """Apply pending migrations without dropping user data."""
     conn.execute(MIGRATION_TABLE)
@@ -128,6 +148,11 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     if 3 not in applied:
         _migrate_3(conn)
         _record(conn, 3)
+        applied = _applied_versions(conn)
+
+    if 4 not in applied:
+        _migrate_4(conn)
+        _record(conn, 4)
         applied = _applied_versions(conn)
 
     latest = max(applied) if applied else 0
