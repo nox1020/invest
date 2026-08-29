@@ -5,6 +5,9 @@ from __future__ import annotations
 LABELS: dict[str, str] = {
     "app_title": "V+",
     "dashboard": "داشبورد",
+    "dashboard_subtitle": "نمای کلی پرتفوی",
+    "portfolio_weight": "سهم پرتفوی",
+    "unrealized_pnl": "سود / زیان تحقق‌نیافته",
     "assets": "دارایی‌ها",
     "open_trades": "معاملات باز",
     "closed_trades": "معاملات بسته",

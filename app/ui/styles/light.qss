@@ -192,6 +192,42 @@ QFrame#heroBand {
     border: none;
 }
 
+QFrame#heroGrid QFrame#metricCard[variant="hero"] {
+    min-height: 128px;
+}
+
+QFrame#heroGrid QFrame#metricCard[variant="hero"] QLabel#cardValue {
+    font-size: 24px;
+}
+
+QFrame#dashboardHeader {
+    background: transparent;
+    border: none;
+}
+
+QLabel#dashboardDate {
+    color: #102820;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.4px;
+}
+
+QLabel#dashboardSubtitle {
+    color: #4A6358;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+QFrame#marketBlock {
+    background: transparent;
+    border: none;
+}
+
+QFrame#mainStage {
+    background: transparent;
+    border: none;
+}
+
 QFrame#goldFundStrip {
     background: transparent;
     border: none;
@@ -232,6 +268,48 @@ QLabel#assetRowValue {
     color: #143D2E;
     font-weight: 700;
     font-size: 13px;
+}
+
+QLabel#assetRowWeight {
+    color: #15803D;
+    font-weight: 700;
+    font-size: 11px;
+    min-width: 42px;
+}
+
+QFrame#assetWeightTrack {
+    background-color: #E3EBE6;
+    border-radius: 2px;
+}
+
+QFrame#assetWeightFill {
+    background-color: #1F5A42;
+    border-radius: 2px;
+}
+
+QFrame#statRow {
+    background: transparent;
+    border: none;
+}
+
+QLabel#statRowLabel {
+    color: #4A6358;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+QLabel#statRowValue {
+    color: #102820;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+QLabel#statRowValue[tone="positive"] {
+    color: #15803D;
+}
+
+QLabel#statRowValue[tone="negative"] {
+    color: #B91C1C;
 }
 
 QFrame#insightCard {

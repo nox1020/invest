@@ -35,6 +35,28 @@ def _section_label(text: str) -> QLabel:
     return label
 
 
+def _stat_row(label: str, value: str, *, tone: str | None = None) -> QFrame:
+    row = QFrame()
+    row.setObjectName("statRow")
+    lay = QHBoxLayout(row)
+    lay.setContentsMargins(0, 6, 0, 6)
+    lay.setSpacing(8)
+    val = QLabel(value)
+    val.setObjectName("statRowValue")
+    val.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    if tone:
+        val.setProperty("tone", tone)
+        val.style().unpolish(val)
+        val.style().polish(val)
+    name = QLabel(label)
+    name.setObjectName("statRowLabel")
+    name.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    lay.addWidget(val)
+    lay.addStretch()
+    lay.addWidget(name)
+    return row
+
+
 class DashboardPage(QWidget):
     request_refresh = Signal()
 
@@ -44,19 +66,59 @@ class DashboardPage(QWidget):
         self._quotes_thread: QThread | None = None
         self.setObjectName("dashboardPage")
 
-        # --- Hero: two primary KPIs ---
+        # --- Header ---
+        header = QFrame()
+        header.setObjectName("dashboardHeader")
+        header_l = QVBoxLayout(header)
+        header_l.setContentsMargins(0, 0, 0, 0)
+        header_l.setSpacing(4)
+        self.date_label = QLabel("")
+        self.date_label.setObjectName("dashboardDate")
+        self.date_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        subtitle = QLabel(t("dashboard_subtitle"))
+        subtitle.setObjectName("dashboardSubtitle")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignRight)
+        header_l.addWidget(self.date_label)
+        header_l.addWidget(subtitle)
+
+        # --- Hero KPIs (2×2) ---
         self.card_value = MetricCard(t("total_value"), variant="hero")
+        self.card_pnl = MetricCard(t("total_pnl"), variant="hero")
+        self.card_today = MetricCard(t("today_pnl"), variant="hero")
         self.card_year_realized = MetricCard(t("year_realized_pnl"), variant="hero")
 
         hero = QFrame()
-        hero.setObjectName("heroBand")
-        hero_l = QHBoxLayout(hero)
+        hero.setObjectName("heroGrid")
+        hero_l = QGridLayout(hero)
         hero_l.setContentsMargins(0, 0, 0, 0)
-        hero_l.setSpacing(16)
-        hero_l.addWidget(self.card_value, 1)
-        hero_l.addWidget(self.card_year_realized, 1)
+        hero_l.setHorizontalSpacing(14)
+        hero_l.setVerticalSpacing(14)
+        hero_l.addWidget(self.card_value, 0, 0)
+        hero_l.addWidget(self.card_pnl, 0, 1)
+        hero_l.addWidget(self.card_today, 1, 0)
+        hero_l.addWidget(self.card_year_realized, 1, 1)
+        for col in range(2):
+            hero_l.setColumnStretch(col, 1)
 
-        # --- Gold fund strip (always visible) ---
+        # --- Live market strip (always visible) ---
+        self.card_usdt = MetricCard(t("usdt_rate"), variant="ticker")
+        self.card_gold = MetricCard(t("gold_rate"), variant="ticker")
+        market_block = QFrame()
+        market_block.setObjectName("marketBlock")
+        market_outer = QVBoxLayout(market_block)
+        market_outer.setContentsMargins(0, 0, 0, 0)
+        market_outer.setSpacing(10)
+        market_outer.addWidget(_section_label(t("market_rates")))
+        market = QFrame()
+        market.setObjectName("marketStrip")
+        market_l = QHBoxLayout(market)
+        market_l.setContentsMargins(0, 0, 0, 0)
+        market_l.setSpacing(12)
+        market_l.addWidget(self.card_usdt, 1)
+        market_l.addWidget(self.card_gold, 1)
+        market_outer.addWidget(market)
+
+        # --- Gold fund strip ---
         self.card_gold_in = MetricCard(t("gold_in"), variant="compact")
         self.card_gold_out = MetricCard(t("gold_out"), variant="compact")
         self.card_gold_holding = MetricCard(t("gold_holding"), variant="compact")
@@ -75,93 +137,14 @@ class DashboardPage(QWidget):
         gold_row.addWidget(self.card_gold_holding, 1)
         gold_outer.addLayout(gold_row)
 
-        # --- Details shell ---
-        details = QFrame()
-        details.setObjectName("detailsPanel")
-        details_l = QVBoxLayout(details)
-        details_l.setContentsMargins(0, 4, 0, 0)
-        details_l.setSpacing(12)
-
-        self.details_toggle = QToolButton()
-        self.details_toggle.setObjectName("detailsToggle")
-        self.details_toggle.setText(t("details"))
-        self.details_toggle.setCheckable(True)
-        self.details_toggle.setChecked(False)
-        self.details_toggle.setToolButtonStyle(
-            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
-        )
-        self.details_toggle.setArrowType(Qt.ArrowType.LeftArrow)
-        self.details_toggle.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
-        self.details_toggle.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
-        self.details_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.details_toggle.toggled.connect(self._on_details_toggled)
-        details_l.addWidget(self.details_toggle)
-
-        self.details_body = QWidget()
-        self.details_body.setObjectName("detailsBody")
-        body_l = QVBoxLayout(self.details_body)
-        body_l.setContentsMargins(0, 2, 0, 0)
-        body_l.setSpacing(18)
-
-        # Performance KPIs
-        self.card_pnl = MetricCard(t("total_pnl"), variant="compact")
-        self.card_today = MetricCard(t("today_pnl"), variant="compact")
-        self.card_return = MetricCard(t("return_pct"), variant="compact")
-        self.card_realized = MetricCard(t("realized_pnl"), variant="compact")
-        self.card_open = MetricCard(t("open_count"), variant="compact")
-        self.card_closed = MetricCard(t("closed_count"), variant="compact")
-
-        perf_block = QFrame()
-        perf_block.setObjectName("detailBlock")
-        perf_l = QVBoxLayout(perf_block)
-        perf_l.setContentsMargins(0, 0, 0, 0)
-        perf_l.setSpacing(10)
-        perf_l.addWidget(_section_label(t("metrics_overview")))
-
-        kpi_grid = QGridLayout()
-        kpi_grid.setContentsMargins(0, 0, 0, 0)
-        kpi_grid.setHorizontalSpacing(12)
-        kpi_grid.setVerticalSpacing(12)
-        kpi_grid.addWidget(self.card_pnl, 0, 0)
-        kpi_grid.addWidget(self.card_today, 0, 1)
-        kpi_grid.addWidget(self.card_return, 0, 2)
-        kpi_grid.addWidget(self.card_realized, 1, 0)
-        kpi_grid.addWidget(self.card_open, 1, 1)
-        kpi_grid.addWidget(self.card_closed, 1, 2)
-        for col in range(3):
-            kpi_grid.setColumnStretch(col, 1)
-        perf_l.addLayout(kpi_grid)
-        body_l.addWidget(perf_block)
-
-        # Market
-        self.card_usdt = MetricCard(t("usdt_rate"), variant="ticker")
-        self.card_gold = MetricCard(t("gold_rate"), variant="ticker")
-        market_block = QFrame()
-        market_block.setObjectName("detailBlock")
-        market_outer = QVBoxLayout(market_block)
-        market_outer.setContentsMargins(0, 0, 0, 0)
-        market_outer.setSpacing(10)
-        market_outer.addWidget(_section_label(t("market_rates")))
-        market = QFrame()
-        market.setObjectName("marketStrip")
-        market_l = QHBoxLayout(market)
-        market_l.setContentsMargins(0, 0, 0, 0)
-        market_l.setSpacing(12)
-        market_l.addWidget(self.card_usdt, 1)
-        market_l.addWidget(self.card_gold, 1)
-        market_outer.addWidget(market)
-        body_l.addWidget(market_block)
-
-        # Chart + side rail
+        # --- Chart + side rail (always visible) ---
         self.chart = QChart()
         self.chart.setAnimationOptions(QChart.AnimationOption.SeriesAnimations)
         self.chart.legend().hide()
         self.chart.setTitle("")
         self.chart_view = QChartView(self.chart)
         self.chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.chart_view.setMinimumHeight(340)
+        self.chart_view.setMinimumHeight(320)
         self.chart_view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -198,36 +181,33 @@ class DashboardPage(QWidget):
         self.asset_list.hide()
         self.asset_summary_layout.addWidget(self._asset_scroll, 1)
 
-        self.perf_summary = QFrame()
-        self.perf_summary.setObjectName("sidePanel")
-        self.perf_layout = QVBoxLayout(self.perf_summary)
-        self.perf_layout.setContentsMargins(16, 16, 16, 16)
-        self.perf_layout.setSpacing(10)
-        self.perf_layout.addWidget(_section_label(t("performance_summary")))
-        self.perf_label = QLabel("")
-        self.perf_label.setObjectName("bodyText")
-        self.perf_label.setWordWrap(True)
-        self.perf_label.setAlignment(
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight
-        )
-        self.perf_layout.addWidget(self.perf_label, 1)
+        self.stats_panel = QFrame()
+        self.stats_panel.setObjectName("sidePanel")
+        stats_l = QVBoxLayout(self.stats_panel)
+        stats_l.setContentsMargins(16, 16, 16, 16)
+        stats_l.setSpacing(6)
+        stats_l.addWidget(_section_label(t("performance_summary")))
+        self._stats_container = QVBoxLayout()
+        self._stats_container.setContentsMargins(0, 4, 0, 0)
+        self._stats_container.setSpacing(0)
+        stats_l.addLayout(self._stats_container)
+        stats_l.addStretch()
 
         side = QVBoxLayout()
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(12)
         side.addWidget(self.asset_summary, 3)
-        side.addWidget(self.perf_summary, 2)
+        side.addWidget(self.stats_panel, 2)
 
-        stage = QFrame()
-        stage.setObjectName("detailStage")
-        stage_l = QHBoxLayout(stage)
+        main_stage = QFrame()
+        main_stage.setObjectName("mainStage")
+        stage_l = QHBoxLayout(main_stage)
         stage_l.setContentsMargins(0, 0, 0, 0)
         stage_l.setSpacing(14)
         stage_l.addWidget(chart_frame, 5)
         stage_l.addLayout(side, 2)
-        body_l.addWidget(stage, 1)
 
-        # Insights
+        # --- Insights (always visible) ---
         insights_wrap = QFrame()
         insights_wrap.setObjectName("insightsWrap")
         iw_l = QVBoxLayout(insights_wrap)
@@ -237,10 +217,73 @@ class DashboardPage(QWidget):
         self.insights_panel.setMinimumHeight(168)
         self.insights_panel.setMaximumHeight(240)
         iw_l.addWidget(self.insights_panel)
-        body_l.addWidget(insights_wrap)
+
+        # --- Collapsible extra details ---
+        details = QFrame()
+        details.setObjectName("detailsPanel")
+        details_l = QVBoxLayout(details)
+        details_l.setContentsMargins(0, 4, 0, 0)
+        details_l.setSpacing(12)
+
+        self.details_toggle = QToolButton()
+        self.details_toggle.setObjectName("detailsToggle")
+        self.details_toggle.setText(t("details"))
+        self.details_toggle.setCheckable(True)
+        self.details_toggle.setChecked(False)
+        self.details_toggle.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.details_toggle.setArrowType(Qt.ArrowType.LeftArrow)
+        self.details_toggle.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.details_toggle.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.details_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.details_toggle.toggled.connect(self._on_details_toggled)
+        details_l.addWidget(self.details_toggle)
+
+        self.details_body = QWidget()
+        self.details_body.setObjectName("detailsBody")
+        body_l = QVBoxLayout(self.details_body)
+        body_l.setContentsMargins(0, 2, 0, 0)
+        body_l.setSpacing(18)
+
+        self.card_return = MetricCard(t("return_pct"), variant="compact")
+        self.card_realized = MetricCard(t("realized_pnl"), variant="compact")
+        self.card_unrealized = MetricCard(t("unrealized_pnl"), variant="compact")
+        self.card_open = MetricCard(t("open_count"), variant="compact")
+        self.card_closed = MetricCard(t("closed_count"), variant="compact")
+
+        extra_block = QFrame()
+        extra_block.setObjectName("detailBlock")
+        extra_l = QVBoxLayout(extra_block)
+        extra_l.setContentsMargins(0, 0, 0, 0)
+        extra_l.setSpacing(10)
+        extra_l.addWidget(_section_label(t("metrics_overview")))
+        kpi_grid = QGridLayout()
+        kpi_grid.setContentsMargins(0, 0, 0, 0)
+        kpi_grid.setHorizontalSpacing(12)
+        kpi_grid.setVerticalSpacing(12)
+        kpi_grid.addWidget(self.card_return, 0, 0)
+        kpi_grid.addWidget(self.card_realized, 0, 1)
+        kpi_grid.addWidget(self.card_unrealized, 0, 2)
+        kpi_grid.addWidget(self.card_open, 1, 0)
+        kpi_grid.addWidget(self.card_closed, 1, 1)
+        for col in range(3):
+            kpi_grid.setColumnStretch(col, 1)
+        extra_l.addLayout(kpi_grid)
+        body_l.addWidget(extra_block)
+
+        self.perf_label = QLabel("")
+        self.perf_label.setObjectName("bodyText")
+        self.perf_label.setWordWrap(True)
+        self.perf_label.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight
+        )
+        body_l.addWidget(self.perf_label)
 
         self.details_body.setVisible(False)
-        details_l.addWidget(self.details_body, 1)
+        details_l.addWidget(self.details_body)
 
         # Page shell
         body = QWidget()
@@ -248,9 +291,13 @@ class DashboardPage(QWidget):
         root = QVBoxLayout(body)
         root.setContentsMargins(28, 22, 28, 28)
         root.setSpacing(20)
+        root.addWidget(header)
         root.addWidget(hero)
+        root.addWidget(market_block)
         root.addWidget(gold_block)
-        root.addWidget(details, 1)
+        root.addWidget(main_stage, 1)
+        root.addWidget(insights_wrap)
+        root.addWidget(details)
         root.addStretch(0)
 
         scroll = QScrollArea()
@@ -285,6 +332,7 @@ class DashboardPage(QWidget):
             persist_growth=True,
         )
         series = dash.growth_series
+        self._render_header()
         self._render_metrics(dash.metrics, series, dash.asset_summary)
         self._render_gold_fund(dash.gold_fund)
         self._render_usdt_card()
@@ -293,6 +341,10 @@ class DashboardPage(QWidget):
         self._render_insights()
         if self.ctx.settings.live_prices_enabled:
             self._refresh_quotes_async()
+
+    def _render_header(self) -> None:
+        calendar = self.ctx.settings.calendar
+        self.date_label.setText(format_display_date(today_iso(), calendar))
 
     def _render_insights(self) -> None:
         self.ctx.insights.set_goal_roi_pct(self.ctx.settings.goal_roi_pct)
@@ -319,12 +371,22 @@ class DashboardPage(QWidget):
             if w is not None:
                 w.deleteLater()
 
-    def _add_asset_row(self, name: str, qty_text: str, value_text: str) -> None:
+    def _add_asset_row(
+        self,
+        name: str,
+        qty_text: str,
+        value_text: str,
+        weight_pct: float,
+    ) -> None:
         row = QFrame()
         row.setObjectName("assetRow")
-        lay = QHBoxLayout(row)
-        lay.setContentsMargins(12, 10, 12, 10)
-        lay.setSpacing(10)
+        outer = QVBoxLayout(row)
+        outer.setContentsMargins(12, 10, 12, 10)
+        outer.setSpacing(6)
+
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(10)
         name_l = QLabel(name)
         name_l.setObjectName("assetRowName")
         name_l.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -334,11 +396,90 @@ class DashboardPage(QWidget):
         val = QLabel(value_text)
         val.setObjectName("assetRowValue")
         val.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        lay.addWidget(val)
-        lay.addWidget(meta)
-        lay.addStretch()
-        lay.addWidget(name_l)
+        weight = QLabel(format_pct(weight_pct))
+        weight.setObjectName("assetRowWeight")
+        weight.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        top.addWidget(val)
+        top.addWidget(weight)
+        top.addWidget(meta)
+        top.addStretch()
+        top.addWidget(name_l)
+        outer.addLayout(top)
+
+        bar_row = QHBoxLayout()
+        bar_row.setContentsMargins(0, 0, 0, 0)
+        bar_row.setSpacing(0)
+        bar_fill = QFrame()
+        bar_fill.setObjectName("assetWeightFill")
+        bar_fill.setFixedHeight(4)
+        bar_spacer = QFrame()
+        bar_spacer.setObjectName("assetWeightTrack")
+        bar_spacer.setFixedHeight(4)
+        pct = int(min(max(weight_pct, 0.0), 100.0))
+        bar_row.addWidget(bar_fill, max(pct, 1 if pct > 0 else 0))
+        bar_row.addWidget(bar_spacer, max(100 - pct, 1))
+        outer.addLayout(bar_row)
+
         self._asset_rows.insertWidget(self._asset_rows.count() - 1, row)
+
+    def _render_side_stats(self, m) -> None:
+        money = self.ctx.money
+        calendar = self.ctx.settings.calendar
+
+        while self._stats_container.count():
+            item = self._stats_container.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        unreal_tone = (
+            "positive"
+            if m.unrealized_pnl > 0
+            else ("negative" if m.unrealized_pnl < 0 else None)
+        )
+        self._stats_container.addWidget(
+            _stat_row(
+                t("unrealized_pnl"),
+                money(m.unrealized_pnl, show_sign=True),
+                tone=unreal_tone,
+            )
+        )
+        self._stats_container.addWidget(
+            _stat_row(t("return_pct"), format_pct(m.annual_return_pct))
+        )
+        self._stats_container.addWidget(
+            _stat_row(
+                t("open_count"),
+                str(m.open_count),
+            )
+        )
+        self._stats_container.addWidget(
+            _stat_row(
+                t("closed_count"),
+                str(m.closed_count),
+            )
+        )
+        self._stats_container.addWidget(
+            _stat_row(
+                t("realized_pnl"),
+                money(m.realized_pnl, show_sign=True),
+                tone=(
+                    "positive"
+                    if m.realized_pnl > 0
+                    else ("negative" if m.realized_pnl < 0 else None)
+                ),
+            )
+        )
+
+        self.perf_label.setText(
+            "\n".join(
+                [
+                    f"بیشترین سود: {money(m.max_profit, show_sign=True)}",
+                    f"بیشترین ضرر: {money(m.max_loss, show_sign=True)}",
+                    f"آپدیت: {format_display_date(today_iso(), calendar)}",
+                ]
+            )
+        )
 
     def _render_gold_fund(self, gold) -> None:
         unit = t("gram_unit")
@@ -362,7 +503,6 @@ class DashboardPage(QWidget):
         self.card_gold_out.set_value(_g(gold_out))
         self.card_gold_out.set_caption("")
 
-        # موجودی = وارد − خارج؛ بدهی صندوق همان مانده است
         self.card_gold_holding.set_value(
             _g(holding),
             tone="negative" if holding > 1e-9 else None,
@@ -379,7 +519,6 @@ class DashboardPage(QWidget):
         asset_summary: list[tuple[str, float, float]] | None = None,
     ) -> None:
         currency = self.ctx.settings.currency
-        calendar = self.ctx.settings.calendar
         money = self.ctx.money
 
         self.card_value.set_value(money(m.total_value))
@@ -394,6 +533,18 @@ class DashboardPage(QWidget):
         else:
             self.card_value.set_caption("")
 
+        pnl_tone = (
+            "positive" if m.total_pnl > 0 else ("negative" if m.total_pnl < 0 else None)
+        )
+        self.card_pnl.set_value(money(m.total_pnl, show_sign=True), tone=pnl_tone)
+        self.card_pnl.set_caption(format_pct(m.total_pnl_pct))
+
+        today_tone = (
+            "positive" if m.today_pnl > 0 else ("negative" if m.today_pnl < 0 else None)
+        )
+        self.card_today.set_value(money(m.today_pnl, show_sign=True), tone=today_tone)
+        self.card_today.set_caption(format_pct(m.today_pnl_pct))
+
         year_pnl = float(getattr(m, "year_realized_pnl", 0.0) or 0.0)
         year_tone = (
             "positive" if year_pnl > 0 else ("negative" if year_pnl < 0 else None)
@@ -405,12 +556,7 @@ class DashboardPage(QWidget):
         year_key = getattr(m, "year_key", "") or ""
         self.card_year_realized.set_caption(year_key if year_key else "")
 
-        pnl_tone = (
-            "positive" if m.total_pnl > 0 else ("negative" if m.total_pnl < 0 else None)
-        )
-        self.card_pnl.set_value(money(m.total_pnl, show_sign=True), tone=pnl_tone)
-        self.card_pnl.set_caption(format_pct(m.total_pnl_pct))
-
+        self.card_return.set_value(format_pct(m.annual_return_pct))
         realized_tone = (
             "positive"
             if m.realized_pnl > 0
@@ -420,23 +566,28 @@ class DashboardPage(QWidget):
             money(m.realized_pnl, show_sign=True),
             tone=realized_tone,
         )
-        self.card_return.set_value(format_pct(m.annual_return_pct))
+        unreal_tone = (
+            "positive"
+            if m.unrealized_pnl > 0
+            else ("negative" if m.unrealized_pnl < 0 else None)
+        )
+        self.card_unrealized.set_value(
+            money(m.unrealized_pnl, show_sign=True),
+            tone=unreal_tone,
+        )
         self.card_open.set_value(str(m.open_count))
         self.card_closed.set_value(str(m.closed_count))
 
-        today_tone = (
-            "positive" if m.today_pnl > 0 else ("negative" if m.today_pnl < 0 else None)
-        )
-        self.card_today.set_value(money(m.today_pnl, show_sign=True), tone=today_tone)
-        self.card_today.set_caption(format_pct(m.today_pnl_pct))
-
         self._clear_asset_rows()
+        total_val = float(m.total_value or 0.0)
         if asset_summary:
             for name, qty, val in asset_summary:
+                weight = (float(val) / total_val * 100.0) if total_val > 0 else 0.0
                 self._add_asset_row(
                     name,
                     format_number(qty, 4 if qty < 10 else 0),
                     money(val),
+                    weight,
                 )
             self.asset_list.setText("")
         else:
@@ -446,18 +597,7 @@ class DashboardPage(QWidget):
             self._asset_rows.insertWidget(0, empty)
             self.asset_list.setText(t("no_data"))
 
-        self.perf_label.setText(
-            "\n".join(
-                [
-                    f"معاملات باز: {m.open_count}",
-                    f"معاملات بسته: {m.closed_count}",
-                    f"سود تحقق‌یافته: {money(m.realized_pnl, show_sign=True)}",
-                    f"بیشترین سود: {money(m.max_profit, show_sign=True)}",
-                    f"بیشترین ضرر: {money(m.max_loss, show_sign=True)}",
-                    f"آپدیت: {format_display_date(today_iso(), calendar)}",
-                ]
-            )
-        )
+        self._render_side_stats(m)
 
     def _render_usdt_card(self) -> None:
         s = self.ctx.settings
