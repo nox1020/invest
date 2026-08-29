@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+nox1020/
 data/*.db
 data/logs/
 *.xlsx
