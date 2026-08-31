@@ -42,6 +42,8 @@ class AppState extends ChangeNotifier {
   double? liveUsdt;
   double? liveGold;
 
+  Future<void>? _activeRefresh;
+
   Future<void> init({Database? testDb}) async {
     loading = true;
     error = null;
@@ -121,9 +123,19 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadRemoteData() async {
-    final svc = remote!;
-    settings = await svc.fetchSettings();
     await refresh();
+  }
+
+  /// Updates settings when backend API version changes (no nested refresh).
+  Future<void> _syncApiVersion() async {
+    if (_api == null || _session == null || !useRemote) return;
+    final server = await _api!.fetchApiVersion();
+    if (server == null || server.isEmpty) return;
+    final stored = _session!.apiVersion;
+    await _session!.setApiVersion(server);
+    if (stored != null && stored != server) {
+      settings = await remote!.fetchSettings();
+    }
   }
 
   Future<void> _loadLocalSettings() async {
@@ -166,12 +178,32 @@ class AppState extends ChangeNotifier {
       });
     }
     notifyListeners();
-    await refresh();
+    await refreshAll();
   }
 
-  Future<void> refresh() async {
+  /// Single serialized refresh path — quotes (optional) then portfolio data.
+  Future<void> refreshAll({bool includeQuotes = true}) {
+    if (_activeRefresh != null) {
+      return _activeRefresh!;
+    }
+    _activeRefresh = _runRefresh(includeQuotes: includeQuotes).whenComplete(() {
+      _activeRefresh = null;
+    });
+    return _activeRefresh!;
+  }
+
+  Future<void> refresh() => refreshAll(includeQuotes: false);
+
+  Future<void> refreshQuotes() => refreshAll(includeQuotes: true);
+
+  Future<void> _runRefresh({required bool includeQuotes}) async {
     try {
+      if (includeQuotes && settings.livePricesEnabled) {
+        await _syncLiveQuotes();
+      }
       if (useRemote) {
+        await _syncApiVersion();
+        settings = await remote!.fetchSettings();
         final svc = remote!;
         metrics = await svc.fetchDashboard(settings.calendar);
         assets = await svc.assets.listAll();
@@ -184,19 +216,20 @@ class AppState extends ChangeNotifier {
         metrics = await portfolio!.getMetrics(calendar: settings.calendar);
         await portfolio!.recordSnapshot();
       }
+      error = null;
     } on InvestApiException catch (e) {
       if (e.statusCode == 401) {
         await logout();
       } else {
         error = e.message;
       }
+    } catch (e) {
+      error = e.toString();
     }
     notifyListeners();
   }
 
-  Future<void> refreshQuotes() async {
-    if (!settings.livePricesEnabled) return;
-
+  Future<void> _syncLiveQuotes() async {
     if (useRemote) {
       final q = await remote!.fetchQuotes();
       if (q.usdt != null) {
@@ -207,7 +240,6 @@ class AppState extends ChangeNotifier {
         liveGold = q.gold;
         settings.goldTmnPerGram = q.gold;
       }
-      await refresh();
       return;
     }
 
@@ -237,7 +269,6 @@ class AppState extends ChangeNotifier {
       updateUsdt: settings.usdtApiEnabled,
       updateGold: settings.goldApiEnabled,
     );
-    await refresh();
   }
 
   /// Used by UI for buy/sell/asset mutations.

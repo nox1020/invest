@@ -40,6 +40,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
+  bool _refreshing = false;
 
   static const titles = [
     'داشبورد',
@@ -48,6 +49,35 @@ class _HomeShellState extends State<HomeShell> {
     'معاملات بسته',
     'تنظیمات',
   ];
+
+  Future<void> _refreshAll(AppState state) async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await state.refreshAll();
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  Widget? _floatingActionButton(BuildContext context) {
+    switch (index) {
+      case 1:
+        return FloatingActionButton.extended(
+          onPressed: () => showAssetEditor(context),
+          icon: const Icon(Icons.add),
+          label: const Text('دارایی جدید'),
+        );
+      case 2:
+        return FloatingActionButton.extended(
+          onPressed: () => showBuyTradeDialog(context),
+          icon: const Icon(Icons.add_shopping_cart),
+          label: const Text('خرید'),
+        );
+      default:
+        return null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -60,28 +90,44 @@ class _HomeShellState extends State<HomeShell> {
       const SettingsPage(),
     ];
 
+    final initialLoad = state.loading && state.metrics == null;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(titles[index]),
         actions: [
-          IconButton(
-            tooltip: 'بروزرسانی',
-            onPressed: state.loading
-                ? null
-                : () async {
-                    await state.refreshQuotes();
-                    await state.refresh();
-                  },
-            icon: const Icon(Icons.refresh),
-          ),
+          if (_refreshing)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else
+            IconButton(
+              tooltip: 'بروزرسانی',
+              onPressed: () => _refreshAll(state),
+              icon: const Icon(Icons.refresh),
+            ),
         ],
       ),
-      body: state.loading && state.metrics == null
+      body: initialLoad
           ? const Center(child: CircularProgressIndicator())
-          : IndexedStack(index: index, children: pages),
+          : IndexedStack(
+              index: index,
+              sizing: StackFit.expand,
+              children: pages,
+            ),
+      floatingActionButton: initialLoad ? null : _floatingActionButton(context),
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: index,
         onTap: (i) => setState(() => index = i),
+        type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),

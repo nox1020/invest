@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
+import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:provider/provider.dart';
 
@@ -46,7 +47,8 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     return ListView(
-      padding: const EdgeInsets.all(16),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: shellPagePadding(),
       children: [
         if (state.useRemote) ...[
           const ListTile(
@@ -148,7 +150,6 @@ class _SettingsPageState extends State<SettingsPage> {
         ElevatedButton(
           onPressed: () async {
             await state.saveSettings(draft);
-            await state.refreshQuotes();
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('ذخیره شد')),
@@ -160,7 +161,7 @@ class _SettingsPageState extends State<SettingsPage> {
         const SizedBox(height: 8),
         OutlinedButton(
           onPressed: () async {
-            await state.refreshQuotes();
+            await state.refreshAll();
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('قیمت‌ها به‌روز شد')),

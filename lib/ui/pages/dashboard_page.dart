@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/metric_card.dart';
 import 'package:provider/provider.dart';
@@ -12,44 +13,56 @@ class DashboardPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final m = state.metrics;
-    if (state.loading && m == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
     if (m == null) {
       return const Center(child: Text('داده‌ای نیست'));
     }
     final g = m.goldFund;
+    final narrow = MediaQuery.sizeOf(context).width < 520;
     String tone(num v) => v > 0 ? 'positive' : (v < 0 ? 'negative' : '');
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        await state.refreshQuotes();
-        await state.refresh();
-      },
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: MetricCard(
-                  title: 'ارزش کل سرمایه',
-                  value: formatMoney(m.totalValue),
-                  hero: true,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: MetricCard(
-                  title: 'سود سالانه تحقق‌یافته',
-                  value: formatMoney(m.yearRealizedPnl, showSign: true),
-                  caption: m.yearKey,
-                  tone: tone(m.yearRealizedPnl),
-                  hero: true,
-                ),
-              ),
+    Widget metricRow(List<Widget> cards, {double gap = 12}) {
+      if (narrow) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < cards.length; i++) ...[
+              if (i > 0) SizedBox(height: gap),
+              cards[i],
             ],
-          ),
+          ],
+        );
+      }
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < cards.length; i++) ...[
+            if (i > 0) SizedBox(width: gap),
+            Expanded(child: cards[i]),
+          ],
+        ],
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => state.refreshAll(),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: shellPagePadding(),
+        children: [
+          metricRow([
+            MetricCard(
+              title: 'ارزش کل سرمایه',
+              value: formatMoney(m.totalValue),
+              hero: true,
+            ),
+            MetricCard(
+              title: 'سود سالانه تحقق‌یافته',
+              value: formatMoney(m.yearRealizedPnl, showSign: true),
+              caption: m.yearKey,
+              tone: tone(m.yearRealizedPnl),
+              hero: true,
+            ),
+          ]),
           const SizedBox(height: 18),
           const Text(
             'صندوق طلا',
@@ -61,31 +74,24 @@ class DashboardPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: MetricCard(
-                  title: 'طلای واردشده',
-                  value: formatGrams(g.goldInG),
-                ),
+          metricRow(
+            [
+              MetricCard(
+                title: 'طلای واردشده',
+                value: formatGrams(g.goldInG),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: MetricCard(
-                  title: 'طلای خارج‌شده',
-                  value: formatGrams(g.goldOutG),
-                ),
+              MetricCard(
+                title: 'طلای خارج‌شده',
+                value: formatGrams(g.goldOutG),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: MetricCard(
-                  title: 'موجودی طلا',
-                  value: formatGrams(g.goldHoldingG),
-                  caption: g.goldHoldingG > 0 ? 'بدهی به صندوق' : null,
-                  tone: g.goldHoldingG > 0 ? 'negative' : null,
-                ),
+              MetricCard(
+                title: 'موجودی طلا',
+                value: formatGrams(g.goldHoldingG),
+                caption: g.goldHoldingG > 0 ? 'بدهی به صندوق' : null,
+                tone: g.goldHoldingG > 0 ? 'negative' : null,
               ),
             ],
+            gap: 8,
           ),
           const SizedBox(height: 18),
           const Text(
@@ -98,44 +104,30 @@ class DashboardPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: MetricCard(
-                  title: 'سود / زیان کل',
-                  value: formatMoney(m.totalPnl, showSign: true),
-                  caption: formatPct(m.totalPnlPct),
-                  tone: tone(m.totalPnl),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: MetricCard(
-                  title: 'تحقق‌یافته',
-                  value: formatMoney(m.realizedPnl, showSign: true),
-                  tone: tone(m.realizedPnl),
-                ),
-              ),
-            ],
-          ),
+          metricRow([
+            MetricCard(
+              title: 'سود / زیان کل',
+              value: formatMoney(m.totalPnl, showSign: true),
+              caption: formatPct(m.totalPnlPct),
+              tone: tone(m.totalPnl),
+            ),
+            MetricCard(
+              title: 'تحقق‌یافته',
+              value: formatMoney(m.realizedPnl, showSign: true),
+              tone: tone(m.realizedPnl),
+            ),
+          ], gap: 8),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: MetricCard(
-                  title: 'معاملات باز',
-                  value: '${m.openCount}',
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: MetricCard(
-                  title: 'معاملات بسته',
-                  value: '${m.closedCount}',
-                ),
-              ),
-            ],
-          ),
+          metricRow([
+            MetricCard(
+              title: 'معاملات باز',
+              value: '${m.openCount}',
+            ),
+            MetricCard(
+              title: 'معاملات بسته',
+              value: '${m.closedCount}',
+            ),
+          ], gap: 8),
           if (state.liveUsdt != null || state.settings.usdtTmnRate != null) ...[
             const SizedBox(height: 18),
             MetricCard(

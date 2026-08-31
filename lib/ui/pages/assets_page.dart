@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 
@@ -11,25 +12,18 @@ class AssetsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => showAssetEditor(context),
-        icon: const Icon(Icons.add),
-        label: const Text('دارایی جدید'),
-      ),
-      body: state.assets.isEmpty
-          ? const Center(child: Text('هنوز دارایی ثبت نشده'))
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: state.assets.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, i) {
-                final a = state.assets[i];
-                return _AssetTile(asset: a);
-              },
-            ),
-    );
+    return state.assets.isEmpty
+        ? const Center(child: Text('هنوز دارایی ثبت نشده'))
+        : ListView.separated(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: shellPagePadding(extraForFab: true),
+            itemCount: state.assets.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (context, i) {
+              final a = state.assets[i];
+              return _AssetTile(asset: a);
+            },
+          );
   }
 }
 

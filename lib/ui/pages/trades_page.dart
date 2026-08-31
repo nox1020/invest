@@ -3,6 +3,7 @@ import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 
@@ -15,127 +16,121 @@ class TradesPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final list = open ? state.openTrades : state.closedTrades;
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: open
-          ? FloatingActionButton.extended(
-              onPressed: () => _buy(context),
-              icon: const Icon(Icons.add_shopping_cart),
-              label: const Text('خرید'),
-            )
-          : null,
-      body: list.isEmpty
-          ? Center(child: Text(open ? 'معامله بازی نیست' : 'معامله بسته‌ای نیست'))
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: list.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, i) => _TradeTile(
-                trade: list[i],
-                open: open,
-                onSell: open ? () => _sell(context, list[i]) : null,
-              ),
-            ),
-    );
-  }
-
-  Future<void> _buy(BuildContext context) async {
-    final state = context.read<AppState>();
-    if (state.assets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ابتدا یک دارایی بسازید')),
-      );
-      return;
+    if (list.isEmpty) {
+      return Center(child: Text(open ? 'معامله بازی نیست' : 'معامله بسته‌ای نیست'));
     }
-    AssetChoice? choice = AssetChoice(state.assets.first.id!, state.assets.first.name);
-    final qtyCtrl = TextEditingController(text: '1');
-    final priceCtrl = TextEditingController(
-      text: '${state.assets.first.currentPrice}',
-    );
-    final feeCtrl = TextEditingController(text: '0');
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => AlertDialog(
-          title: const Text('ثبت خرید'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<int>(
-                  key: ValueKey(choice!.id),
-                  initialValue: choice!.id,
-                  items: state.assets
-                      .map((a) => DropdownMenuItem(
-                            value: a.id,
-                            child: Text(a.name),
-                          ))
-                      .toList(),
-                  onChanged: (v) {
-                    final a = state.assets.firstWhere((e) => e.id == v);
-                    setLocal(() {
-                      choice = AssetChoice(a.id!, a.name);
-                      priceCtrl.text = '${a.currentPrice}';
-                    });
-                  },
-                  decoration: const InputDecoration(labelText: 'دارایی'),
-                ),
-                TextField(
-                  controller: qtyCtrl,
-                  decoration: const InputDecoration(labelText: 'مقدار'),
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.right,
-                ),
-                TextField(
-                  controller: priceCtrl,
-                  decoration: const InputDecoration(labelText: 'قیمت خرید'),
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.right,
-                ),
-                TextField(
-                  controller: feeCtrl,
-                  decoration: const InputDecoration(labelText: 'کارمزد'),
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.right,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('انصراف')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('ثبت')),
-          ],
-        ),
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: shellPagePadding(extraForFab: open),
+      itemCount: list.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, i) => _TradeTile(
+        trade: list[i],
+        open: open,
+        onSell: open ? () => showSellTradeDialog(context, list[i]) : null,
       ),
     );
-    if (ok != true || !context.mounted) return;
-    try {
-      await svc.registerBuy(
-        assetId: choice!.id,
-        quantity: double.parse(qtyCtrl.text),
-        buyPrice: double.parse(priceCtrl.text),
-        buyFee: double.tryParse(feeCtrl.text) ?? 0,
-      );
-      await state.refresh();
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-      }
+  }
+}
+
+Future<void> showBuyTradeDialog(BuildContext context) async {
+  final state = context.read<AppState>();
+  if (state.assets.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('ابتدا یک دارایی بسازید')),
+    );
+    return;
+  }
+  AssetChoice? choice = AssetChoice(state.assets.first.id!, state.assets.first.name);
+  final qtyCtrl = TextEditingController(text: '1');
+  final priceCtrl = TextEditingController(
+    text: '${state.assets.first.currentPrice}',
+  );
+  final feeCtrl = TextEditingController(text: '0');
+
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setLocal) => AlertDialog(
+        title: const Text('ثبت خرید'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<int>(
+                key: ValueKey(choice!.id),
+                initialValue: choice!.id,
+                items: state.assets
+                    .map((a) => DropdownMenuItem(
+                          value: a.id,
+                          child: Text(a.name),
+                        ))
+                    .toList(),
+                onChanged: (v) {
+                  final a = state.assets.firstWhere((e) => e.id == v);
+                  setLocal(() {
+                    choice = AssetChoice(a.id!, a.name);
+                    priceCtrl.text = '${a.currentPrice}';
+                  });
+                },
+                decoration: const InputDecoration(labelText: 'دارایی'),
+              ),
+              TextField(
+                controller: qtyCtrl,
+                decoration: const InputDecoration(labelText: 'مقدار'),
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+              ),
+              TextField(
+                controller: priceCtrl,
+                decoration: const InputDecoration(labelText: 'قیمت خرید'),
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+              ),
+              TextField(
+                controller: feeCtrl,
+                decoration: const InputDecoration(labelText: 'کارمزد'),
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('انصراف')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('ثبت')),
+        ],
+      ),
+    ),
+  );
+  if (ok != true || !context.mounted) return;
+  try {
+    await state.tradeService.registerBuy(
+      assetId: choice!.id,
+      quantity: double.parse(qtyCtrl.text),
+      buyPrice: double.parse(priceCtrl.text),
+      buyFee: double.tryParse(feeCtrl.text) ?? 0,
+    );
+    await state.refresh();
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
   }
+}
 
-  Future<void> _sell(BuildContext context, Trade trade) async {
-    final qtyCtrl = TextEditingController(text: '${trade.quantity}');
-    final priceCtrl = TextEditingController(
-      text: trade.currentPrice > 0 ? '${trade.currentPrice}' : '${trade.buyPrice}',
-    );
-    final feeCtrl = TextEditingController(text: '0');
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('فروش ${trade.assetName}'),
-        content: Column(
+Future<void> showSellTradeDialog(BuildContext context, Trade trade) async {
+  final qtyCtrl = TextEditingController(text: '${trade.quantity}');
+  final priceCtrl = TextEditingController(
+    text: trade.currentPrice > 0 ? '${trade.currentPrice}' : '${trade.buyPrice}',
+  );
+  final feeCtrl = TextEditingController(text: '0');
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text('فروش ${trade.assetName}'),
+      content: SingleChildScrollView(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('حداکثر: ${formatNumber(trade.quantity, decimals: 4)}',
@@ -160,26 +155,26 @@ class TradesPage extends StatelessWidget {
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('انصراف')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('فروش')),
-        ],
       ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('انصراف')),
+        ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('فروش')),
+      ],
+    ),
+  );
+  if (ok != true || !context.mounted) return;
+  final state = context.read<AppState>();
+  try {
+    await state.tradeService.closeTrade(
+      tradeId: trade.id!,
+      sellPrice: double.parse(priceCtrl.text),
+      sellFee: double.tryParse(feeCtrl.text) ?? 0,
+      quantity: double.parse(qtyCtrl.text),
     );
-    if (ok != true || !context.mounted) return;
-    final state = context.read<AppState>();
-    try {
-      await state.tradeService.closeTrade(
-        tradeId: trade.id!,
-        sellPrice: double.parse(priceCtrl.text),
-        sellFee: double.tryParse(feeCtrl.text) ?? 0,
-        quantity: double.parse(qtyCtrl.text),
-      );
-      await state.refresh();
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-      }
+    await state.refresh();
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
   }
 }
