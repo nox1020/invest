@@ -8,6 +8,7 @@ class AppConfig {
   static const prefBaseUrl = 'vinor_base_url';
   static const prefSessionCookie = 'vinor_session_cookie';
   static const prefUserPhone = 'vinor_user_phone';
+  static const prefApiVersion = 'vinor_api_version';
 
   static const calendarJalali = 'jalali';
   static const calendarGregorian = 'gregorian';

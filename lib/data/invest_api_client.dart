@@ -98,17 +98,17 @@ class InvestApiClient {
         throw InvestApiException('متد HTTP پشتیبانی نمی‌شود: $method');
     }
 
-    _captureSessionCookie(response);
+    await _captureSessionCookie(response);
     return _parseJson(response);
   }
 
-  void _captureSessionCookie(http.Response response) {
+  Future<void> _captureSessionCookie(http.Response response) async {
     final raw = response.headers['set-cookie'];
     if (raw == null || raw.isEmpty) return;
     final match = RegExp(r'vinor_session=([^;,\s]+)').firstMatch(raw);
     if (match == null) return;
     _sessionCookie = 'vinor_session=${match.group(1)}';
-    _session.saveSessionCookie(_sessionCookie);
+    await _session.setSessionCookie(_sessionCookie);
   }
 
   Map<String, dynamic> _parseJson(http.Response response) {
@@ -169,5 +169,11 @@ class InvestApiClient {
   Future<void> logout() async {
     _sessionCookie = null;
     await _session.clearAuth();
+  }
+
+  Future<String?> fetchApiVersion() async {
+    final data = await get('/invest/api/v1/health');
+    final v = data['api_version'];
+    return v == null ? null : v.toString();
   }
 }

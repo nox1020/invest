@@ -44,6 +44,16 @@ class SessionStore {
     await setPhone(null);
   }
 
+  String? get apiVersion => _prefs.getString(AppConfig.prefApiVersion);
+
+  Future<void> setApiVersion(String? value) async {
+    if (value == null || value.isEmpty) {
+      await _prefs.remove(AppConfig.prefApiVersion);
+    } else {
+      await _prefs.setString(AppConfig.prefApiVersion, value);
+    }
+  }
+
   static String _normalizeBaseUrl(String url) {
     var u = url.trim();
     while (u.endsWith('/')) {
