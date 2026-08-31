@@ -13,11 +13,20 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   late AppSettings draft;
+  late TextEditingController _serverCtrl;
 
   @override
   void initState() {
     super.initState();
-    draft = _clone(context.read<AppState>().settings);
+    final state = context.read<AppState>();
+    draft = _clone(state.settings);
+    _serverCtrl = TextEditingController(text: state.baseUrl);
+  }
+
+  @override
+  void dispose() {
+    _serverCtrl.dispose();
+    super.dispose();
   }
 
   AppSettings _clone(AppSettings s) => AppSettings(
@@ -35,9 +44,48 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (state.useRemote) ...[
+          const ListTile(
+            title: Text('حساب وینور', textAlign: TextAlign.right),
+          ),
+          ListTile(
+            title: const Text('شماره', textAlign: TextAlign.right),
+            trailing: Text(state.userPhone ?? '—'),
+          ),
+          TextField(
+            controller: _serverCtrl,
+            decoration: const InputDecoration(
+              labelText: 'آدرس سرور وینور',
+              hintText: AppConfig.defaultBaseUrl,
+            ),
+            textAlign: TextAlign.left,
+            textDirection: TextDirection.ltr,
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () async {
+              await state.setBaseUrl(_serverCtrl.text.trim());
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('آدرس سرور ذخیره شد')),
+                );
+              }
+            },
+            child: const Text('ذخیره آدرس سرور'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () async {
+              await state.logout();
+            },
+            child: const Text('خروج'),
+          ),
+          const Divider(),
+        ],
         const ListTile(
           title: Text('عمومی', textAlign: TextAlign.right),
         ),
@@ -99,7 +147,6 @@ class _SettingsPageState extends State<SettingsPage> {
         const SizedBox(height: 12),
         ElevatedButton(
           onPressed: () async {
-            final state = context.read<AppState>();
             await state.saveSettings(draft);
             await state.refreshQuotes();
             if (context.mounted) {
@@ -113,7 +160,7 @@ class _SettingsPageState extends State<SettingsPage> {
         const SizedBox(height: 8),
         OutlinedButton(
           onPressed: () async {
-            await context.read<AppState>().refreshQuotes();
+            await state.refreshQuotes();
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('قیمت‌ها به‌روز شد')),

@@ -111,7 +111,7 @@ class TradesPage extends StatelessWidget {
     );
     if (ok != true || !context.mounted) return;
     try {
-      await state.trades.registerBuy(
+      await svc.registerBuy(
         assetId: choice!.id,
         quantity: double.parse(qtyCtrl.text),
         buyPrice: double.parse(priceCtrl.text),
@@ -169,7 +169,7 @@ class TradesPage extends StatelessWidget {
     if (ok != true || !context.mounted) return;
     final state = context.read<AppState>();
     try {
-      await state.trades.closeTrade(
+      await state.tradeService.closeTrade(
         tradeId: trade.id!,
         sellPrice: double.parse(priceCtrl.text),
         sellFee: double.tryParse(feeCtrl.text) ?? 0,

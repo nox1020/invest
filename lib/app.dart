@@ -3,6 +3,7 @@ import 'package:invest/config/app_config.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/assets_page.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
+import 'package:invest/ui/pages/login_page.dart';
 import 'package:invest/ui/pages/settings_page.dart';
 import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -25,7 +26,7 @@ class InvestApp extends StatelessWidget {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      home: const HomeShell(),
+      home: state.authenticated ? const HomeShell() : const LoginPage(),
     );
   }
 }

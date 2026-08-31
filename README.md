@@ -80,6 +80,19 @@ python scripts/create_shortcut.py
 | `docs/INSIGHTS.md` | قوانین بینش |
 | `docs/SNAPSHOT_PROPOSAL.md` | snapshot غنی (اعمال‌شده v2) |
 
+## اپ اندروید (Flutter)
+
+اپ موبایل به **API وینور** متصل است — OTP، session کوکی، دادهٔ ابری per-user.
+
+```bash
+flutter pub get
+flutter run
+```
+
+- **ورود:** `/auth/request-otp` + `/auth/verify-otp` (همان OTP وینور)
+- **داده:** `/invest/api/v1/*` روی `https://vinor.ir` (قابل تغییر در تنظیمات)
+- **تست واحد محلی:** `test/trade_service_test.dart` (SQLite in-memory)
+
 ## Packaging / انتشار
 
 1. نصب وابستگی‌ها از `requirements.txt`

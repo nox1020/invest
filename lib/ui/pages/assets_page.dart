@@ -96,9 +96,10 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
   );
   if (ok != true || !context.mounted) return;
   final state = context.read<AppState>();
+  final svc = state.tradeService;
   try {
     if (edit == null) {
-      await state.trades.createAsset(
+      await svc.createAsset(
         name: nameCtrl.text,
         symbol: symbolCtrl.text,
         quantity: double.tryParse(qtyCtrl.text) ?? 0,
@@ -112,7 +113,7 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
       edit.symbol = symbolCtrl.text.trim();
       final cp = double.tryParse(currentCtrl.text);
       if (cp != null) edit.currentPrice = cp;
-      await state.trades.assets.update(edit);
+      await svc.assets.update(edit);
     }
     await state.refresh();
   } catch (e) {

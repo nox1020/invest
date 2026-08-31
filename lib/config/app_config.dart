@@ -3,6 +3,12 @@ class AppConfig {
   static const appName = 'مدیریت سرمایه و معاملات';
   static const applicationId = 'com.nox1020.invest';
 
+  /// Vinor server (Invest API + OTP auth).
+  static const defaultBaseUrl = 'https://vinor.ir';
+  static const prefBaseUrl = 'vinor_base_url';
+  static const prefSessionCookie = 'vinor_session_cookie';
+  static const prefUserPhone = 'vinor_user_phone';
+
   static const calendarJalali = 'jalali';
   static const calendarGregorian = 'gregorian';
 
