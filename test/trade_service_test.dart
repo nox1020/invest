@@ -15,7 +15,7 @@ void main() {
   setUp(() async {
     // Unique DB path per test so data does not leak across cases.
     final path =
-        inMemoryDatabasePath + '_${DateTime.now().microsecondsSinceEpoch}';
+        '${inMemoryDatabasePath}_${DateTime.now().microsecondsSinceEpoch}';
     db = await databaseFactoryFfi.openDatabase(
       path,
       options: OpenDatabaseOptions(
