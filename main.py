@@ -80,7 +80,7 @@ def main() -> int:
     try:
         app = QApplication(sys.argv)
         app.setApplicationName(APP_NAME)
-        app.setOrganizationName("InvestManager")
+        app.setOrganizationName("VPlus")
         app.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
 
         icon_path = Path(__file__).resolve().parent / "assets" / "app.ico"

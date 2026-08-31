@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:invest/ui/widgets/app_logo.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:provider/provider.dart';
@@ -68,15 +69,7 @@ class _LoginPageState extends State<LoginPage> {
           padding: const EdgeInsets.all(24),
           children: [
             const SizedBox(height: 32),
-            const Text(
-              'V+ Invest',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.title,
-              ),
-            ),
+            const Center(child: AppLogo()),
             const SizedBox(height: 8),
             const Text(
               'با شماره موبایل وینور وارد شوید',

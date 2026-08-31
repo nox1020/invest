@@ -1,6 +1,6 @@
 /// Application constants and setting keys.
 class AppConfig {
-  static const appName = 'مدیریت سرمایه و معاملات';
+  static const appName = 'V+';
   static const applicationId = 'com.nox1020.invest';
 
   /// Vinor server (Invest API + OTP auth).

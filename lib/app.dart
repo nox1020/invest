@@ -4,6 +4,7 @@ import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/assets_page.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
 import 'package:invest/ui/pages/login_page.dart';
+import 'package:invest/ui/widgets/app_logo.dart';
 import 'package:invest/ui/pages/settings_page.dart';
 import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -94,7 +95,13 @@ class _HomeShellState extends State<HomeShell> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(titles[index]),
+        title: Row(
+          children: [
+            const AppMark(size: 26),
+            const SizedBox(width: 10),
+            Text(titles[index]),
+          ],
+        ),
         actions: [
           if (_refreshing)
             const Padding(

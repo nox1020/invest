@@ -1,11 +1,11 @@
 ﻿{
-    "name": "invest",
-    "short_name": "invest",
+    "name": "V+",
+    "short_name": "V+",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FFFFFF",
+    "theme_color": "#1F5A42",
+    "description": "V+ — مدیریت سرمایه و معاملات",
     "orientation": "portrait-primary",
     "prefer_related_applications": false
 }
