@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         applicationId = "com.nox1020.invest"
-        minSdk = Math.max(flutter.minSdkVersion, 21)
+        minSdk = Math.max(flutter.minSdkVersion, 23)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

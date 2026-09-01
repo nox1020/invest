@@ -20,9 +20,27 @@ class _AppLockPageState extends State<AppLockPage> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _tryBiometric());
+  }
+
+  @override
   void dispose() {
     _passwordCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _tryBiometric() async {
+    final state = context.read<AppState>();
+    if (!state.biometricUnlockEnabled || !state.biometricAvailable) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    await state.unlockWithBiometric();
+    if (!mounted) return;
+    setState(() => _busy = false);
   }
 
   Future<void> _unlock() async {
@@ -45,22 +63,75 @@ class _AppLockPageState extends State<AppLockPage> {
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final showBiometric =
+        state.biometricUnlockEnabled && state.biometricAvailable;
+
     return Scaffold(
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            const SizedBox(height: 40),
-            const Center(
-              child: AppLogo(showTitle: true, titleSize: 26),
+            const SizedBox(height: 32),
+            const Center(child: AppLogo(showTitle: true, titleSize: 26)),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.border),
+              ),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.shield_outlined,
+                    size: 40,
+                    color: AppTheme.positive.withValues(alpha: 0.9),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'برنامه قفل است',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.title,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    showBiometric
+                        ? 'رمز ورود یا ${state.biometricLabel} را وارد کنید'
+                        : 'برای دسترسی به V+ رمز ورود را وارد کنید',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppTheme.muted, height: 1.4),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            const Text(
-              'برای دسترسی به برنامه رمز ورود را وارد کنید.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AppTheme.muted),
-            ),
-            const SizedBox(height: 28),
+            const SizedBox(height: 24),
+            if (showBiometric) ...[
+              SizedBox(
+                height: 52,
+                child: OutlinedButton.icon(
+                  onPressed: _busy ? null : _tryBiometric,
+                  icon: const Icon(Icons.fingerprint_rounded, size: 26),
+                  label: Text('ورود با ${state.biometricLabel}'),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Row(
+                children: [
+                  Expanded(child: Divider()),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Text('یا', style: TextStyle(color: AppTheme.muted)),
+                  ),
+                  Expanded(child: Divider()),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
             TextField(
               controller: _passwordCtrl,
               obscureText: _obscure,
@@ -69,8 +140,11 @@ class _AppLockPageState extends State<AppLockPage> {
               decoration: InputDecoration(
                 labelText: 'رمز ورود',
                 errorText: _error,
+                prefixIcon: const Icon(Icons.lock_outline_rounded),
                 suffixIcon: IconButton(
-                  icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                  icon: Icon(
+                    _obscure ? Icons.visibility : Icons.visibility_off,
+                  ),
                   onPressed: () => setState(() => _obscure = !_obscure),
                 ),
               ),
@@ -79,7 +153,10 @@ class _AppLockPageState extends State<AppLockPage> {
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: _busy ? null : _unlock,
-              child: Text(_busy ? 'لطفاً صبر کنید…' : 'ورود'),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
+              child: Text(_busy ? 'لطفاً صبر کنید…' : 'ورود با رمز'),
             ),
           ],
         ),
@@ -106,10 +183,10 @@ Future<bool> showAppLockSetDialog(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
+              const Text(
                 'رمز محلی برای باز کردن برنامه — ربطی به OTP وینور ندارد.',
                 textAlign: TextAlign.right,
-                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+                style: TextStyle(color: AppTheme.muted, fontSize: 12),
               ),
               const SizedBox(height: 12),
               if (hasLock)
@@ -130,6 +207,14 @@ Future<bool> showAppLockSetDialog(
                 obscureText: obscure,
                 decoration: const InputDecoration(labelText: 'تکرار رمز'),
                 textAlign: TextAlign.right,
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => setLocal(() => obscure = !obscure),
+                  icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
+                  label: Text(obscure ? 'نمایش رمز' : 'مخفی کردن'),
+                ),
               ),
             ],
           ),
