@@ -89,6 +89,8 @@ class _SettingsPageState extends State<SettingsPage> {
               Expanded(
                 child: OutlinedButton(
                   onPressed: () async {
+                    final appState = context.read<AppState>();
+                    final messenger = ScaffoldMessenger.of(context);
                     final pwdCtrl = TextEditingController();
                     final ok = await showDialog<bool>(
                       context: context,
@@ -118,21 +120,19 @@ class _SettingsPageState extends State<SettingsPage> {
                       pwdCtrl.dispose();
                       return;
                     }
-                    final valid = await context
-                        .read<AppState>()
-                        .unlockApp(pwdCtrl.text);
+                    final valid = await appState.unlockApp(pwdCtrl.text);
                     pwdCtrl.dispose();
                     if (!valid) {
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger.showSnackBar(
                           const SnackBar(content: Text('رمز فعلی نادرست است.')),
                         );
                       }
                       return;
                     }
-                    await context.read<AppState>().removeAppLock();
+                    await appState.removeAppLock();
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      messenger.showSnackBar(
                         const SnackBar(content: Text('رمز ورود حذف شد')),
                       );
                     }

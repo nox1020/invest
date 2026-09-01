@@ -6,6 +6,8 @@ import 'package:crypto/crypto.dart';
 
 const int appLockMinPasswordLen = 4;
 const int appLockPbkdf2Iterations = 120000;
+const int _pbkdf2KeyLength = 32;
+const int _sha256DigestLength = 32;
 
 bool isAppLockEnabled(String? storedHash) =>
     storedHash != null && storedHash.trim().isNotEmpty;
@@ -39,15 +41,25 @@ bool verifyAppLockPassword(String password, String stored) {
 }
 
 Uint8List _pbkdf2(String password, Uint8List salt, int iterations) {
-  return Uint8List.fromList(
-    pbkdf2(
-      sha256,
-      utf8.encode(password),
-      salt,
-      iterations,
-      32,
-    ),
-  );
+  final hmac = Hmac(sha256, utf8.encode(password));
+  final blockCount =
+      (_pbkdf2KeyLength + _sha256DigestLength - 1) ~/ _sha256DigestLength;
+  final out = BytesBuilder();
+  for (var block = 1; block <= blockCount; block++) {
+    final blockIndex = ByteData(4)..setUint32(0, block, Endian.big);
+    var u = hmac
+        .convert([...salt, ...blockIndex.buffer.asUint8List()])
+        .bytes;
+    var t = List<int>.from(u);
+    for (var i = 1; i < iterations; i++) {
+      u = hmac.convert(u).bytes;
+      for (var j = 0; j < t.length; j++) {
+        t[j] ^= u[j];
+      }
+    }
+    out.add(t);
+  }
+  return Uint8List.fromList(out.takeBytes().sublist(0, _pbkdf2KeyLength));
 }
 
 Uint8List _randomBytes(int length) {

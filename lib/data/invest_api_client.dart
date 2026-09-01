@@ -174,6 +174,6 @@ class InvestApiClient {
   Future<String?> fetchApiVersion() async {
     final data = await get('/invest/api/v1/health');
     final v = data['api_version'];
-    return v == null ? null : v.toString();
+    return v?.toString();
   }
 }
