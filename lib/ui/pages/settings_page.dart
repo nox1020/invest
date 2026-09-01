@@ -255,7 +255,7 @@ class _SettingsPageState extends State<SettingsPage> {
         const SizedBox(height: 8),
         OutlinedButton(
           onPressed: () async {
-            await state.refreshAll();
+            await state.refreshQuotes();
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('قیمت‌ها به‌روز شد')),

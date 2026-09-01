@@ -330,7 +330,7 @@ class DashboardPage(QWidget):
             Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.LeftArrow
         )
 
-    def refresh(self) -> None:
+    def refresh(self, *, fetch_quotes: bool = True) -> None:
         self.ctx.apply_price_api_settings()
         self._apply_quotes_timer()
         self.ctx.sync_live_prices_to_portfolio()
@@ -347,7 +347,7 @@ class DashboardPage(QWidget):
         self._render_gold_card()
         self._update_chart(series)
         self._render_insights()
-        if self.ctx.settings.live_prices_enabled:
+        if fetch_quotes and self.ctx.settings.live_prices_enabled:
             self._refresh_quotes_async()
 
     def _render_header(self) -> None:

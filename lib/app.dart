@@ -55,9 +55,8 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int index = 0;
-  bool _refreshing = false;
 
   static const titles = [
     'داشبورد',
@@ -67,15 +66,26 @@ class _HomeShellState extends State<HomeShell> {
     'تنظیمات',
   ];
 
-  Future<void> _refreshAll(AppState state) async {
-    if (_refreshing) return;
-    setState(() => _refreshing = true);
-    try {
-      await state.refreshAll();
-    } finally {
-      if (mounted) setState(() => _refreshing = false);
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      context.read<AppState>().onAppResumed();
     }
   }
+
+  Future<void> _refreshAll(AppState state) => state.refreshAll();
 
   Widget? _floatingActionButton(BuildContext context) {
     switch (index) {
@@ -119,7 +129,7 @@ class _HomeShellState extends State<HomeShell> {
           ],
         ),
         actions: [
-          if (_refreshing)
+          if (state.refreshing)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: Center(
@@ -133,7 +143,7 @@ class _HomeShellState extends State<HomeShell> {
           else
             IconButton(
               tooltip: 'بروزرسانی',
-              onPressed: () => _refreshAll(state),
+              onPressed: state.refreshing ? null : () => _refreshAll(state),
               icon: const Icon(Icons.refresh),
             ),
         ],

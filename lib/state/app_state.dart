@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/app_lock_store.dart';
-import 'package:invest/data/app_lock_store.dart';
 import 'package:invest/data/app_database.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/remote_invest_service.dart';
@@ -15,6 +14,7 @@ import 'package:invest/domain/services/portfolio_service.dart';
 import 'package:invest/domain/services/quote_clients.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/security/app_lock.dart';
+import 'package:invest/services/refresh_coordinator.dart';
 import 'package:sqflite/sqflite.dart';
 
 /// App-wide state — online (Vinor API) or local SQLite (tests only).
@@ -40,6 +40,7 @@ class AppState extends ChangeNotifier {
   List<Trade> openTrades = [];
   List<Trade> closedTrades = [];
   bool loading = true;
+  bool refreshing = false;
   String? error;
 
   double? liveUsdt;
@@ -49,7 +50,8 @@ class AppState extends ChangeNotifier {
   bool appLockEnabled = false;
   bool appUnlocked = false;
 
-  Future<void>? _activeRefresh;
+  final RefreshCoordinator _refreshCoordinator = RefreshCoordinator();
+  final ResumeRefreshDebouncer _resumeDebouncer = ResumeRefreshDebouncer();
 
   Future<void> init({Database? testDb}) async {
     loading = true;
@@ -89,6 +91,18 @@ class AppState extends ChangeNotifier {
       loading = false;
       notifyListeners();
     }
+  }
+
+  /// Debounced refresh after returning from Vinor WebView / app resume.
+  void onAppResumed() {
+    if (!authenticated || loading) return;
+    _resumeDebouncer.schedule(() {
+      refreshAll(
+        includeQuotes: true,
+        fetchSettings: true,
+        checkApiVersion: true,
+      );
+    });
   }
 
   Future<String?> requestOtp(String phone) async {
@@ -223,32 +237,50 @@ class AppState extends ChangeNotifier {
       });
     }
     notifyListeners();
-    await refreshAll();
+    await refreshAll(
+      includeQuotes: false,
+      fetchSettings: false,
+      checkApiVersion: false,
+    );
   }
 
-  /// Single serialized refresh path — quotes (optional) then portfolio data.
-  Future<void> refreshAll({bool includeQuotes = true}) {
-    if (_activeRefresh != null) {
-      return _activeRefresh!;
-    }
-    _activeRefresh = _runRefresh(includeQuotes: includeQuotes).whenComplete(() {
-      _activeRefresh = null;
-    });
-    return _activeRefresh!;
+  /// Coalesced refresh — overlapping pulls merge into one run.
+  Future<void> refreshAll({
+    bool includeQuotes = true,
+    bool fetchSettings = true,
+    bool checkApiVersion = true,
+  }) {
+    return _refreshCoordinator.run(
+      (plan) => _runRefresh(plan),
+      includeQuotes: includeQuotes,
+      fetchSettings: fetchSettings,
+      checkApiVersion: checkApiVersion,
+    );
   }
 
-  Future<void> refresh() => refreshAll(includeQuotes: false);
+  Future<void> refresh() =>
+      refreshAll(includeQuotes: false, fetchSettings: true, checkApiVersion: true);
 
-  Future<void> refreshQuotes() => refreshAll(includeQuotes: true);
+  Future<void> refreshQuotes() => refreshAll(
+        includeQuotes: true,
+        fetchSettings: false,
+        checkApiVersion: false,
+      );
 
-  Future<void> _runRefresh({required bool includeQuotes}) async {
+  Future<void> _runRefresh(RefreshPlan plan) async {
+    refreshing = true;
+    notifyListeners();
     try {
-      if (includeQuotes && settings.livePricesEnabled) {
+      if (plan.includeQuotes && settings.livePricesEnabled) {
         await _syncLiveQuotes();
       }
       if (useRemote) {
-        await _syncApiVersion();
-        settings = await remote!.fetchSettings();
+        if (plan.checkApiVersion) {
+          await _syncApiVersion();
+        }
+        if (plan.fetchSettings) {
+          settings = await remote!.fetchSettings();
+        }
         final svc = remote!;
         metrics = await svc.fetchDashboard(settings.calendar);
         assets = await svc.assets.listAll();
@@ -270,8 +302,10 @@ class AppState extends ChangeNotifier {
       }
     } catch (e) {
       error = e.toString();
+    } finally {
+      refreshing = false;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   Future<void> _syncLiveQuotes() async {

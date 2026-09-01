@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from app.bootstrap import AppContext
 from app.config import APP_NAME
+from app.services.refresh_coordinator import RefreshCoordinator, RefreshPlan
 from app.ui.pages.asset_detail_page import AssetDetailPage
 from app.ui.pages.assets_page import AssetsPage
 from app.ui.pages.closed_trades_page import ClosedTradesPage
@@ -184,18 +185,21 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.sidebar)
         outer.addWidget(content, 1)
 
-        self.assets.data_changed.connect(self.refresh_all)
+        self.assets.data_changed.connect(lambda: self.schedule_refresh(full=True))
         self.assets.open_detail.connect(self._open_asset_detail)
-        self.open_trades.data_changed.connect(self.refresh_all)
-        self.closed_trades.data_changed.connect(self.refresh_all)
-        self.asset_detail.data_changed.connect(self.refresh_all)
+        self.open_trades.data_changed.connect(lambda: self.schedule_refresh(full=True))
+        self.closed_trades.data_changed.connect(lambda: self.schedule_refresh(full=True))
+        self.asset_detail.data_changed.connect(lambda: self.schedule_refresh(full=True))
         self.asset_detail.back_requested.connect(self._back_from_detail)
         self.settings.settings_changed.connect(self._on_settings_changed)
         self.settings.price_settings_changed.connect(self._on_price_settings_changed)
         self.dashboard.request_refresh.connect(self._on_live_prices_updated)
 
+        self._refresh = RefreshCoordinator(self)
+        self._refresh.bind(self._apply_refresh_plan)
+
         self._update_header()
-        self.refresh_all()
+        self.schedule_refresh(full=True)
 
     def _sync_sidebar_chrome(self, expanded: bool) -> None:
         self.sidebar.setProperty("expanded", expanded)
@@ -296,32 +300,72 @@ class MainWindow(QMainWindow):
         cal = self.ctx.settings.calendar
         self.subtitle_label.setText(f"آپدیت: {format_display_date(today_iso(), cal)}")
 
+    def schedule_refresh(
+        self,
+        *,
+        dashboard: bool = False,
+        holdings: bool = False,
+        quotes: bool = False,
+        full: bool = False,
+    ) -> None:
+        self._refresh.request(
+            dashboard=dashboard,
+            holdings=holdings,
+            quotes=quotes,
+            full=full,
+        )
+
     def refresh_all(self) -> None:
-        self.ctx.reload_settings()
-        self.ctx.insights.set_goal_roi_pct(self.ctx.settings.goal_roi_pct)
-        self.ctx.invalidate_caches()
-        self._update_header()
-        current = self.stack.currentWidget()
-        self.dashboard.refresh()
-        for page in (
-            self.assets,
-            self.open_trades,
-            self.closed_trades,
-            self.reports,
-            self.insights_page,
-            self.settings,
-            self.asset_detail,
-        ):
-            if page is current:
-                page.refresh()
-        if (
-            self._detail_index is not None
-            and self.stack.currentIndex() == self._detail_index
-            and self.asset_detail._asset_id is not None
-        ):
-            asset = self.ctx.portfolio.assets.get(self.asset_detail._asset_id)
-            if asset:
-                self.title_label.setText(asset.name)
+        """Coalesced full UI refresh."""
+        self.schedule_refresh(full=True)
+
+    def _apply_refresh_plan(self, plan: RefreshPlan) -> None:
+        if plan.full:
+            self.ctx.reload_settings()
+            self.ctx.insights.set_goal_roi_pct(self.ctx.settings.goal_roi_pct)
+            self.ctx.invalidate_caches()
+            self._update_header()
+            self.dashboard.refresh(fetch_quotes=True)
+            current = self.stack.currentWidget()
+            for page in (
+                self.assets,
+                self.open_trades,
+                self.closed_trades,
+                self.reports,
+                self.insights_page,
+                self.settings,
+                self.asset_detail,
+            ):
+                if page is current:
+                    page.refresh()
+            if (
+                self._detail_index is not None
+                and self.stack.currentIndex() == self._detail_index
+                and self.asset_detail._asset_id is not None
+            ):
+                asset = self.ctx.portfolio.assets.get(self.asset_detail._asset_id)
+                if asset:
+                    self.title_label.setText(asset.name)
+            return
+
+        if plan.dashboard:
+            self.ctx.reload_settings()
+            self.ctx.insights.set_goal_roi_pct(self.ctx.settings.goal_roi_pct)
+            self.ctx.invalidate_caches()
+            self._update_header()
+            self.dashboard.refresh(fetch_quotes=plan.quotes)
+
+        if plan.holdings:
+            self._refresh_holdings_pages()
+
+        if plan.quotes and not plan.dashboard:
+            self.dashboard.refresh(fetch_quotes=True)
+
+    def _refresh_holdings_pages(self) -> None:
+        self.assets.refresh()
+        self.open_trades.refresh()
+        if self.asset_detail._asset_id is not None:
+            self.asset_detail.refresh()
 
     def _on_settings_changed(self) -> None:
         self.ctx.reload_settings()
@@ -330,21 +374,14 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, self.ctx.settings.theme)
-        self.refresh_all()
+        self.schedule_refresh(full=True)
 
     def _on_price_settings_changed(self) -> None:
         self.ctx.reload_settings()
         self.ctx.apply_price_api_settings()
-        self.dashboard.refresh()
-        self.assets.refresh()
-        self.open_trades.refresh()
-        if self.asset_detail._asset_id is not None:
-            self.asset_detail.refresh()
+        self.schedule_refresh(dashboard=True, holdings=True, quotes=True)
         self.settings._update_api_status_label()
 
     def _on_live_prices_updated(self) -> None:
-        """Refresh holdings pages after live gold/price sync (without full reload)."""
-        self.assets.refresh()
-        self.open_trades.refresh()
-        if self.asset_detail._asset_id is not None:
-            self.asset_detail.refresh()
+        """Holdings only — dashboard already updated metrics locally."""
+        self.schedule_refresh(holdings=True)
