@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
+import 'package:invest/ui/pages/app_lock_page.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:provider/provider.dart';
@@ -50,6 +51,99 @@ class _SettingsPageState extends State<SettingsPage> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: shellPagePadding(),
       children: [
+        const ListTile(
+          title: Text('قفل ورود به برنامه', textAlign: TextAlign.right),
+        ),
+        ListTile(
+          title: Text(
+            state.appLockEnabled ? 'رمز ورود فعال است' : 'رمز ورود تنظیم نشده',
+            textAlign: TextAlign.right,
+          ),
+          subtitle: const Text(
+            'رمز محلی برای باز کردن برنامه — ربطی به OTP وینور ندارد.',
+            textAlign: TextAlign.right,
+          ),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () async {
+                  final saved = await showAppLockSetDialog(
+                    context,
+                    hasLock: state.appLockEnabled,
+                  );
+                  if (saved && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('رمز ورود ذخیره شد')),
+                    );
+                  }
+                },
+                child: Text(
+                  state.appLockEnabled ? 'تغییر رمز ورود' : 'تنظیم رمز ورود',
+                ),
+              ),
+            ),
+            if (state.appLockEnabled) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () async {
+                    final pwdCtrl = TextEditingController();
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('حذف رمز ورود'),
+                        content: TextField(
+                          controller: pwdCtrl,
+                          obscureText: true,
+                          decoration: const InputDecoration(
+                            labelText: 'رمز فعلی',
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('انصراف'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('حذف'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (ok != true || !context.mounted) {
+                      pwdCtrl.dispose();
+                      return;
+                    }
+                    final valid = await context
+                        .read<AppState>()
+                        .unlockApp(pwdCtrl.text);
+                    pwdCtrl.dispose();
+                    if (!valid) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('رمز فعلی نادرست است.')),
+                        );
+                      }
+                      return;
+                    }
+                    await context.read<AppState>().removeAppLock();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('رمز ورود حذف شد')),
+                      );
+                    }
+                  },
+                  child: const Text('حذف رمز'),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const Divider(),
         if (state.useRemote) ...[
           const ListTile(
             title: Text('حساب وینور', textAlign: TextAlign.right),

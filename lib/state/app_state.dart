@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:invest/config/app_config.dart';
+import 'package:invest/data/app_lock_store.dart';
+import 'package:invest/data/app_lock_store.dart';
 import 'package:invest/data/app_database.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/remote_invest_service.dart';
@@ -12,6 +14,7 @@ import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/portfolio_service.dart';
 import 'package:invest/domain/services/quote_clients.dart';
 import 'package:invest/domain/services/trade_service.dart';
+import 'package:invest/security/app_lock.dart';
 import 'package:sqflite/sqflite.dart';
 
 /// App-wide state — online (Vinor API) or local SQLite (tests only).
@@ -42,6 +45,10 @@ class AppState extends ChangeNotifier {
   double? liveUsdt;
   double? liveGold;
 
+  String? appLockHash;
+  bool appLockEnabled = false;
+  bool appUnlocked = false;
+
   Future<void>? _activeRefresh;
 
   Future<void> init({Database? testDb}) async {
@@ -49,6 +56,10 @@ class AppState extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
+      appLockHash = await AppLockStore.loadHash();
+      appLockEnabled = isAppLockEnabled(appLockHash);
+      appUnlocked = !appLockEnabled;
+
       if (testDb != null) {
         useRemote = false;
         await AppDatabase.instance.bind(testDb);
@@ -109,6 +120,40 @@ class AppState extends ChangeNotifier {
     assets = [];
     openTrades = [];
     closedTrades = [];
+    if (appLockEnabled) {
+      appUnlocked = false;
+    }
+    notifyListeners();
+  }
+
+  Future<bool> unlockApp(String password) async {
+    if (!appLockEnabled) {
+      appUnlocked = true;
+      notifyListeners();
+      return true;
+    }
+    if (verifyAppLockPassword(password, appLockHash!)) {
+      appUnlocked = true;
+      notifyListeners();
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> setAppLockPassword(String password) async {
+    final hash = hashAppLockPassword(password);
+    await AppLockStore.saveHash(hash);
+    appLockHash = hash;
+    appLockEnabled = true;
+    appUnlocked = true;
+    notifyListeners();
+  }
+
+  Future<void> removeAppLock() async {
+    await AppLockStore.saveHash('');
+    appLockHash = null;
+    appLockEnabled = false;
+    appUnlocked = true;
     notifyListeners();
   }
 

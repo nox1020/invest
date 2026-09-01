@@ -29,6 +29,7 @@ SETTING_PRICE_REFRESH_SEC = "price_refresh_seconds"
 SETTING_WALLEX_URL = "wallex_markets_url"
 SETTING_PERSIANTOOLBOX_URL = "persiantoolbox_url"
 SETTING_GOAL_ROI_PCT = "goal_roi_pct"
+SETTING_APP_LOCK_HASH = "app_lock_hash"
 
 # Live price API defaults
 DEFAULT_WALLEX_MARKETS_URL = "https://api.wallex.ir/v1/markets"

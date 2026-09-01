@@ -35,9 +35,11 @@ from app.config import (
     THEME_LABELS,
     THEMES,
 )
+from app.ui.dialogs.app_lock_dialog import AppLockSetDialog
 from app.ui.dialogs.confirm import confirm_delete
 from app.ui.error_handlers import show_user_error
 from app.ui.workers.quotes_worker import QuotesTestWorker
+from app.utils.app_lock import is_lock_enabled
 from app.utils.dates import normalize_calendar
 from app.utils.i18n import t
 from app.utils.money import format_number
@@ -68,6 +70,28 @@ class SettingsPage(QWidget):
         self.calendar.currentIndexChanged.connect(self._auto_save)
         self.currency.currentIndexChanged.connect(self._auto_save)
         self.theme.currentIndexChanged.connect(self._auto_save)
+
+        lock_box = QGroupBox(t("app_lock"))
+        lock_l = QVBoxLayout(lock_box)
+        self.lock_status = QLabel()
+        self.lock_status.setObjectName("mutedText")
+        self.lock_status.setWordWrap(True)
+        lock_hint = QLabel(t("app_lock_hint"))
+        lock_hint.setObjectName("mutedText")
+        lock_hint.setWordWrap(True)
+        lock_btns = QHBoxLayout()
+        self.btn_lock_set = QPushButton(t("app_lock_set"))
+        self.btn_lock_set.setObjectName("secondaryBtn")
+        self.btn_lock_remove = QPushButton(t("app_lock_remove"))
+        self.btn_lock_remove.setObjectName("secondaryBtn")
+        self.btn_lock_set.clicked.connect(self._set_app_lock)
+        self.btn_lock_remove.clicked.connect(self._remove_app_lock)
+        lock_btns.addWidget(self.btn_lock_set)
+        lock_btns.addWidget(self.btn_lock_remove)
+        lock_btns.addStretch()
+        lock_l.addWidget(self.lock_status)
+        lock_l.addWidget(lock_hint)
+        lock_l.addLayout(lock_btns)
 
         cal_box = QGroupBox(t("calendar"))
         cal_form = QFormLayout(cal_box)
@@ -195,6 +219,7 @@ class SettingsPage(QWidget):
         layout = QVBoxLayout(body)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(16)
+        layout.addWidget(lock_box)
         layout.addWidget(cal_box)
         layout.addWidget(prefs)
         layout.addWidget(api_box)
@@ -232,8 +257,44 @@ class SettingsPage(QWidget):
             self.goal_roi.setText("" if goal is None else str(goal))
             self._sync_price_controls_enabled()
             self._update_api_status_label()
+            self._update_lock_ui()
         finally:
             self._loading = False
+
+    def _update_lock_ui(self) -> None:
+        enabled = is_lock_enabled(self.ctx.settings.app_lock_hash)
+        self.lock_status.setText(
+            t("app_lock_status_on") if enabled else t("app_lock_status_off")
+        )
+        self.btn_lock_set.setText(
+            t("app_lock_change") if enabled else t("app_lock_set")
+        )
+        self.btn_lock_remove.setEnabled(enabled)
+
+    def _set_app_lock(self) -> None:
+        dlg = AppLockSetDialog(current_hash=self.ctx.settings.app_lock_hash, parent=self)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        self.ctx.settings.app_lock_hash = dlg.new_hash
+        self.ctx.save_settings()
+        self._update_lock_ui()
+        QMessageBox.information(self, t("success"), t("app_lock_saved"))
+
+    def _remove_app_lock(self) -> None:
+        if not is_lock_enabled(self.ctx.settings.app_lock_hash):
+            return
+        if not confirm_delete(self, t("app_lock_remove_confirm")):
+            return
+        from app.ui.dialogs.app_lock_dialog import AppLockUnlockDialog
+
+        check = AppLockUnlockDialog(self.ctx.settings.app_lock_hash, parent=self)
+        check.setWindowTitle(t("app_lock_remove"))
+        if check.exec() != check.DialogCode.Accepted:
+            return
+        self.ctx.settings.app_lock_hash = ""
+        self.ctx.save_settings()
+        self._update_lock_ui()
+        QMessageBox.information(self, t("success"), t("app_lock_removed"))
 
     def refresh(self) -> None:
         self.reload_fields()

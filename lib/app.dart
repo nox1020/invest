@@ -3,6 +3,7 @@ import 'package:invest/config/app_config.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/assets_page.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
+import 'package:invest/ui/pages/app_lock_page.dart';
 import 'package:invest/ui/pages/login_page.dart';
 import 'package:invest/ui/widgets/app_logo.dart';
 import 'package:invest/ui/pages/settings_page.dart';
@@ -27,8 +28,23 @@ class InvestApp extends StatelessWidget {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      home: state.authenticated ? const HomeShell() : const LoginPage(),
+      home: _homeFor(state),
     );
+  }
+
+  Widget _homeFor(AppState state) {
+    if (state.loading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (state.appLockEnabled && !state.appUnlocked) {
+      return const AppLockPage();
+    }
+    if (state.authenticated) {
+      return const HomeShell();
+    }
+    return const LoginPage();
   }
 }
 

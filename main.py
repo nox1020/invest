@@ -65,8 +65,10 @@ def main() -> int:
         from app.bootstrap import bootstrap
         from app.config import APP_NAME
         from app.ui.dialogs.first_run_wizard import FirstRunWizard
+        from app.ui.dialogs.app_lock_dialog import AppLockUnlockDialog
         from app.ui.main_window import MainWindow
         from app.ui.theme import apply_theme
+        from app.utils.app_lock import is_lock_enabled
     except Exception as exc:
         logging.getLogger(__name__).exception("Import failed during startup")
         _show_fatal_error(
@@ -98,6 +100,12 @@ def main() -> int:
             else:
                 ctx.settings.first_run_done = True
                 ctx.save_settings()
+
+        if is_lock_enabled(ctx.settings.app_lock_hash):
+            lock = AppLockUnlockDialog(ctx.settings.app_lock_hash)
+            if lock.exec() != lock.DialogCode.Accepted:
+                ctx.close()
+                return 0
 
         window = MainWindow(ctx)
         window.show()

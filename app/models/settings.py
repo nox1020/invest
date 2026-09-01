@@ -12,6 +12,7 @@ from app.config import (
     DEFAULT_WALLEX_MARKETS_URL,
     SETTING_CALENDAR,
     SETTING_CURRENCY,
+    SETTING_APP_LOCK_HASH,
     SETTING_FIRST_RUN,
     SETTING_GOAL_ROI_PCT,
     SETTING_GOLD_API,
@@ -65,6 +66,7 @@ class AppSettings:
     wallex_markets_url: str = DEFAULT_WALLEX_MARKETS_URL
     persiantoolbox_url: str = DEFAULT_PERSIANTOOLBOX_URL
     goal_roi_pct: float | None = None
+    app_lock_hash: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, str]) -> AppSettings:
@@ -92,6 +94,7 @@ class AppSettings:
                 or DEFAULT_PERSIANTOOLBOX_URL
             ),
             goal_roi_pct=_as_optional_float(merged.get(SETTING_GOAL_ROI_PCT)),
+            app_lock_hash=(merged.get(SETTING_APP_LOCK_HASH) or "").strip(),
         )
 
     def to_dict(self) -> dict[str, str]:
@@ -110,4 +113,5 @@ class AppSettings:
             SETTING_GOAL_ROI_PCT: (
                 "" if self.goal_roi_pct is None else str(self.goal_roi_pct)
             ),
+            SETTING_APP_LOCK_HASH: self.app_lock_hash or "",
         }
