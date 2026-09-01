@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         applicationId = "com.nox1020.invest"
-        minSdk = Math.max(flutter.minSdkVersion, 23)
+        minSdk = Math.max(flutter.minSdkVersion, 24)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -36,4 +36,8 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation "androidx.appcompat:appcompat:1.7.0"
 }

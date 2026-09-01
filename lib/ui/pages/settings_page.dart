@@ -26,6 +26,9 @@ class _SettingsPageState extends State<SettingsPage> {
     final state = context.read<AppState>();
     draft = _clone(state.settings);
     _serverCtrl = TextEditingController(text: state.baseUrl);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<AppState>().refreshBiometricCapability();
+    });
   }
 
   @override
@@ -168,14 +171,14 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
             ),
-            if (state.biometricAvailable) ...[
+            if (state.biometricDeviceSupported) ...[
               const SettingsDivider(),
               SwitchListTile(
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 secondary: Icon(
                   Icons.fingerprint_rounded,
-                  color: state.appLockEnabled
+                  color: state.appLockEnabled && state.biometricAvailable
                       ? AppTheme.accent
                       : AppTheme.muted,
                 ),
@@ -184,26 +187,24 @@ class _SettingsPageState extends State<SettingsPage> {
                   textAlign: TextAlign.right,
                 ),
                 subtitle: Text(
-                  state.appLockEnabled
-                      ? 'بدون وارد کردن رمز، با احراز هویت دستگاه وارد شوید'
-                      : 'ابتدا رمز ورود برنامه را تنظیم کنید',
+                  !state.appLockEnabled
+                      ? 'ابتدا رمز ورود برنامه را تنظیم کنید'
+                      : !state.biometricAvailable
+                          ? 'اثر انگشت یا چهره را در تنظیمات گوشی ثبت کنید'
+                          : 'بدون وارد کردن رمز، با احراز هویت دستگاه وارد شوید',
                   textAlign: TextAlign.right,
                   style: const TextStyle(fontSize: 12),
                 ),
                 value: state.biometricUnlockEnabled,
-                onChanged: state.appLockEnabled
+                onChanged: state.appLockEnabled && state.biometricAvailable
                     ? (value) async {
                         final messenger = ScaffoldMessenger.of(context);
-                        final ok =
+                        final err =
                             await state.setBiometricUnlockEnabled(value);
                         if (!mounted) return;
-                        if (!ok && value) {
+                        if (err != null) {
                           messenger.showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'فعال‌سازی ${state.biometricLabel} انجام نشد.',
-                              ),
-                            ),
+                            SnackBar(content: Text(err)),
                           );
                         }
                       }

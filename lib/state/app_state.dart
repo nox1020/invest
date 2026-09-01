@@ -59,6 +59,7 @@ class AppState extends ChangeNotifier {
   bool appLockEnabled = false;
   bool appUnlocked = false;
   bool biometricUnlockEnabled = false;
+  bool biometricDeviceSupported = false;
   bool biometricAvailable = false;
   String biometricLabel = 'بیومتریک';
 
@@ -74,11 +75,7 @@ class AppState extends ChangeNotifier {
       appLockEnabled = isAppLockEnabled(appLockHash);
       appUnlocked = !appLockEnabled;
       biometricUnlockEnabled = await AppLockStore.loadBiometricEnabled();
-      biometricAvailable = await BiometricAuth.isAvailable();
-      if (biometricAvailable) {
-        biometricLabel =
-            BiometricAuth.labelForTypes(await BiometricAuth.availableTypes());
-      }
+      await refreshBiometricCapability();
       if (!appLockEnabled && biometricUnlockEnabled) {
         biometricUnlockEnabled = false;
         await AppLockStore.saveBiometricEnabled(false);
@@ -178,28 +175,52 @@ class AppState extends ChangeNotifier {
     return false;
   }
 
+  Future<void> refreshBiometricCapability() async {
+    biometricDeviceSupported = await BiometricAuth.isDeviceSupported();
+    biometricAvailable = await BiometricAuth.hasEnrolledBiometrics();
+    if (biometricDeviceSupported) {
+      biometricLabel =
+          BiometricAuth.labelForTypes(await BiometricAuth.availableTypes());
+    }
+    notifyListeners();
+  }
+
   Future<bool> unlockWithBiometric() async {
     if (!appLockEnabled || !biometricUnlockEnabled || !biometricAvailable) {
       return false;
     }
-    final ok = await BiometricAuth.authenticate(
+    final result = await BiometricAuth.authenticate(
       reason: 'برای باز کردن V+ احراز هویت کنید',
+      biometricOnly: true,
     );
-    if (ok) {
+    if (result.success) {
       appUnlocked = true;
       notifyListeners();
+      return true;
     }
-    return ok;
+    return false;
   }
 
-  Future<bool> setBiometricUnlockEnabled(bool enabled) async {
+  /// Returns an error message on failure, or null on success.
+  Future<String?> setBiometricUnlockEnabled(bool enabled) async {
     if (enabled) {
-      if (!appLockEnabled) return false;
-      if (!biometricAvailable) return false;
-      final ok = await BiometricAuth.authenticate(
+      if (!appLockEnabled) {
+        return 'ابتدا رمز ورود برنامه را تنظیم کنید.';
+      }
+      await refreshBiometricCapability();
+      if (!biometricDeviceSupported) {
+        return 'این دستگاه از بیومتریک پشتیبانی نمی‌کند.';
+      }
+      if (!biometricAvailable) {
+        return 'ابتدا اثر انگشت یا چهره را در تنظیمات گوشی ثبت کنید.';
+      }
+      final result = await BiometricAuth.authenticate(
         reason: 'برای فعال‌سازی $biometricLabel احراز هویت کنید',
+        biometricOnly: false,
       );
-      if (!ok) return false;
+      if (!result.success) {
+        return result.message ?? 'فعال‌سازی بیومتریک انجام نشد.';
+      }
       await AppLockStore.saveBiometricEnabled(true);
       biometricUnlockEnabled = true;
     } else {
@@ -207,7 +228,7 @@ class AppState extends ChangeNotifier {
       biometricUnlockEnabled = false;
     }
     notifyListeners();
-    return true;
+    return null;
   }
 
   Future<void> setAppLockPassword(String password) async {
