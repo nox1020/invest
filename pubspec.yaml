@@ -19,6 +19,7 @@ dependencies:
   shared_preferences: ^2.3.2
   crypto: ^3.0.6
   local_auth: ^2.3.0
+  local_auth_android: ^1.0.47
   intl: any
   shamsi_date: ^1.0.2
   provider: ^6.1.2

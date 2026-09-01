@@ -35,7 +35,7 @@ class BiometricAuth {
   static Future<bool> hasEnrolledBiometrics() async {
     if (kIsWeb) return false;
     try {
-      if (!await _auth.canCheckBiometrics()) return false;
+      if (!await _auth.canCheckBiometrics) return false;
       final types = await _auth.getAvailableBiometrics();
       return types.isNotEmpty;
     } catch (_) {

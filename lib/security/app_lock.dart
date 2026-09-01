@@ -42,7 +42,7 @@ bool verifyAppLockPassword(String password, String stored) {
 
 Uint8List _pbkdf2(String password, Uint8List salt, int iterations) {
   final hmac = Hmac(sha256, utf8.encode(password));
-  final blockCount =
+  const blockCount =
       (_pbkdf2KeyLength + _sha256DigestLength - 1) ~/ _sha256DigestLength;
   final out = BytesBuilder();
   for (var block = 1; block <= blockCount; block++) {
