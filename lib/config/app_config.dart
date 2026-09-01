@@ -39,6 +39,7 @@ class AppConfig {
       'https://api.wallex.ir/v1/markets';
   static const defaultPersianToolboxUrl =
       'https://api.persiantoolbox.com/v1/metal';
+  static const defaultMarketUrl = 'https://persiantoolbox.ir/api/market';
 
   static const Map<String, String> defaultSettings = {
     settingCalendar: calendarJalali,

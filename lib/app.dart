@@ -6,6 +6,8 @@ import 'package:invest/ui/pages/dashboard_page.dart';
 import 'package:invest/ui/pages/app_lock_page.dart';
 import 'package:invest/ui/pages/login_page.dart';
 import 'package:invest/ui/widgets/app_logo.dart';
+import 'package:invest/ui/pages/commodity_index_page.dart';
+import 'package:invest/ui/pages/trades_hub_page.dart';
 import 'package:invest/ui/pages/settings_page.dart';
 import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -61,8 +63,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   static const titles = [
     'داشبورد',
     'دارایی‌ها',
-    'معاملات باز',
-    'معاملات بسته',
+    'معاملات',
+    'شاخص',
     'تنظیمات',
   ];
 
@@ -85,7 +87,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _refreshAll(AppState state) => state.refreshAll();
+  Future<void> _refreshAll(AppState state) async {
+    await state.refreshAll();
+    if (index == 3) {
+      await state.refreshCommodityIndex();
+    }
+  }
 
   Widget? _floatingActionButton(BuildContext context) {
     switch (index) {
@@ -112,8 +119,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final pages = [
       const DashboardPage(),
       const AssetsPage(),
-      const TradesPage(open: true),
-      const TradesPage(open: false),
+      const TradesHubPage(),
+      const CommodityIndexPage(),
       const SettingsPage(),
     ];
 
@@ -171,12 +178,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             label: 'دارایی',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.trending_up),
-            label: 'باز',
+            icon: Icon(Icons.swap_horiz_rounded),
+            label: 'معاملات',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.history),
-            label: 'بسته',
+            icon: Icon(Icons.insights_outlined),
+            label: 'شاخص',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),

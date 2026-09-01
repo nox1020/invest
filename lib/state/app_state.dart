@@ -10,6 +10,8 @@ import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/portfolio_service.dart';
 import 'package:invest/domain/services/quote_clients.dart';
 import 'package:invest/domain/services/trade_service.dart';
@@ -34,6 +36,7 @@ class AppState extends ChangeNotifier {
   PortfolioService? portfolio;
   SettingsRepository? settingsRepo;
   QuoteClients? quotes;
+  CommodityIndexService? commodityIndexService;
 
   AppSettings settings = AppSettings();
   DashboardMetrics? metrics;
@@ -46,6 +49,11 @@ class AppState extends ChangeNotifier {
 
   double? liveUsdt;
   double? liveGold;
+
+  List<CommodityQuote> commodityIndex = [];
+  bool commodityIndexLoading = false;
+  String? commodityIndexError;
+  DateTime? commodityIndexUpdatedAt;
 
   String? appLockHash;
   bool appLockEnabled = false;
@@ -84,6 +92,7 @@ class AppState extends ChangeNotifier {
         portfolio = PortfolioService(db);
         settingsRepo = SettingsRepository(db);
         quotes = QuoteClients();
+        commodityIndexService = CommodityIndexService();
         authenticated = true;
         await _loadLocalSettings();
         await refresh();
@@ -92,6 +101,7 @@ class AppState extends ChangeNotifier {
         baseUrl = _session!.baseUrl;
         _api = InvestApiClient(_session!);
         remote = RemoteInvestService(_api!);
+        commodityIndexService = CommodityIndexService();
         _api!.restoreSessionCookie();
         userPhone = _session!.phone;
         authenticated = await _api!.checkAuth();
@@ -226,6 +236,27 @@ class AppState extends ChangeNotifier {
       await logout();
     }
     notifyListeners();
+  }
+
+  Future<void> refreshCommodityIndex() async {
+    if (commodityIndexService == null) return;
+    commodityIndexLoading = true;
+    commodityIndexError = null;
+    notifyListeners();
+    try {
+      commodityIndex = await commodityIndexService!.fetch(
+        wallexUrl: settings.wallexUrl,
+      );
+      commodityIndexUpdatedAt = DateTime.now();
+      if (commodityIndex.every((q) => q.price == null)) {
+        commodityIndexError = 'دریافت قیمت‌ها ممکن نشد';
+      }
+    } catch (e) {
+      commodityIndexError = e.toString();
+    } finally {
+      commodityIndexLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> _loadRemoteData() async {
