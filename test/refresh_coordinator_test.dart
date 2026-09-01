@@ -6,23 +6,21 @@ void main() {
     final coordinator = RefreshCoordinator();
     final runs = <RefreshPlan>[];
 
+    Future<void> action(RefreshPlan plan) async {
+      runs.add(plan);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    }
+
     final first = coordinator.run(
-      (plan) async {
-        runs.add(plan);
-        await Future<void>.delayed(const Duration(milliseconds: 30));
-        await coordinator.run(
-          (inner) async => runs.add(inner),
-          includeQuotes: true,
-          fetchSettings: false,
-        );
-      },
+      action,
       includeQuotes: false,
       fetchSettings: true,
     );
 
     await coordinator.run(
-      (plan) async => runs.add(plan),
+      action,
       includeQuotes: true,
+      fetchSettings: false,
       checkApiVersion: false,
     );
 
@@ -34,5 +32,18 @@ void main() {
     expect(runs[1].includeQuotes, isTrue);
     expect(runs[1].fetchSettings, isFalse);
     expect(runs[1].checkApiVersion, isFalse);
+  });
+
+  test('merge skips settings when any caller opts out', () {
+    final merged = RefreshPlan(fetchSettings: true, checkApiVersion: true)
+        .merge(RefreshPlan(fetchSettings: false, checkApiVersion: false));
+    expect(merged.fetchSettings, isFalse);
+    expect(merged.checkApiVersion, isFalse);
+    expect(
+      RefreshPlan(includeQuotes: false)
+          .merge(RefreshPlan(includeQuotes: true))
+          .includeQuotes,
+      isTrue,
+    );
   });
 }

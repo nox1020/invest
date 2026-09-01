@@ -14,8 +14,9 @@ class RefreshPlan {
 
   RefreshPlan merge(RefreshPlan other) {
     includeQuotes = includeQuotes || other.includeQuotes;
-    fetchSettings = fetchSettings || other.fetchSettings;
-    checkApiVersion = checkApiVersion || other.checkApiVersion;
+    // Skip optional work if any caller opted out (e.g. after saveSettings).
+    fetchSettings = fetchSettings && other.fetchSettings;
+    checkApiVersion = checkApiVersion && other.checkApiVersion;
     return this;
   }
 }
