@@ -4,6 +4,21 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+def envVersionCode = System.getenv("ANDROID_VERSION_CODE")
+def resolvedVersionCode = flutter.versionCode
+if (envVersionCode != null && envVersionCode ==~ /^\d+$/) {
+    def parsed = envVersionCode.toInteger()
+    if (parsed > resolvedVersionCode) {
+        resolvedVersionCode = parsed
+    }
+}
+
 android {
     namespace = "com.nox1020.invest"
     compileSdk = flutter.compileSdkVersion
@@ -19,17 +34,33 @@ android {
         jvmTarget = JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties["keyAlias"]
+                keyPassword = keystoreProperties["keyPassword"]
+                storeFile = file(keystoreProperties["storeFile"])
+                storePassword = keystoreProperties["storePassword"]
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.nox1020.invest"
         minSdk = Math.max(flutter.minSdkVersion, 24)
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
+        versionCode = resolvedVersionCode
         versionName = flutter.versionName
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            // Same package + same cert + higher versionCode is required for
+            // in-place APK updates. Prefer upload keystore when present;
+            // otherwise the CI-cached debug keystore (not a new one each run).
+            signingConfig = keystorePropertiesFile.exists()
+                    ? signingConfigs.release
+                    : signingConfigs.debug
         }
     }
 }

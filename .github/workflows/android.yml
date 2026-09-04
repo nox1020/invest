@@ -23,6 +23,7 @@ jobs:
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       VINOR_API_VERSION: ${{ github.event.client_payload.api_version || '' }}
       VINOR_SHA: ${{ github.event.client_payload.vinor_sha || '' }}
+      ANDROID_VERSION_CODE: ${{ github.run_number }}
     steps:
       - name: Backend trigger info
         if: github.event_name == 'repository_dispatch'
@@ -40,6 +41,44 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Restore stable debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: vplus-android-debug-keystore-v1
+
+      - name: Decode upload keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_BASE64}" ]; then
+            echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > android/upload-keystore.jks
+            {
+              echo "storePassword=${ANDROID_KEYSTORE_PASSWORD}"
+              echo "keyPassword=${ANDROID_KEY_PASSWORD:-${ANDROID_KEYSTORE_PASSWORD}}"
+              echo "keyAlias=${ANDROID_KEY_ALIAS:-upload}"
+              echo "storeFile=../upload-keystore.jks"
+            } > android/key.properties
+            echo "Using upload keystore from secrets."
+          else
+            mkdir -p ~/.android
+            if [ ! -f ~/.android/debug.keystore ]; then
+              keytool -genkeypair \
+                -keystore ~/.android/debug.keystore \
+                -alias androiddebugkey \
+                -storepass android \
+                -keypass android \
+                -keyalg RSA -keysize 2048 -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
+              echo "Created debug keystore for cache seed."
+            else
+              echo "Reusing cached debug keystore."
+            fi
+          fi
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -66,8 +105,16 @@ jobs:
         run: |
           set -o pipefail
           flutter build apk --release \
+            --build-number="${ANDROID_VERSION_CODE}" \
+            --build-name="1.0.${ANDROID_VERSION_CODE}" \
             --dart-define=VINOR_API_VERSION="${VINOR_API_VERSION}" \
             2>&1 | tee apk-build.log
+          {
+            echo "### APK identity"
+            echo "- versionCode: ${ANDROID_VERSION_CODE}"
+            echo "- versionName: 1.0.${ANDROID_VERSION_CODE}"
+            echo "- applicationId: com.nox1020.invest"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Annotate APK build errors
         if: failure() && hashFiles('apk-build.log') != ''
@@ -96,7 +143,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: invest-apk${{ env.VINOR_API_VERSION && format('-{0}', env.VINOR_API_VERSION) || '' }}
+          name: invest-apk-${{ github.run_number }}${{ env.VINOR_API_VERSION && format('-{0}', env.VINOR_API_VERSION) || '' }}
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
