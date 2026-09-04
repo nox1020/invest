@@ -32,11 +32,16 @@ class AppDatabase {
     final path = p.join(dir.path, 'invest.db');
     return openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('PRAGMA foreign_keys = ON');
         await _createSchema(db);
         await _seedSettings(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await _createWithdrawalsTable(db);
+        }
       },
       onOpen: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
@@ -91,6 +96,19 @@ CREATE TABLE IF NOT EXISTS capital_snapshots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   date TEXT NOT NULL UNIQUE,
   total_value REAL NOT NULL,
+  created_at TEXT NOT NULL
+);
+''');
+    await _createWithdrawalsTable(db);
+  }
+
+  static Future<void> _createWithdrawalsTable(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS withdrawals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  amount REAL NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'completed',
   created_at TEXT NOT NULL
 );
 ''');

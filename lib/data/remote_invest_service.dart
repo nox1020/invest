@@ -4,6 +4,7 @@ import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/utils/dates.dart';
 
 /// Remote asset repository backed by Vinor Invest API.
@@ -215,10 +216,53 @@ class RemoteInvestService {
     return Trade.fromMap(Map<String, Object?>.from(data['item'] as Map));
   }
 
+  /// Returns null when the backend has no withdrawals API yet.
+  Future<List<Withdrawal>?> listWithdrawals() async {
+    try {
+      final data = await _api.get('/invest/api/v1/withdrawals');
+      return _withdrawalsFrom(data);
+    } on InvestApiException catch (e) {
+      if (e.statusCode == 404 || e.errorCode == 'not_found') return null;
+      rethrow;
+    }
+  }
+
+  Future<Withdrawal?> createWithdrawal({
+    required double amount,
+    String note = '',
+  }) async {
+    try {
+      final data = await _api.post('/invest/api/v1/withdrawals', body: {
+        'amount': amount,
+        'note': note,
+      });
+      final item = data['item'];
+      if (item is Map) {
+        return Withdrawal.fromMap(Map<String, Object?>.from(item));
+      }
+      return Withdrawal(
+        amount: amount,
+        note: note,
+        status: 'completed',
+        createdAt: nowIso(),
+      );
+    } on InvestApiException catch (e) {
+      if (e.statusCode == 404 || e.errorCode == 'not_found') return null;
+      rethrow;
+    }
+  }
+
   List<Trade> _tradesFrom(Map<String, dynamic> data) {
     final items = (data['items'] as List?) ?? const [];
     return items
         .map((e) => Trade.fromMap(Map<String, Object?>.from(e as Map)))
+        .toList();
+  }
+
+  List<Withdrawal> _withdrawalsFrom(Map<String, dynamic> data) {
+    final items = (data['items'] as List?) ?? const [];
+    return items
+        .map((e) => Withdrawal.fromMap(Map<String, Object?>.from(e as Map)))
         .toList();
   }
 

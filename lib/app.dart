@@ -8,6 +8,7 @@ import 'package:invest/ui/pages/login_page.dart';
 import 'package:invest/ui/widgets/app_logo.dart';
 import 'package:invest/ui/pages/commodity_index_page.dart';
 import 'package:invest/ui/pages/trades_hub_page.dart';
+import 'package:invest/ui/pages/withdrawals_page.dart';
 import 'package:invest/ui/pages/settings_page.dart';
 import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -61,10 +62,11 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int index = 0;
+  int _tradesSegment = 0;
 
   static const titles = [
     'داشبورد',
-    'دارایی‌ها',
+    'برداشت',
     'معاملات',
     'شاخص',
     'تنظیمات',
@@ -116,16 +118,26 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     switch (index) {
       case 1:
         return FloatingActionButton.extended(
-          onPressed: () => showAssetEditor(context),
-          icon: const Icon(Icons.add),
-          label: const Text('دارایی جدید'),
+          onPressed: () => showRecordWithdrawalDialog(context),
+          icon: const Icon(Icons.south_west_rounded),
+          label: const Text('ثبت برداشت'),
         );
       case 2:
-        return FloatingActionButton.extended(
-          onPressed: () => showBuyTradeDialog(context),
-          icon: const Icon(Icons.add_shopping_cart),
-          label: const Text('خرید'),
-        );
+        if (_tradesSegment == 0) {
+          return FloatingActionButton.extended(
+            onPressed: () => showAssetEditor(context),
+            icon: const Icon(Icons.add),
+            label: const Text('دارایی جدید'),
+          );
+        }
+        if (_tradesSegment == 1) {
+          return FloatingActionButton.extended(
+            onPressed: () => showBuyTradeDialog(context),
+            icon: const Icon(Icons.add_shopping_cart),
+            label: const Text('خرید'),
+          );
+        }
+        return null;
       default:
         return null;
     }
@@ -136,8 +148,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final state = context.watch<AppState>();
     final pages = [
       const DashboardPage(),
-      const AssetsPage(),
-      const TradesHubPage(),
+      const WithdrawalsPage(),
+      TradesHubPage(
+        onSegmentChanged: (s) => setState(() => _tradesSegment = s),
+      ),
       const CommodityIndexPage(),
       const SettingsPage(),
     ];
@@ -206,8 +220,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             label: 'داشبورد',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            label: 'دارایی',
+            icon: Icon(Icons.payments_outlined),
+            label: 'برداشت',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.swap_horiz_rounded),

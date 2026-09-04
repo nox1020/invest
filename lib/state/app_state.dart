@@ -7,10 +7,12 @@ import 'package:invest/data/offline_cache_store.dart';
 import 'package:invest/data/remote_invest_service.dart';
 import 'package:invest/data/repositories.dart';
 import 'package:invest/data/session_store.dart';
+import 'package:invest/data/withdrawal_repository.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/portfolio_service.dart';
@@ -39,6 +41,7 @@ class AppState extends ChangeNotifier {
   TradeService? trades;
   PortfolioService? portfolio;
   SettingsRepository? settingsRepo;
+  WithdrawalRepository? _withdrawalsRepo;
   QuoteClients? quotes;
   CommodityIndexService? commodityIndexService;
 
@@ -47,6 +50,7 @@ class AppState extends ChangeNotifier {
   List<Asset> assets = [];
   List<Trade> openTrades = [];
   List<Trade> closedTrades = [];
+  List<Withdrawal> withdrawals = [];
   bool loading = true;
   bool refreshing = false;
   String? error;
@@ -72,6 +76,21 @@ class AppState extends ChangeNotifier {
   final ResumeRefreshDebouncer _resumeDebouncer = ResumeRefreshDebouncer();
 
   bool get canMutate => authenticated && !readOnlyOffline;
+
+  double get withdrawnTotal => withdrawals
+      .where((w) => w.status != 'rejected')
+      .fold<double>(0, (s, w) => s + w.amount);
+
+  double get withdrawableAmount => computeWithdrawableAmount(
+        realizedPnl: metrics?.realizedPnl ?? 0,
+        withdrawnTotal: withdrawnTotal,
+      );
+
+  Future<WithdrawalRepository> _localWithdrawals() async {
+    _withdrawalsRepo ??=
+        WithdrawalRepository(await AppDatabase.instance.database);
+    return _withdrawalsRepo!;
+  }
 
   Future<void> init({Database? testDb}) async {
     loading = true;
@@ -151,6 +170,7 @@ class AppState extends ChangeNotifier {
     trades = TradeService(db);
     portfolio = PortfolioService(db);
     settingsRepo = SettingsRepository(db);
+    _withdrawalsRepo = WithdrawalRepository(db);
     quotes = QuoteClients();
     commodityIndexService = CommodityIndexService();
     authenticated = true;
@@ -196,6 +216,7 @@ class AppState extends ChangeNotifier {
     assets = snap.assets;
     openTrades = snap.openTrades;
     closedTrades = snap.closedTrades;
+    withdrawals = snap.withdrawals;
     liveUsdt = snap.liveUsdt ?? settings.usdtTmnRate;
     liveGold = snap.liveGold ?? settings.goldTmnPerGram;
     lastSyncedAt = snap.savedAt;
@@ -219,6 +240,7 @@ class AppState extends ChangeNotifier {
     trades = TradeService(db);
     portfolio = PortfolioService(db);
     settingsRepo = SettingsRepository(db);
+    _withdrawalsRepo = WithdrawalRepository(db);
     quotes ??= QuoteClients();
     commodityIndexService ??= CommodityIndexService();
     authenticated = true;
@@ -320,6 +342,7 @@ class AppState extends ChangeNotifier {
     assets = [];
     openTrades = [];
     closedTrades = [];
+    withdrawals = [];
     if (appLockEnabled) {
       appUnlocked = false;
     }
@@ -590,6 +613,7 @@ class AppState extends ChangeNotifier {
         openTrades = await trades!.trades.listOpen();
         closedTrades = await trades!.trades.listClosed();
         metrics = await portfolio!.getMetrics(calendar: settings.calendar);
+        await _loadLocalWithdrawals();
         await portfolio!.recordSnapshot();
         lastSyncedAt = DateTime.now();
       }
@@ -636,6 +660,7 @@ class AppState extends ChangeNotifier {
     assets = await svc.assets.listAll();
     openTrades = await svc.listOpen();
     closedTrades = await svc.listClosed();
+    await _loadWithdrawals(remote: svc);
     lastSyncedAt = DateTime.now();
     await OfflineCacheStore.savePortfolio(
       settings: settings,
@@ -643,6 +668,71 @@ class AppState extends ChangeNotifier {
       assets: assets,
       openTrades: openTrades,
       closedTrades: closedTrades,
+      withdrawals: withdrawals,
+      liveUsdt: liveUsdt,
+      liveGold: liveGold,
+    );
+  }
+
+  Future<void> _loadWithdrawals({RemoteInvestService? remote}) async {
+    if (remote != null) {
+      final remoteItems = await remote.listWithdrawals();
+      if (remoteItems != null) {
+        withdrawals = remoteItems;
+        return;
+      }
+    }
+    await _loadLocalWithdrawals();
+  }
+
+  Future<void> _loadLocalWithdrawals() async {
+    try {
+      withdrawals = await (await _localWithdrawals()).listAll();
+    } catch (_) {
+      // Older local DBs without the table still render an empty history.
+      withdrawals = [];
+    }
+  }
+
+  Future<void> recordWithdrawal({
+    required double amount,
+    String note = '',
+  }) async {
+    if (!canMutate) {
+      throw StateError('در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.');
+    }
+    if (amount <= 0) {
+      throw ArgumentError('مبلغ برداشت باید بزرگ‌تر از صفر باشد.');
+    }
+    if (amount > withdrawableAmount + 1e-6) {
+      throw ArgumentError('مبلغ از موجودی قابل برداشت بیشتر است.');
+    }
+    var saved = false;
+    if (useRemote && !offline && remote != null) {
+      final created = await remote!.createWithdrawal(amount: amount, note: note);
+      if (created != null) {
+        withdrawals = [created, ...withdrawals];
+        saved = true;
+      }
+    }
+    if (!saved) {
+      final repo = await _localWithdrawals();
+      await repo.create(Withdrawal(amount: amount, note: note.trim()));
+      await _loadLocalWithdrawals();
+    }
+    await _persistWithdrawalCache();
+    notifyListeners();
+  }
+
+  Future<void> _persistWithdrawalCache() async {
+    if (metrics == null) return;
+    await OfflineCacheStore.savePortfolio(
+      settings: settings,
+      metrics: metrics!,
+      assets: assets,
+      openTrades: openTrades,
+      closedTrades: closedTrades,
+      withdrawals: withdrawals,
       liveUsdt: liveUsdt,
       liveGold: liveGold,
     );

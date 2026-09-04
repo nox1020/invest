@@ -8,6 +8,7 @@ import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/models/withdrawal.dart';
 
 /// Last-known portfolio snapshot for offline boot (read-only remote cache).
 class OfflineCacheStore {
@@ -21,6 +22,7 @@ class OfflineCacheStore {
     required List<Asset> assets,
     required List<Trade> openTrades,
     required List<Trade> closedTrades,
+    List<Withdrawal> withdrawals = const [],
     double? liveUsdt,
     double? liveGold,
   }) async {
@@ -56,6 +58,7 @@ class OfflineCacheStore {
       'assets': assets.map(_assetJson).toList(),
       'open_trades': openTrades.map(_tradeJson).toList(),
       'closed_trades': closedTrades.map(_tradeJson).toList(),
+      'withdrawals': withdrawals.map(_withdrawalJson).toList(),
       'live_usdt': liveUsdt,
       'live_gold': liveGold,
     };
@@ -107,6 +110,9 @@ class OfflineCacheStore {
       final closed = ((map['closed_trades'] as List?) ?? const [])
           .map((e) => Trade.fromMap(_toObjMap(e as Map)))
           .toList();
+      final withdrawals = ((map['withdrawals'] as List?) ?? const [])
+          .map((e) => Withdrawal.fromMap(_toObjMap(e as Map)))
+          .toList();
       return OfflinePortfolioSnapshot(
         savedAt: DateTime.tryParse(map['saved_at'] as String? ?? ''),
         settings: settings,
@@ -114,6 +120,7 @@ class OfflineCacheStore {
         assets: assets,
         openTrades: open,
         closedTrades: closed,
+        withdrawals: withdrawals,
         liveUsdt: (map['live_usdt'] as num?)?.toDouble(),
         liveGold: (map['live_gold'] as num?)?.toDouble(),
       );
@@ -235,6 +242,14 @@ class OfflineCacheStore {
         'current_price': t.currentPrice,
       };
 
+  static Map<String, dynamic> _withdrawalJson(Withdrawal w) => {
+        'id': w.id,
+        'amount': w.amount,
+        'note': w.note,
+        'status': w.status,
+        'created_at': w.createdAt,
+      };
+
   static double _d(dynamic v) => (v as num?)?.toDouble() ?? 0;
 }
 
@@ -246,6 +261,7 @@ class OfflinePortfolioSnapshot {
     required this.assets,
     required this.openTrades,
     required this.closedTrades,
+    this.withdrawals = const [],
     this.liveUsdt,
     this.liveGold,
   });
@@ -256,6 +272,7 @@ class OfflinePortfolioSnapshot {
   final List<Asset> assets;
   final List<Trade> openTrades;
   final List<Trade> closedTrades;
+  final List<Withdrawal> withdrawals;
   final double? liveUsdt;
   final double? liveGold;
 }
