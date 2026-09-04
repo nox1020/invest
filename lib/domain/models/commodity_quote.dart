@@ -9,6 +9,8 @@ class CommodityQuote {
     this.price,
     this.change24h,
     this.icon = Icons.show_chart_rounded,
+    this.quoteVolume24h,
+    this.marketSymbol,
   });
 
   final String id;
@@ -18,6 +20,8 @@ class CommodityQuote {
   final double? price;
   final double? change24h;
   final IconData icon;
+  final double? quoteVolume24h;
+  final String? marketSymbol;
 
   bool get isUp => (change24h ?? 0) > 0;
   bool get isDown => (change24h ?? 0) < 0;

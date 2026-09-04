@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:invest/domain/models/app_settings.dart';
@@ -11,7 +12,8 @@ import 'package:invest/domain/models/trade.dart';
 /// Last-known portfolio snapshot for offline boot (read-only remote cache).
 class OfflineCacheStore {
   static const _keySnapshot = 'offline_portfolio_snapshot_v1';
-  static const _keyCommodities = 'offline_commodity_index_v1';
+  static const _keyCommodities = 'offline_commodity_index_v2';
+  static const _keyWallex = 'offline_wallex_markets_v1';
 
   static Future<void> savePortfolio({
     required AppSettings settings,
@@ -125,27 +127,49 @@ class OfflineCacheStore {
     return snap != null;
   }
 
-  static Future<void> saveCommodities(List<CommodityQuote> quotes) async {
+  static Future<void> saveCommodities(
+    List<CommodityQuote> quotes, {
+    List<CommodityQuote> wallexMarkets = const [],
+  }) async {
     final prefs = await SharedPreferences.getInstance();
-    final payload = {
-      'saved_at': DateTime.now().toIso8601String(),
-      'items': quotes
-          .map((q) => {
-                'id': q.id,
-                'name': q.name,
-                'symbol': q.symbol,
-                'unit': q.unit,
-                'price': q.price,
-                'change24h': q.change24h,
-              })
-          .toList(),
-    };
-    await prefs.setString(_keyCommodities, jsonEncode(payload));
+    await prefs.setString(_keyCommodities, jsonEncode(_quotesPayload(quotes)));
+    if (wallexMarkets.isNotEmpty) {
+      await prefs.setString(
+        _keyWallex,
+        jsonEncode(_quotesPayload(wallexMarkets)),
+      );
+    }
   }
+
+  static Map<String, dynamic> _quotesPayload(List<CommodityQuote> quotes) => {
+        'saved_at': DateTime.now().toIso8601String(),
+        'items': quotes
+            .map((q) => {
+                  'id': q.id,
+                  'name': q.name,
+                  'symbol': q.symbol,
+                  'unit': q.unit,
+                  'price': q.price,
+                  'change24h': q.change24h,
+                  'quote_volume_24h': q.quoteVolume24h,
+                  'market_symbol': q.marketSymbol,
+                })
+            .toList(),
+      };
 
   static Future<OfflineCommoditySnapshot?> loadCommodities() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_keyCommodities);
+    final essentials = _decodeQuotes(prefs.getString(_keyCommodities));
+    final wallex = _decodeQuotes(prefs.getString(_keyWallex));
+    if (essentials == null && wallex == null) return null;
+    return OfflineCommoditySnapshot(
+      savedAt: essentials?.savedAt ?? wallex?.savedAt,
+      quotes: essentials?.quotes ?? const [],
+      wallexMarkets: wallex?.quotes ?? const [],
+    );
+  }
+
+  static OfflineCommoditySnapshot? _decodeQuotes(String? raw) {
     if (raw == null || raw.isEmpty) return null;
     try {
       final map = jsonDecode(raw) as Map<String, dynamic>;
@@ -158,6 +182,9 @@ class OfflineCacheStore {
           unit: (m['unit'] as String?) ?? 'toman',
           price: (m['price'] as num?)?.toDouble(),
           change24h: (m['change24h'] as num?)?.toDouble(),
+          quoteVolume24h: (m['quote_volume_24h'] as num?)?.toDouble(),
+          marketSymbol: m['market_symbol'] as String?,
+          icon: Icons.currency_exchange_rounded,
         );
       }).toList();
       if (items.isEmpty) return null;
@@ -234,8 +261,13 @@ class OfflinePortfolioSnapshot {
 }
 
 class OfflineCommoditySnapshot {
-  OfflineCommoditySnapshot({required this.savedAt, required this.quotes});
+  OfflineCommoditySnapshot({
+    required this.savedAt,
+    required this.quotes,
+    this.wallexMarkets = const [],
+  });
 
   final DateTime? savedAt;
   final List<CommodityQuote> quotes;
+  final List<CommodityQuote> wallexMarkets;
 }

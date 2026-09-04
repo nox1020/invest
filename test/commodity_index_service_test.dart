@@ -6,7 +6,7 @@ import 'package:http/testing.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
 
 void main() {
-  test('fetch returns 10 commodity quotes from market payload', () async {
+  test('fetchAll returns essentials and all Wallex TMN markets', () async {
     final client = MockClient((request) async {
       if (request.url.host.contains('persiantoolbox')) {
         return http.Response(
@@ -31,19 +31,79 @@ void main() {
           200,
         );
       }
+      if (request.url.host.contains('wallex')) {
+        return http.Response(
+          jsonEncode({
+            'result': {
+              'symbols': {
+                'USDTTMN': {
+                  'symbol': 'USDTTMN',
+                  'baseAsset': 'USDT',
+                  'quoteAsset': 'TMN',
+                  'faBaseAsset': 'تتر',
+                  'stats': {
+                    'lastPrice': '92000',
+                    '24h_ch': 0.4,
+                    '24h_quoteVolume': '1000000000',
+                  },
+                },
+                'BTCTMN': {
+                  'symbol': 'BTCTMN',
+                  'baseAsset': 'BTC',
+                  'quoteAsset': 'TMN',
+                  'faBaseAsset': 'بیت‌کوین',
+                  'stats': {
+                    'lastPrice': '7000000000',
+                    '24h_ch': -1.2,
+                    '24h_quoteVolume': '5000000000',
+                  },
+                },
+                'ETHUSDT': {
+                  'symbol': 'ETHUSDT',
+                  'baseAsset': 'ETH',
+                  'quoteAsset': 'USDT',
+                  'faBaseAsset': 'اتریوم',
+                  'stats': {
+                    'lastPrice': '2500',
+                    '24h_ch': 1.0,
+                    '24h_quoteVolume': '100',
+                  },
+                },
+                'DOGETMN': {
+                  'symbol': 'DOGETMN',
+                  'baseAsset': 'DOGE',
+                  'quoteAsset': 'TMN',
+                  'faBaseAsset': 'دوج',
+                  'stats': {
+                    'lastPrice': '12000',
+                    '24h_ch': 2.5,
+                    '24h_quoteVolume': '200000',
+                  },
+                },
+              },
+            },
+          }),
+          200,
+        );
+      }
       return http.Response('{}', 404);
     });
 
     final service = CommodityIndexService(client: client);
-    final quotes = await service.fetch(wallexUrl: 'https://example.test/markets');
+    final bundle = await service.fetchAll(
+      wallexUrl: 'https://api.wallex.ir/v1/markets',
+    );
 
-    expect(quotes.length, 10);
-    expect(quotes.first.symbol, 'USDT');
-    expect(quotes[1].symbol, 'USD');
-    expect(quotes[1].price, closeTo(146882.032, 0.01));
-    expect(quotes[6].symbol, 'GOLD');
-    expect(quotes[6].price, closeTo(2086939.92, 0.1));
-    expect(quotes[8].symbol, 'BTC');
-    expect(quotes[8].price, 78718);
+    expect(bundle.essentials.length, 10);
+    expect(bundle.essentials.first.symbol, 'USDT');
+    expect(bundle.essentials.first.price, 92000);
+    // Only TMN quote markets, not USDT pairs.
+    expect(bundle.wallexMarkets.length, 3);
+    expect(bundle.wallexMarkets.every((q) => q.unit == 'toman'), isTrue);
+    expect(bundle.wallexMarkets.first.symbol, 'BTC'); // highest volume
+    expect(
+      bundle.wallexMarkets.map((e) => e.symbol),
+      containsAll(['BTC', 'USDT', 'DOGE']),
+    );
   });
 }

@@ -55,6 +55,7 @@ class AppState extends ChangeNotifier {
   double? liveGold;
 
   List<CommodityQuote> commodityIndex = [];
+  List<CommodityQuote> wallexMarkets = [];
   bool commodityIndexLoading = false;
   String? commodityIndexError;
   DateTime? commodityIndexUpdatedAt;
@@ -220,6 +221,7 @@ class AppState extends ChangeNotifier {
     final snap = await OfflineCacheStore.loadCommodities();
     if (snap == null) return;
     commodityIndex = snap.quotes;
+    wallexMarkets = snap.wallexMarkets;
     commodityIndexUpdatedAt = snap.savedAt;
   }
 
@@ -457,21 +459,25 @@ class AppState extends ChangeNotifier {
     commodityIndexError = null;
     notifyListeners();
     try {
-      final quotes = await commodityIndexService!.fetch(
+      final bundle = await commodityIndexService!.fetchAll(
         wallexUrl: settings.wallexUrl.isEmpty
             ? AppConfig.defaultWallexUrl
             : settings.wallexUrl,
       );
-      final hasPrice = quotes.any((q) => q.price != null);
-      if (hasPrice) {
-        commodityIndex = quotes;
+      if (bundle.hasAnyPrice) {
+        commodityIndex = bundle.essentials;
+        wallexMarkets = bundle.wallexMarkets;
         commodityIndexUpdatedAt = DateTime.now();
-        await OfflineCacheStore.saveCommodities(quotes);
+        await OfflineCacheStore.saveCommodities(
+          bundle.essentials,
+          wallexMarkets: bundle.wallexMarkets,
+        );
         commodityIndexError = null;
       } else {
         final cached = await OfflineCacheStore.loadCommodities();
         if (cached != null) {
           commodityIndex = cached.quotes;
+          wallexMarkets = cached.wallexMarkets;
           commodityIndexUpdatedAt = cached.savedAt;
           commodityIndexError = 'آفلاین — قیمت‌های ذخیره‌شده نمایش داده می‌شود';
         } else {
@@ -482,6 +488,7 @@ class AppState extends ChangeNotifier {
       final cached = await OfflineCacheStore.loadCommodities();
       if (cached != null) {
         commodityIndex = cached.quotes;
+        wallexMarkets = cached.wallexMarkets;
         commodityIndexUpdatedAt = cached.savedAt;
         commodityIndexError = 'آفلاین — قیمت‌های ذخیره‌شده نمایش داده می‌شود';
       } else {
