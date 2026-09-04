@@ -11,6 +11,7 @@ import 'package:invest/ui/pages/trades_hub_page.dart';
 import 'package:invest/ui/pages/settings_page.dart';
 import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/connection_status_title.dart';
 import 'package:invest/ui/widgets/offline_banner.dart';
 import 'package:provider/provider.dart';
 
@@ -142,47 +143,47 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     ];
 
     final initialLoad = state.loading && state.metrics == null;
-    final offlineMsg = state.offlineBannerText;
+    final updating =
+        state.refreshing || (index == 3 && state.commodityIndexLoading);
+    final connectionStatus = AppConnectionStatus.resolve(
+      offline: state.offline,
+      updating: updating,
+    );
 
     return Scaffold(
       appBar: AppBar(
+        centerTitle: false,
+        titleSpacing: 16,
         title: Row(
           children: [
             const AppMark(size: 26),
             const SizedBox(width: 10),
-            Text(titles[index]),
+            Expanded(
+              child: ConnectionStatusTitle(
+                pageTitle: titles[index],
+                status: connectionStatus,
+              ),
+            ),
           ],
         ),
+        flexibleSpace: updating
+            ? const Align(
+                alignment: Alignment.bottomCenter,
+                child: ConnectionProgressBar(),
+              )
+            : null,
         actions: [
-          if (state.refreshing)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Center(
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            )
-          else
-            IconButton(
-              tooltip: state.offline ? 'تلاش برای اتصال' : 'بروزرسانی',
-              onPressed: state.refreshing ? null : () => _refreshAll(state),
-              icon: Icon(state.offline ? Icons.cloud_sync_outlined : Icons.refresh),
-            ),
+          IconButton(
+            tooltip: state.offline ? 'تلاش برای اتصال' : 'بروزرسانی',
+            onPressed: updating ? null : () => _refreshAll(state),
+            icon: const Icon(Icons.refresh),
+          ),
         ],
       ),
       body: initialLoad
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                if (offlineMsg != null)
-                  OfflineBanner(
-                    message: offlineMsg,
-                    reconnecting: state.refreshing,
-                    onReconnect: () => _refreshAll(state),
-                  ),
                 if (state.readOnlyOffline) const OfflineReadOnlyNotice(),
                 Expanded(
                   child: IndexedStack(

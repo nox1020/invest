@@ -73,20 +73,6 @@ class AppState extends ChangeNotifier {
 
   bool get canMutate => authenticated && !readOnlyOffline;
 
-  String? get offlineBannerText {
-    if (!offline) return null;
-    if (readOnlyOffline && lastSyncedAt != null) {
-      final t = lastSyncedAt!;
-      final stamp =
-          '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-      return 'حالت آفلاین — آخرین همگام‌سازی $stamp';
-    }
-    if (readOnlyOffline) {
-      return 'حالت آفلاین — داده‌های ذخیره‌شده روی دستگاه';
-    }
-    return 'فضای کاری محلی (آفلاین)';
-  }
-
   Future<void> init({Database? testDb}) async {
     loading = true;
     error = null;
