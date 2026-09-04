@@ -216,6 +216,10 @@ class RemoteInvestService {
     return Trade.fromMap(Map<String, Object?>.from(data['item'] as Map));
   }
 
+  Future<void> deleteClosedTrade(int tradeId) async {
+    await _api.delete('/invest/api/v1/trades/$tradeId');
+  }
+
   /// Returns null when the backend has no withdrawals API yet.
   Future<List<Withdrawal>?> listWithdrawals() async {
     try {

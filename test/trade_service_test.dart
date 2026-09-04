@@ -90,4 +90,40 @@ void main() {
     expect(m.goldOutG, 0);
     expect(m.goldHoldingG, 0);
   });
+
+  test('deleteClosedTrade removes history without changing inventory', () async {
+    final asset = await service.createAsset(
+      name: 'طلا',
+      symbol: 'GOLD',
+      quantity: 0,
+      avgBuyPrice: 0,
+      currentPrice: 30000000,
+    );
+    await service.registerBuy(
+      assetId: asset.id,
+      quantity: 10,
+      buyPrice: 30000000,
+    );
+    final open = await service.trades.listOpen();
+    await service.closeTrade(
+      tradeId: open.first.id!,
+      sellPrice: 31000000,
+      quantity: 4,
+    );
+    final closed = await service.trades.listClosed();
+    expect(closed.length, 1);
+
+    await service.deleteClosedTrade(closed.first.id!);
+    expect(await service.trades.listClosed(), isEmpty);
+
+    final remainingOpen = await service.trades.listOpen();
+    expect(remainingOpen.single.quantity, 6);
+    final refreshed = await service.assets.get(asset.id!);
+    expect(refreshed!.quantity, 6);
+
+    await expectLater(
+      service.deleteClosedTrade(remainingOpen.single.id!),
+      throwsA(isA<ArgumentError>()),
+    );
+  });
 }

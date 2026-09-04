@@ -294,6 +294,15 @@ class TradeService {
     return asset;
   }
 
+  Future<void> deleteClosedTrade(int tradeId) async {
+    final trade = await trades.get(tradeId);
+    if (trade == null) throw ArgumentError('معامله یافت نشد.');
+    if (!trade.isClosed) {
+      throw ArgumentError('فقط معاملات بسته‌شده را می‌توان از تاریخچه حذف کرد.');
+    }
+    await trades.delete(tradeId);
+  }
+
   Future<Asset> _resolveAsset({
     int? assetId,
     String? name,

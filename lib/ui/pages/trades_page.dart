@@ -27,7 +27,12 @@ class TradesPage extends StatelessWidget {
       itemBuilder: (context, i) => _TradeTile(
         trade: list[i],
         open: open,
-        onSell: open ? () => showSellTradeDialog(context, list[i]) : null,
+        onSell: open && state.canMutate
+            ? () => showSellTradeDialog(context, list[i])
+            : null,
+        onDelete: !open && state.canMutate
+            ? () => confirmDeleteClosedTrade(context, list[i])
+            : null,
       ),
     );
   }
@@ -179,6 +184,50 @@ Future<void> showSellTradeDialog(BuildContext context, Trade trade) async {
   }
 }
 
+Future<void> confirmDeleteClosedTrade(BuildContext context, Trade trade) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('حذف از تاریخچه'),
+      content: Text(
+        'تاریخچه معامله «${trade.assetName}» حذف شود؟\n'
+        'این کار فقط از سوابق حذف می‌کند و موجودی فعلی را تغییر نمی‌دهد.\n'
+        'این عمل قابل بازگشت نیست.',
+        textAlign: TextAlign.right,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('انصراف'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.negative,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('حذف'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true || !context.mounted) return;
+  final state = context.read<AppState>();
+  try {
+    await state.tradeService.deleteClosedTrade(trade.id!);
+    await state.refresh();
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('معامله از تاریخچه حذف شد')),
+      );
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+}
+
 class AssetChoice {
   AssetChoice(this.id, this.name);
   final int id;
@@ -186,10 +235,16 @@ class AssetChoice {
 }
 
 class _TradeTile extends StatelessWidget {
-  const _TradeTile({required this.trade, required this.open, this.onSell});
+  const _TradeTile({
+    required this.trade,
+    required this.open,
+    this.onSell,
+    this.onDelete,
+  });
   final Trade trade;
   final bool open;
   final VoidCallback? onSell;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -250,6 +305,18 @@ class _TradeTile extends StatelessWidget {
                 onPressed: onSell,
                 icon: const Icon(Icons.sell, size: 18),
                 label: const Text('فروش'),
+              ),
+            ),
+          ],
+          if (onDelete != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: onDelete,
+                style: TextButton.styleFrom(foregroundColor: AppTheme.negative),
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('حذف'),
               ),
             ),
           ],
