@@ -217,7 +217,16 @@ class RemoteInvestService {
   }
 
   Future<void> deleteClosedTrade(int tradeId) async {
-    await _api.delete('/invest/api/v1/trades/$tradeId');
+    try {
+      await _api.delete('/invest/api/v1/trades/$tradeId');
+    } on InvestApiException catch (e) {
+      final code = e.statusCode;
+      if (code == 404 || code == 405) {
+        await _api.post('/invest/api/v1/trades/$tradeId/delete');
+        return;
+      }
+      rethrow;
+    }
   }
 
   /// Returns null when the backend has no withdrawals API yet.

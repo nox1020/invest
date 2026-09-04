@@ -149,6 +149,12 @@ class InvestApiClient {
     await _session.setSessionCookie(_sessionCookie);
   }
 
+  String _fallbackHttpError(int statusCode) {
+    if (statusCode == 404) return 'مورد درخواستی در سرور یافت نشد.';
+    if (statusCode == 405) return 'این عملیات در سرور پشتیبانی نمی‌شود.';
+    return 'خطا در ارتباط با سرور.';
+  }
+
   Map<String, dynamic> _parseJson(http.Response response) {
     Map<String, dynamic> data;
     try {
@@ -172,8 +178,11 @@ class InvestApiClient {
     }
 
     if (response.statusCode >= 400 || data['success'] == false) {
+      final message = (data['message'] as String?)?.trim();
       throw InvestApiException(
-        (data['message'] as String?) ?? 'خطا در ارتباط با سرور.',
+        (message != null && message.isNotEmpty)
+            ? message
+            : _fallbackHttpError(response.statusCode),
         statusCode: response.statusCode,
         errorCode: data['error'] as String?,
       );
