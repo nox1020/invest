@@ -8,7 +8,8 @@ import 'package:invest/domain/services/commodity_index_service.dart';
 void main() {
   test('fetchAll returns essentials and all Wallex TMN markets', () async {
     final client = MockClient((request) async {
-      if (request.url.host.contains('persiantoolbox')) {
+      final host = request.url.host;
+      if (host.contains('persiantoolbox')) {
         return http.Response(
           jsonEncode({
             'ok': true,
@@ -29,9 +30,10 @@ void main() {
             },
           }),
           200,
+          headers: {'content-type': 'application/json'},
         );
       }
-      if (request.url.host.contains('wallex')) {
+      if (host.contains('wallex')) {
         return http.Response(
           jsonEncode({
             'result': {
@@ -84,6 +86,7 @@ void main() {
             },
           }),
           200,
+          headers: {'content-type': 'application/json'},
         );
       }
       return http.Response('{}', 404);
@@ -92,18 +95,22 @@ void main() {
     final service = CommodityIndexService(client: client);
     final bundle = await service.fetchAll(
       wallexUrl: 'https://api.wallex.ir/v1/markets',
+      marketUrl: 'https://persiantoolbox.ir/api/market',
     );
 
-    expect(bundle.essentials.length, 10);
-    expect(bundle.essentials.first.symbol, 'USDT');
-    expect(bundle.essentials.first.price, 92000);
+    expect(bundle.essentials, hasLength(10));
+
+    final usdt = bundle.essentials.firstWhere((q) => q.symbol == 'USDT');
+    expect(usdt.price, closeTo(92000, 0.01));
+
     // Only TMN quote markets, not USDT pairs.
-    expect(bundle.wallexMarkets.length, 3);
+    expect(bundle.wallexMarkets, hasLength(3));
     expect(bundle.wallexMarkets.every((q) => q.unit == 'toman'), isTrue);
-    expect(bundle.wallexMarkets.first.symbol, 'BTC'); // highest volume
     expect(
-      bundle.wallexMarkets.map((e) => e.symbol),
-      containsAll(['BTC', 'USDT', 'DOGE']),
+      bundle.wallexMarkets.map((e) => e.symbol).toList(),
+      containsAll(<String>['BTC', 'USDT', 'DOGE']),
     );
+    expect(bundle.wallexMarkets.first.symbol, 'BTC'); // highest volume
+    expect(bundle.wallexMarkets.any((q) => q.symbol == 'ETH'), isFalse);
   });
 }

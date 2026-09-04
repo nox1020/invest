@@ -36,11 +36,9 @@ class CommodityIndexService {
         ? wallexUrl!
         : AppConfig.defaultWallexUrl;
 
-    final marketFuture = _fetchPersianMarket(marketUrl);
-    final wallexFuture = _fetchWallexPayload(wallexUrlResolved);
-
-    final market = await marketFuture;
-    final wallex = await wallexFuture;
+    // Sequential fetches keep shared http.Client / MockClient deterministic.
+    final market = await _fetchPersianMarket(marketUrl);
+    final wallex = await _fetchWallexPayload(wallexUrlResolved);
 
     final essentials = _buildEssentials(market, wallex);
     final wallexMarkets = _parseWallexTmnMarkets(wallex);
@@ -190,21 +188,18 @@ class CommodityIndexService {
   }
 
   List<CommodityQuote> _parseWallexTmnMarkets(Map<String, dynamic>? wallex) {
-    if (wallex == null) return const [];
-    final result = wallex['result'];
-    if (result is! Map) return const [];
-    final symbols = result['symbols'];
-    if (symbols is! Map) return const [];
+    final symbols = _symbolsMap(wallex);
+    if (symbols == null) return const [];
 
     final items = <CommodityQuote>[];
     for (final entry in symbols.entries) {
-      final raw = entry.value;
-      if (raw is! Map) continue;
+      final raw = _asMap(entry.value);
+      if (raw == null) continue;
       final quoteAsset = '${raw['quoteAsset'] ?? ''}'.toUpperCase();
       if (quoteAsset != 'TMN') continue;
 
-      final stats = raw['stats'];
-      if (stats is! Map) continue;
+      final stats = _asMap(raw['stats']);
+      if (stats == null) continue;
 
       final price = _num(stats['lastPrice']) ??
           _num(stats['bidPrice']) ??
@@ -246,17 +241,14 @@ class CommodityIndexService {
     Map<String, dynamic>? wallex,
     String marketSymbol,
   ) {
-    if (wallex == null) return null;
-    final result = wallex['result'];
-    if (result is! Map) return null;
-    final symbols = result['symbols'];
-    if (symbols is! Map) return null;
-    final raw = symbols[marketSymbol];
-    if (raw is! Map) return null;
-    final stats = raw['stats'];
-    if (stats is! Map) return null;
+    final symbols = _symbolsMap(wallex);
+    if (symbols == null) return null;
+    final raw = _asMap(symbols[marketSymbol]);
+    if (raw == null) return null;
+    final stats = _asMap(raw['stats']);
+    if (stats == null) return null;
     final price = _num(stats['lastPrice']) ?? _num(stats['bidPrice']);
-    if (price == null) return null;
+    if (price == null || price <= 0) return null;
     return CommodityQuote(
       id: marketSymbol.toLowerCase(),
       name: '${raw['faBaseAsset'] ?? marketSymbol}',
@@ -275,6 +267,21 @@ class CommodityIndexService {
     return null;
   }
 
+  Map<String, dynamic>? _symbolsMap(Map<String, dynamic>? wallex) {
+    if (wallex == null) return null;
+    final result = _asMap(wallex['result']);
+    if (result == null) return null;
+    return _asMap(result['symbols']);
+  }
+
+  Map<String, dynamic>? _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) {
+      return value.map((k, v) => MapEntry(k.toString(), v));
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>?> _fetchPersianMarket(String? marketUrl) async {
     final url = Uri.parse(
       marketUrl?.isNotEmpty == true
@@ -285,10 +292,10 @@ class CommodityIndexService {
       final res = await _client.get(url).timeout(const Duration(seconds: 12));
       if (res.statusCode != 200) return null;
       final body = jsonDecode(res.body);
-      if (body is! Map) return null;
-      final data = body['data'];
-      if (data is Map) return Map<String, dynamic>.from(data);
-      return Map<String, dynamic>.from(body);
+      final root = _asMap(body);
+      if (root == null) return null;
+      final data = _asMap(root['data']);
+      return data ?? root;
     } catch (_) {
       return null;
     }
@@ -300,17 +307,15 @@ class CommodityIndexService {
           .get(Uri.parse(wallexUrl))
           .timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) return null;
-      final body = jsonDecode(res.body);
-      if (body is Map) return Map<String, dynamic>.from(body);
-    } catch (_) {}
-    return null;
+      return _asMap(jsonDecode(res.body));
+    } catch (_) {
+      return null;
+    }
   }
 
   static double? _num(dynamic v) {
     if (v == null) return null;
     if (v is num) return v.toDouble();
-    final n = double.tryParse('$v');
-    if (n == null) return null;
-    return n;
+    return double.tryParse('$v');
   }
 }
