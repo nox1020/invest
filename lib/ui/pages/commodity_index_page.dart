@@ -35,7 +35,11 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: shellPagePadding(),
         children: [
-          _IndexHeader(updatedAt: state.commodityIndexUpdatedAt),
+          _IndexHeader(
+            updatedAt: state.commodityIndexUpdatedAt,
+            offlineHint: state.offline ||
+                (state.commodityIndexError?.contains('آفلاین') ?? false),
+          ),
           const SizedBox(height: 12),
           if (state.commodityIndexLoading && state.commodityIndex.isEmpty)
             const Padding(
@@ -74,9 +78,10 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
 }
 
 class _IndexHeader extends StatelessWidget {
-  const _IndexHeader({this.updatedAt});
+  const _IndexHeader({this.updatedAt, this.offlineHint = false});
 
   final DateTime? updatedAt;
+  final bool offlineHint;
 
   @override
   Widget build(BuildContext context) {
@@ -111,10 +116,16 @@ class _IndexHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 6),
-          const Text(
-            'نرخ ۱۰ کالای پرکاربرد — ارز، طلا، سکه و رمزارز',
+          Text(
+            offlineHint
+                ? 'نمایش قیمت‌های ذخیره‌شده — اتصال اینترنت برای بروزرسانی'
+                : 'نرخ ۱۰ کالای پرکاربرد — ارز، طلا، سکه و رمزارز',
             textAlign: TextAlign.right,
-            style: TextStyle(color: Color(0xFFB8D4C6), fontSize: 12, height: 1.4),
+            style: const TextStyle(
+              color: Color(0xFFB8D4C6),
+              fontSize: 12,
+              height: 1.4,
+            ),
           ),
           if (time != null) ...[
             const SizedBox(height: 8),

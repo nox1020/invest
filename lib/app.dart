@@ -11,6 +11,7 @@ import 'package:invest/ui/pages/trades_hub_page.dart';
 import 'package:invest/ui/pages/settings_page.dart';
 import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/offline_banner.dart';
 import 'package:provider/provider.dart';
 
 class InvestApp extends StatelessWidget {
@@ -88,6 +89,20 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   Future<void> _refreshAll(AppState state) async {
+    if (state.offline) {
+      final ok = await state.tryGoOnline();
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('هنوز آفلاین هستید — داده‌های ذخیره‌شده نمایش داده می‌شود'),
+          ),
+        );
+      }
+      if (index == 3) {
+        await state.refreshCommodityIndex();
+      }
+      return;
+    }
     await state.refreshAll();
     if (index == 3) {
       await state.refreshCommodityIndex();
@@ -95,6 +110,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   Widget? _floatingActionButton(BuildContext context) {
+    final state = context.read<AppState>();
+    if (!state.canMutate) return null;
     switch (index) {
       case 1:
         return FloatingActionButton.extended(
@@ -125,6 +142,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     ];
 
     final initialLoad = state.loading && state.metrics == null;
+    final offlineMsg = state.offlineBannerText;
 
     return Scaffold(
       appBar: AppBar(
@@ -149,18 +167,31 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             )
           else
             IconButton(
-              tooltip: 'بروزرسانی',
+              tooltip: state.offline ? 'تلاش برای اتصال' : 'بروزرسانی',
               onPressed: state.refreshing ? null : () => _refreshAll(state),
-              icon: const Icon(Icons.refresh),
+              icon: Icon(state.offline ? Icons.cloud_sync_outlined : Icons.refresh),
             ),
         ],
       ),
       body: initialLoad
           ? const Center(child: CircularProgressIndicator())
-          : IndexedStack(
-              index: index,
-              sizing: StackFit.expand,
-              children: pages,
+          : Column(
+              children: [
+                if (offlineMsg != null)
+                  OfflineBanner(
+                    message: offlineMsg,
+                    reconnecting: state.refreshing,
+                    onReconnect: () => _refreshAll(state),
+                  ),
+                if (state.readOnlyOffline) const OfflineReadOnlyNotice(),
+                Expanded(
+                  child: IndexedStack(
+                    index: index,
+                    sizing: StackFit.expand,
+                    children: pages,
+                  ),
+                ),
+              ],
             ),
       floatingActionButton: initialLoad ? null : _floatingActionButton(context),
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,

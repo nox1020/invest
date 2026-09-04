@@ -14,7 +14,36 @@ class DashboardPage extends StatelessWidget {
     final state = context.watch<AppState>();
     final m = state.metrics;
     if (m == null) {
-      return const Center(child: Text('داده‌ای نیست'));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                state.offline ? Icons.cloud_off_outlined : Icons.inbox_outlined,
+                size: 40,
+                color: AppTheme.muted,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                state.offline
+                    ? 'هنوز داده‌ای برای نمایش آفلاین ذخیره نشده است'
+                    : 'داده‌ای نیست',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppTheme.muted),
+              ),
+              if (state.offline) ...[
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: () => state.tryGoOnline(),
+                  child: const Text('تلاش برای اتصال'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
     }
     final g = m.goldFund;
     final narrow = MediaQuery.sizeOf(context).width < 520;
