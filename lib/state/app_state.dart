@@ -225,21 +225,6 @@ class AppState extends ChangeNotifier {
     commodityIndexUpdatedAt = snap.savedAt;
   }
 
-  /// Explicit offline entry from login (local writable workspace).
-  Future<void> enterOfflineLocalMode() async {
-    loading = true;
-    error = null;
-    notifyListeners();
-    try {
-      await _enterLocalSqliteMode(markOffline: true);
-    } catch (e) {
-      error = e.toString();
-    } finally {
-      loading = false;
-      notifyListeners();
-    }
-  }
-
   Future<void> _enterLocalSqliteMode({required bool markOffline}) async {
     final db = await AppDatabase.instance.database;
     useRemote = false;

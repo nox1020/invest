@@ -16,7 +16,6 @@ class _LoginPageState extends State<LoginPage> {
   final _codeCtrl = TextEditingController();
   bool _otpSent = false;
   bool _busy = false;
-  bool _offlineBusy = false;
   String? _error;
   String? _debugCode;
 
@@ -62,23 +61,9 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<void> _enterOffline() async {
-    setState(() {
-      _offlineBusy = true;
-      _error = null;
-    });
-    try {
-      await context.read<AppState>().enterOfflineLocalMode();
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _offlineBusy = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final blocked = _busy || _offlineBusy;
+    final blocked = _busy;
 
     return Scaffold(
       body: SafeArea(
@@ -164,76 +149,6 @@ class _LoginPageState extends State<LoginPage> {
                 child: const Text('تغییر شماره'),
               ),
             ],
-            const SizedBox(height: 28),
-            const Row(
-              children: [
-                Expanded(child: Divider()),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text(
-                    'یا',
-                    style: TextStyle(color: AppTheme.muted),
-                  ),
-                ),
-                Expanded(child: Divider()),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppTheme.card,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.border),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Text(
-                        'بدون اینترنت',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.title,
-                        ),
-                      ),
-                      SizedBox(width: 8),
-                      Icon(
-                        Icons.cloud_off_outlined,
-                        color: AppTheme.positive,
-                        size: 20,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'اگر اینترنت ندارید، می‌توانید با فضای کاری محلی وارد شوید. داده‌های قبلی ذخیره‌شده در صورت وجود نمایش داده می‌شود.',
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      color: AppTheme.muted,
-                      fontSize: 12,
-                      height: 1.45,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  OutlinedButton.icon(
-                    onPressed: blocked ? null : _enterOffline,
-                    icon: _offlineBusy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.phone_android_rounded, size: 18),
-                    label: Text(
-                      _offlineBusy ? 'در حال ورود…' : 'ورود آفلاین',
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
