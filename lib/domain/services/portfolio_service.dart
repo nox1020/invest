@@ -39,6 +39,7 @@ class PortfolioService {
     }
 
     final gold = await tradeService.goldFundMetrics();
+    final growth = await loadGrowthSeries(totalValue);
     return DashboardMetrics(
       totalValue: totalValue,
       totalPnl: totalPnl,
@@ -50,7 +51,26 @@ class PortfolioService {
       yearRealizedPnl: yearRealized,
       yearKey: yearKey,
       goldFund: gold,
+      growthSeries: growth,
     );
+  }
+
+  Future<List<SeriesPoint>> loadGrowthSeries(double todayValue) async {
+    final today = todayIso();
+    final rows = await _db.query('capital_snapshots', orderBy: 'date ASC');
+    final points = <SeriesPoint>[];
+    for (final row in rows) {
+      final date = (row['date'] as String?) ?? '';
+      if (date.isEmpty || date == today) continue;
+      points.add(
+        SeriesPoint(
+          date: date.length >= 10 ? date.substring(0, 10) : date,
+          value: (row['total_value'] as num?)?.toDouble() ?? 0,
+        ),
+      );
+    }
+    points.add(SeriesPoint(date: today, value: todayValue));
+    return points;
   }
 
   Future<void> recordSnapshot() async {

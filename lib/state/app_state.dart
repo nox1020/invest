@@ -14,6 +14,7 @@ import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/domain/services/chart_series.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/portfolio_service.dart';
 import 'package:invest/domain/services/quote_clients.dart';
@@ -76,6 +77,21 @@ class AppState extends ChangeNotifier {
   final ResumeRefreshDebouncer _resumeDebouncer = ResumeRefreshDebouncer();
 
   bool get canMutate => authenticated && !readOnlyOffline;
+
+  List<SeriesPoint> get capitalGrowthSeries => ensureChartSeries(
+        metrics?.growthSeries ?? const [],
+        todayValue: metrics?.totalValue ?? 0,
+      );
+
+  List<SeriesPoint> get yearRealizedChartSeries {
+    final m = metrics;
+    if (m == null) return const [];
+    return yearRealizedSeries(
+      closedTrades: closedTrades,
+      yearKey: m.yearKey,
+      calendar: settings.calendar,
+    );
+  }
 
   double get withdrawnTotal => withdrawals
       .where((w) => w.status != 'rejected')

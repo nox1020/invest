@@ -49,6 +49,17 @@ String formatDisplayDate(String? iso, String calendar) {
   return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 }
 
+/// Compact tick label for charts (`۱۵/۰۵` style).
+String formatChartTickDate(String iso, String calendar) {
+  if (iso.isEmpty) return '—';
+  final d = parseIsoDate(iso);
+  if (calendar == 'jalali') {
+    final j = Jalali.fromDateTime(d);
+    return '${j.day.toString().padLeft(2, '0')}/${j.month.toString().padLeft(2, '0')}';
+  }
+  return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
+}
+
 int holdingDays(String buyDate, String sellDate) {
   final a = parseIsoDate(buyDate);
   final b = parseIsoDate(sellDate);

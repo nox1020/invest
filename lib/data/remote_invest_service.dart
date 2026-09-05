@@ -89,6 +89,7 @@ class RemoteInvestService {
         goldOutG: _num(g['gold_out_g']),
         goldHoldingG: _num(g['gold_holding_g']),
       ),
+      growthSeries: SeriesPoint.fromJsonList(data['growth_series']),
     );
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
+import 'package:invest/ui/pages/capital_chart_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/metric_card.dart';
 import 'package:provider/provider.dart';
@@ -45,9 +46,17 @@ class DashboardPage extends StatelessWidget {
         ),
       );
     }
-    final g = m.goldFund;
     final narrow = MediaQuery.sizeOf(context).width < 520;
+    final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
+    final usdValue = tomanToUsd(m.totalValue, usdt);
+    final usdYear = tomanToUsd(m.yearRealizedPnl, usdt);
     String tone(num v) => v > 0 ? 'positive' : (v < 0 ? 'negative' : '');
+
+    void openCharts() {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const CapitalChartPage()),
+      );
+    }
 
     Widget metricRow(List<Widget> cards, {double gap = 12}) {
       if (narrow) {
@@ -82,46 +91,22 @@ class DashboardPage extends StatelessWidget {
             MetricCard(
               title: 'ارزش کل سرمایه',
               value: formatMoney(m.totalValue),
+              caption: usdValue == null ? null : formatUsd(usdValue),
               hero: true,
+              onTap: openCharts,
             ),
             MetricCard(
               title: 'سود سالانه تحقق‌یافته',
               value: formatMoney(m.yearRealizedPnl, showSign: true),
-              caption: m.yearKey,
+              caption: [
+                if (m.yearKey.isNotEmpty) m.yearKey,
+                if (usdYear != null) formatUsd(usdYear, showSign: true),
+              ].join(' · '),
               tone: tone(m.yearRealizedPnl),
               hero: true,
+              onTap: openCharts,
             ),
           ]),
-          const SizedBox(height: 18),
-          const Text(
-            'صندوق طلا',
-            textAlign: TextAlign.right,
-            style: TextStyle(
-              color: AppTheme.title,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-            ),
-          ),
-          const SizedBox(height: 10),
-          metricRow(
-            [
-              MetricCard(
-                title: 'طلای واردشده',
-                value: formatGrams(g.goldInG),
-              ),
-              MetricCard(
-                title: 'طلای خارج‌شده',
-                value: formatGrams(g.goldOutG),
-              ),
-              MetricCard(
-                title: 'موجودی طلا',
-                value: formatGrams(g.goldHoldingG),
-                caption: g.goldHoldingG > 0 ? 'بدهی به صندوق' : null,
-                tone: g.goldHoldingG > 0 ? 'negative' : null,
-              ),
-            ],
-            gap: 8,
-          ),
           const SizedBox(height: 18),
           const Text(
             'خلاصه',
@@ -137,12 +122,19 @@ class DashboardPage extends StatelessWidget {
             MetricCard(
               title: 'سود / زیان کل',
               value: formatMoney(m.totalPnl, showSign: true),
-              caption: formatPct(m.totalPnlPct),
+              caption: [
+                formatPct(m.totalPnlPct),
+                if (tomanToUsd(m.totalPnl, usdt) != null)
+                  formatUsd(tomanToUsd(m.totalPnl, usdt)!, showSign: true),
+              ].join(' · '),
               tone: tone(m.totalPnl),
             ),
             MetricCard(
               title: 'تحقق‌یافته',
               value: formatMoney(m.realizedPnl, showSign: true),
+              caption: tomanToUsd(m.realizedPnl, usdt) == null
+                  ? null
+                  : formatUsd(tomanToUsd(m.realizedPnl, usdt)!, showSign: true),
               tone: tone(m.realizedPnl),
             ),
           ], gap: 8),
@@ -157,25 +149,6 @@ class DashboardPage extends StatelessWidget {
               value: '${m.closedCount}',
             ),
           ], gap: 8),
-          if (state.liveUsdt != null || state.settings.usdtTmnRate != null) ...[
-            const SizedBox(height: 18),
-            MetricCard(
-              title: 'نرخ تتر',
-              value:
-                  '${formatNumber(state.liveUsdt ?? state.settings.usdtTmnRate ?? 0)} تومان',
-              caption: state.liveUsdt != null ? 'زنده' : 'ذخیره‌شده',
-            ),
-          ],
-          if (state.liveGold != null ||
-              state.settings.goldTmnPerGram != null) ...[
-            const SizedBox(height: 8),
-            MetricCard(
-              title: 'قیمت طلا (گرم)',
-              value:
-                  '${formatNumber(state.liveGold ?? state.settings.goldTmnPerGram ?? 0)} تومان',
-              caption: state.liveGold != null ? 'زنده' : 'ذخیره‌شده',
-            ),
-          ],
         ],
       ),
     );

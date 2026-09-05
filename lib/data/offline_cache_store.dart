@@ -54,6 +54,8 @@ class OfflineCacheStore {
         'gold_in_g': metrics.goldFund.goldInG,
         'gold_out_g': metrics.goldFund.goldOutG,
         'gold_holding_g': metrics.goldFund.goldHoldingG,
+        'growth_series':
+            metrics.growthSeries.map((p) => p.toJson()).toList(),
       },
       'assets': assets.map(_assetJson).toList(),
       'open_trades': openTrades.map(_tradeJson).toList(),
@@ -99,6 +101,9 @@ class OfflineCacheStore {
           goldInG: _d(m['gold_in_g']),
           goldOutG: _d(m['gold_out_g']),
           goldHoldingG: _d(m['gold_holding_g']),
+        ),
+        growthSeries: SeriesPoint.fromJsonList(
+          m['growth_series'] ?? map['growth_series'],
         ),
       );
       final assets = ((map['assets'] as List?) ?? const [])
