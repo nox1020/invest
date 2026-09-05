@@ -317,8 +317,11 @@ class TradeService {
       asset.quantity = 0;
       asset.avgBuyPrice = 0;
     } else {
-      final cost =
-          openLots.fold<double>(0, (s, t) => s + t.quantity * t.buyPrice);
+      // Fee-inclusive average — matches Vinor / desktop inventory sync.
+      final cost = openLots.fold<double>(
+        0,
+        (s, t) => s + t.quantity * t.buyPrice + t.buyFee,
+      );
       asset.quantity = totalQty;
       asset.avgBuyPrice = cost / totalQty;
     }

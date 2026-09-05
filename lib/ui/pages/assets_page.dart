@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
@@ -19,24 +20,40 @@ const _allocationColors = <Color>[
   Color(0xFFFF8FAB),
 ];
 
+Color _colorForAsset(Asset asset) {
+  final key = asset.symbol.trim().isNotEmpty ? asset.symbol : asset.name;
+  return _allocationColors[key.hashCode.abs() % _allocationColors.length];
+}
+
 class AssetsPage extends StatelessWidget {
   const AssetsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final holdings = HoldingMetrics.activeHoldings(
+      assets: state.assets,
+      openTrades: state.openTrades,
+    );
+
     if (state.assets.isEmpty) {
       return const Center(child: Text('هنوز دارایی ثبت نشده'));
     }
+    if (holdings.isEmpty) {
+      return const Center(
+        child: Text(
+          'موجودی بازی برای نمایش نیست',
+          style: TextStyle(color: AppTheme.muted),
+        ),
+      );
+    }
 
-    final assets = [...state.assets]
-      ..sort((a, b) => b.totalValue.compareTo(a.totalValue));
     final totalValue =
-        assets.fold<double>(0, (s, a) => s + a.totalValue);
+        holdings.fold<double>(0, (s, h) => s + h.metrics.marketValue);
     final totalPnl =
-        assets.fold<double>(0, (s, a) => s + a.unrealizedPnl);
+        holdings.fold<double>(0, (s, h) => s + h.metrics.unrealizedPnl);
     final totalCost =
-        assets.fold<double>(0, (s, a) => s + a.costBasis);
+        holdings.fold<double>(0, (s, h) => s + h.metrics.costBasis);
     final pnlPct = totalCost.abs() < 1e-12 ? 0.0 : totalPnl / totalCost * 100;
     final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
 
@@ -53,12 +70,13 @@ class AssetsPage extends StatelessWidget {
             usdt: usdt,
           ),
           const SizedBox(height: 18),
-          _AllocationSection(assets: assets, totalValue: totalValue),
+          _AllocationSection(holdings: holdings, totalValue: totalValue),
           const SizedBox(height: 16),
-          for (var i = 0; i < assets.length; i++) ...[
+          for (var i = 0; i < holdings.length; i++) ...[
             if (i > 0) const SizedBox(height: 10),
             _AssetCard(
-              asset: assets[i],
+              asset: holdings[i].asset,
+              metrics: holdings[i].metrics,
               usdt: usdt,
               canMutate: state.canMutate,
             ),
@@ -104,7 +122,7 @@ class _PortfolioSummaryRow extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: _SummaryCard(
-            title: 'سود/ضرر پورتفو',
+            title: 'سود/ضرر تحقق‌نیافته',
             primary: usdPnl != null
                 ? formatUsd(usdPnl, showSign: true)
                 : formatCompactToman(totalPnl, showSign: true),
@@ -214,24 +232,25 @@ class _SummaryCard extends StatelessWidget {
 
 class _AllocationSection extends StatelessWidget {
   const _AllocationSection({
-    required this.assets,
+    required this.holdings,
     required this.totalValue,
   });
 
-  final List<Asset> assets;
+  final List<({Asset asset, HoldingMetrics metrics})> holdings;
   final double totalValue;
 
   @override
   Widget build(BuildContext context) {
     final slices = <AllocationSlice>[];
-    for (var i = 0; i < assets.length; i++) {
-      final a = assets[i];
-      if (a.totalValue <= 0) continue;
+    for (final h in holdings) {
+      if (h.metrics.marketValue <= 0) continue;
       slices.add(
         AllocationSlice(
-          label: a.symbol.trim().isNotEmpty ? a.symbol.trim() : a.name,
-          share: totalValue <= 0 ? 0 : a.totalValue / totalValue,
-          color: _allocationColors[i % _allocationColors.length],
+          label: h.asset.symbol.trim().isNotEmpty
+              ? h.asset.symbol.trim()
+              : h.asset.name,
+          share: totalValue <= 0 ? 0 : h.metrics.marketValue / totalValue,
+          color: _colorForAsset(h.asset),
         ),
       );
     }
@@ -303,24 +322,31 @@ class _AllocationSection extends StatelessWidget {
 class _AssetCard extends StatelessWidget {
   const _AssetCard({
     required this.asset,
+    required this.metrics,
     required this.usdt,
     required this.canMutate,
   });
 
   final Asset asset;
+  final HoldingMetrics metrics;
   final double? usdt;
   final bool canMutate;
 
   @override
   Widget build(BuildContext context) {
-    final usdValue = tomanToUsd(asset.totalValue, usdt);
-    final usdPnl = tomanToUsd(asset.unrealizedPnl, usdt);
-    final usdPrice = tomanToUsd(asset.currentPrice, usdt);
+    final usdValue = tomanToUsd(metrics.marketValue, usdt);
+    final usdPnl = tomanToUsd(metrics.unrealizedPnl, usdt);
+    final usdPrice = tomanToUsd(metrics.currentPrice, usdt);
+    final usdAvg = tomanToUsd(metrics.avgBuyPrice, usdt);
     final qtyDecimals =
-        (asset.quantity - asset.quantity.roundToDouble()).abs() < 1e-9 ? 0 : 4;
+        (metrics.quantity - metrics.quantity.roundToDouble()).abs() < 1e-9
+            ? 0
+            : 4;
     final qtyLabel = asset.symbol.trim().isEmpty
-        ? formatNumber(asset.quantity, decimals: qtyDecimals)
-        : '${formatNumber(asset.quantity, decimals: qtyDecimals)} ${asset.symbol.trim()}';
+        ? formatNumber(metrics.quantity, decimals: qtyDecimals)
+        : '${formatNumber(metrics.quantity, decimals: qtyDecimals)} ${asset.symbol.trim()}';
+    final pnlTone =
+        metrics.unrealizedPnl >= 0 ? AppTheme.positive : AppTheme.negative;
 
     return Material(
       color: AppTheme.card,
@@ -374,7 +400,7 @@ class _AssetCard extends StatelessWidget {
                       Text(
                         usdValue != null
                             ? formatUsd(usdValue, compact: true)
-                            : formatCompactToman(asset.totalValue),
+                            : formatCompactToman(metrics.marketValue),
                         style: const TextStyle(
                           color: AppTheme.title,
                           fontSize: 18,
@@ -383,7 +409,7 @@ class _AssetCard extends StatelessWidget {
                       ),
                       if (usdValue != null)
                         Text(
-                          formatCompactToman(asset.totalValue),
+                          formatCompactToman(metrics.marketValue),
                           style: const TextStyle(
                             color: AppTheme.muted,
                             fontSize: 12,
@@ -416,22 +442,34 @@ class _AssetCard extends StatelessWidget {
                 padding: EdgeInsets.symmetric(vertical: 10),
                 child: Divider(height: 1, color: AppTheme.border),
               ),
-              if (usdPnl != null)
-                _StatRow(
-                  label: 'سود/ضرر به دلار',
-                  value: formatUsd(usdPnl, compact: true, showSign: true),
-                  pct: asset.unrealizedPnlPct,
-                ),
               _StatRow(
-                label: 'سود/ضرر به تومان',
-                value: formatCompactToman(asset.unrealizedPnl, showSign: true),
-                pct: asset.unrealizedPnlPct,
+                label: 'سود/ضرر',
+                value: usdPnl != null
+                    ? formatUsd(usdPnl, compact: true, showSign: true)
+                    : formatCompactToman(metrics.unrealizedPnl, showSign: true),
+                secondary: usdPnl != null
+                    ? formatCompactToman(metrics.unrealizedPnl, showSign: true)
+                    : null,
+                pct: metrics.unrealizedPnlPct,
+                valueColor: pnlTone,
+              ),
+              _StatRow(
+                label: 'میانگین خرید',
+                value: usdAvg != null
+                    ? formatUsd(usdAvg)
+                    : formatMoney(metrics.avgBuyPrice),
+                secondary: usdAvg != null
+                    ? formatMoney(metrics.avgBuyPrice)
+                    : null,
               ),
               _StatRow(
                 label: 'قیمت لحظه‌ای',
                 value: usdPrice != null
                     ? formatUsd(usdPrice)
-                    : formatMoney(asset.currentPrice),
+                    : formatMoney(metrics.currentPrice),
+                secondary: usdPrice != null
+                    ? formatMoney(metrics.currentPrice)
+                    : null,
               ),
             ],
           ),
@@ -445,20 +483,20 @@ class _StatRow extends StatelessWidget {
   const _StatRow({
     required this.label,
     required this.value,
+    this.secondary,
     this.pct,
+    this.valueColor,
   });
 
   final String label;
   final String value;
+  final String? secondary;
   final double? pct;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
-    final tone = pct == null
-        ? AppTheme.title
-        : pct! >= 0
-            ? AppTheme.positive
-            : AppTheme.negative;
+    final tone = valueColor ?? AppTheme.title;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
@@ -472,13 +510,27 @@ class _StatRow extends StatelessWidget {
             _PctBadge(pct: pct!),
             const SizedBox(width: 8),
           ],
-          Text(
-            value,
-            style: TextStyle(
-              color: tone,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                value,
+                style: TextStyle(
+                  color: tone,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (secondary != null)
+                Text(
+                  secondary!,
+                  style: TextStyle(
+                    color: tone == AppTheme.title ? AppTheme.muted : tone,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -518,18 +570,13 @@ class _AssetAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _colorFor(asset);
+    final color = _colorForAsset(asset);
     return CircleAvatar(
       radius: 18,
       backgroundColor: color.withValues(alpha: 0.18),
       child: Icon(_iconFor(asset), color: color, size: 20),
     );
   }
-}
-
-Color _colorFor(Asset asset) {
-  final key = asset.symbol.trim().isNotEmpty ? asset.symbol : asset.name;
-  return _allocationColors[key.hashCode.abs() % _allocationColors.length];
 }
 
 IconData _iconFor(Asset asset) {

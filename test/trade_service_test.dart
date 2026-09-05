@@ -152,7 +152,25 @@ void main() {
 
     final refreshed = await service.assets.get(asset.id!);
     expect(refreshed!.quantity, 5);
-    expect(refreshed.avgBuyPrice, 80);
+    // (5 * 80 + 4) / 5 — buy fee is part of average cost.
+    expect(refreshed.avgBuyPrice, closeTo(80.8, 1e-9));
+  });
+
+  test('avg buy price includes fees across open lots', () async {
+    final asset = await service.createAsset(
+      name: 'SOL',
+      symbol: 'SOL',
+      quantity: 0,
+    );
+    await service.registerBuy(
+      assetId: asset.id,
+      quantity: 10,
+      buyPrice: 100,
+      buyFee: 20,
+    );
+    final refreshed = await service.assets.get(asset.id!);
+    expect(refreshed!.avgBuyPrice, closeTo(102, 1e-9));
+    expect(refreshed.quantity, 10);
   });
 
   test('updateOpenTrade rejects closed lots', () async {
