@@ -1,4 +1,5 @@
 import 'package:invest/config/app_config.dart';
+import 'package:invest/domain/utils/dates.dart';
 
 class Trade {
   Trade({
@@ -49,6 +50,22 @@ class Trade {
   bool get isClosed => status == AppConfig.tradeClosed;
 
   double get buyCost => quantity * buyPrice + buyFee;
+
+  double get markPrice =>
+      isOpen ? currentPrice : (sellPrice ?? currentPrice);
+
+  double get currentValue => quantity * markPrice;
+
+  double get unrealizedPnl =>
+      quantity * (currentPrice - buyPrice) - buyFee;
+
+  double get unrealizedPnlPct {
+    if (buyCost.abs() < 1e-12) return 0;
+    return unrealizedPnl / buyCost * 100;
+  }
+
+  /// Days since buy for an open lot (0 if closed or undated).
+  int get openDays => isOpen ? openHoldingDays(buyDate) : (holdingDays ?? 0);
 
   factory Trade.fromMap(Map<String, Object?> m) => Trade(
         id: m['id'] as int?,

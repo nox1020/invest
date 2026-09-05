@@ -365,12 +365,17 @@ class _TradeTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.read<AppState>();
-    final pnl = trade.realizedPnl;
+    final qtyDecimals =
+        (trade.quantity - trade.quantity.roundToDouble()).abs() < 1e-9 ? 0 : 4;
+    final qtyText = formatNumber(trade.quantity, decimals: qtyDecimals);
+    final openPnl = trade.unrealizedPnl;
+    final closedPnl = trade.realizedPnl;
+
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
         color: AppTheme.card,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.border),
       ),
       child: Column(
@@ -381,38 +386,83 @@ class _TradeTile extends StatelessWidget {
             textAlign: TextAlign.right,
             style: const TextStyle(
               color: AppTheme.title,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            [
-              'مقدار: ${formatNumber(trade.quantity, decimals: 4)}',
-              'خرید: ${formatMoney(trade.buyPrice)}',
-              if (!open && trade.sellPrice != null)
-                'فروش: ${formatMoney(trade.sellPrice!)}',
-            ].join('  ·  '),
-            textAlign: TextAlign.right,
-            style: const TextStyle(color: AppTheme.muted, fontSize: 12),
-          ),
-          Text(
-            open
-                ? 'تاریخ خرید: ${formatDisplayDate(trade.buyDate, state.settings.calendar)}'
-                : 'فروش: ${formatDisplayDate(trade.sellDate, state.settings.calendar)}',
-            textAlign: TextAlign.right,
-            style: const TextStyle(color: AppTheme.muted, fontSize: 11),
-          ),
-          if (!open && pnl != null) ...[
-            const SizedBox(height: 4),
+          if (trade.assetSymbol.trim().isNotEmpty)
             Text(
-              formatMoney(pnl, showSign: true),
+              trade.assetSymbol,
               textAlign: TextAlign.right,
-              style: TextStyle(
-                color: pnl >= 0 ? AppTheme.positive : AppTheme.negative,
-                fontWeight: FontWeight.w700,
-              ),
+              style: const TextStyle(color: AppTheme.muted, fontSize: 12),
             ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(height: 1, color: AppTheme.border),
+          ),
+          _TradeDetailRow(label: 'مقدار', value: qtyText),
+          _TradeDetailRow(
+            label: 'قیمت خرید',
+            value: formatMoney(trade.buyPrice),
+          ),
+          if (trade.buyFee > 0)
+            _TradeDetailRow(
+              label: 'کارمزد خرید',
+              value: formatMoney(trade.buyFee),
+            ),
+          _TradeDetailRow(
+            label: 'هزینه خرید',
+            value: formatMoney(trade.buyCost),
+          ),
+          _TradeDetailRow(
+            label: 'تاریخ خرید',
+            value: formatDisplayDate(trade.buyDate, state.settings.calendar),
+          ),
+          if (open) ...[
+            _TradeDetailRow(
+              label: 'مدت باز بودن',
+              value: _formatOpenDays(trade.openDays),
+            ),
+            _TradeDetailRow(
+              label: 'قیمت لحظه‌ای',
+              value: formatMoney(trade.currentPrice),
+            ),
+            _TradeDetailRow(
+              label: 'ارزش فعلی',
+              value: formatMoney(trade.currentValue),
+            ),
+            _TradeDetailRow(
+              label: 'سود/زیان',
+              value: formatMoney(openPnl, showSign: true),
+              pct: trade.unrealizedPnlPct,
+            ),
+          ] else ...[
+            if (trade.sellPrice != null)
+              _TradeDetailRow(
+                label: 'قیمت فروش',
+                value: formatMoney(trade.sellPrice!),
+              ),
+            _TradeDetailRow(
+              label: 'تاریخ فروش',
+              value: formatDisplayDate(trade.sellDate, state.settings.calendar),
+            ),
+            if (trade.holdingDays != null)
+              _TradeDetailRow(
+                label: 'مدت نگهداری',
+                value: _formatOpenDays(trade.holdingDays!),
+              ),
+            if (closedPnl != null)
+              _TradeDetailRow(
+                label: 'سود/زیان',
+                value: formatMoney(closedPnl, showSign: true),
+                pct: trade.returnPct,
+              ),
           ],
+          if (trade.buyNote.trim().isNotEmpty)
+            _TradeDetailRow(
+              label: 'یادداشت',
+              value: trade.buyNote.trim(),
+            ),
           if (onSell != null || onEdit != null) ...[
             const SizedBox(height: 8),
             Align(
@@ -448,6 +498,73 @@ class _TradeTile extends StatelessWidget {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+String _formatOpenDays(int days) {
+  if (days <= 0) return 'کمتر از یک روز';
+  return '${formatNumber(days, decimals: 0)} روز';
+}
+
+class _TradeDetailRow extends StatelessWidget {
+  const _TradeDetailRow({
+    required this.label,
+    required this.value,
+    this.pct,
+  });
+
+  final String label;
+  final String value;
+  final double? pct;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = pct == null
+        ? AppTheme.title
+        : pct! >= 0
+            ? AppTheme.positive
+            : AppTheme.negative;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+          ),
+          const Spacer(),
+          if (pct != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: tone.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                formatPct(pct!),
+                style: TextStyle(
+                  color: tone,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.left,
+              style: TextStyle(
+                color: tone,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
         ],
       ),
     );

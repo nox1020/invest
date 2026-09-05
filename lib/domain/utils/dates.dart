@@ -54,3 +54,10 @@ int holdingDays(String buyDate, String sellDate) {
   final b = parseIsoDate(sellDate);
   return b.difference(a).inDays;
 }
+
+/// Calendar days an open lot has been held, never negative.
+int openHoldingDays(String buyDate, {String? asOf}) {
+  if (buyDate.trim().isEmpty) return 0;
+  final days = holdingDays(buyDate, asOf ?? todayIso());
+  return days < 0 ? 0 : days;
+}
