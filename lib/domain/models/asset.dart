@@ -24,6 +24,8 @@ class Asset {
   double get totalValue => quantity * currentPrice;
   double get costBasis => quantity * avgBuyPrice;
   double get unrealizedPnl => totalValue - costBasis;
+  double get unrealizedPnlPct =>
+      costBasis.abs() < 1e-12 ? 0 : unrealizedPnl / costBasis * 100;
 
   factory Asset.fromMap(Map<String, Object?> m) => Asset(
         id: m['id'] as int?,
