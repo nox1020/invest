@@ -30,6 +30,9 @@ class TradesPage extends StatelessWidget {
         onSell: open && state.canMutate
             ? () => showSellTradeDialog(context, list[i])
             : null,
+        onEdit: open && state.canMutate
+            ? () => showEditOpenTradeDialog(context, list[i])
+            : null,
         onDelete: !open && state.canMutate
             ? () => confirmDeleteClosedTrade(context, list[i])
             : null,
@@ -184,6 +187,117 @@ Future<void> showSellTradeDialog(BuildContext context, Trade trade) async {
   }
 }
 
+Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
+  final state = context.read<AppState>();
+  final qtyCtrl = TextEditingController(text: '${trade.quantity}');
+  final priceCtrl = TextEditingController(text: '${trade.buyPrice}');
+  final feeCtrl = TextEditingController(text: '${trade.buyFee}');
+  final noteCtrl = TextEditingController(text: trade.buyNote);
+  var buyDate = trade.buyDate.isEmpty ? todayIso() : trade.buyDate;
+
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setLocal) => AlertDialog(
+        title: Text('ویرایش ${trade.assetName}'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: qtyCtrl,
+                decoration: const InputDecoration(labelText: 'مقدار'),
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+              ),
+              TextField(
+                controller: priceCtrl,
+                decoration: const InputDecoration(labelText: 'قیمت خرید'),
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+              ),
+              TextField(
+                controller: feeCtrl,
+                decoration: const InputDecoration(labelText: 'کارمزد'),
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('تاریخ خرید'),
+                subtitle: Text(
+                  formatDisplayDate(buyDate, state.settings.calendar),
+                ),
+                trailing: const Icon(Icons.calendar_today_outlined, size: 18),
+                onTap: () async {
+                  final initial = parseIsoDate(buyDate);
+                  final picked = await showDatePicker(
+                    context: ctx,
+                    initialDate: initial,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime.now().add(const Duration(days: 1)),
+                  );
+                  if (picked == null) return;
+                  setLocal(() {
+                    buyDate =
+                        '${picked.year.toString().padLeft(4, '0')}-'
+                        '${picked.month.toString().padLeft(2, '0')}-'
+                        '${picked.day.toString().padLeft(2, '0')}';
+                  });
+                },
+              ),
+              TextField(
+                controller: noteCtrl,
+                decoration: const InputDecoration(labelText: 'یادداشت'),
+                textAlign: TextAlign.right,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('انصراف'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (ok != true || !context.mounted) return;
+  final qty = double.tryParse(qtyCtrl.text);
+  final price = double.tryParse(priceCtrl.text);
+  if (qty == null || price == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('مقدار و قیمت خرید را درست وارد کنید')),
+    );
+    return;
+  }
+  try {
+    await state.tradeService.updateOpenTrade(
+      tradeId: trade.id!,
+      quantity: qty,
+      buyPrice: price,
+      buyFee: double.tryParse(feeCtrl.text) ?? 0,
+      buyDate: buyDate,
+      buyNote: noteCtrl.text,
+    );
+    await state.refresh();
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('معامله ویرایش شد')),
+      );
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+}
+
 Future<void> confirmDeleteClosedTrade(BuildContext context, Trade trade) async {
   final ok = await showDialog<bool>(
     context: context,
@@ -239,11 +353,13 @@ class _TradeTile extends StatelessWidget {
     required this.trade,
     required this.open,
     this.onSell,
+    this.onEdit,
     this.onDelete,
   });
   final Trade trade;
   final bool open;
   final VoidCallback? onSell;
+  final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
   @override
@@ -297,14 +413,26 @@ class _TradeTile extends StatelessWidget {
               ),
             ),
           ],
-          if (onSell != null) ...[
+          if (onSell != null || onEdit != null) ...[
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: onSell,
-                icon: const Icon(Icons.sell, size: 18),
-                label: const Text('فروش'),
+              child: Wrap(
+                spacing: 4,
+                children: [
+                  if (onEdit != null)
+                    TextButton.icon(
+                      onPressed: onEdit,
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('ویرایش'),
+                    ),
+                  if (onSell != null)
+                    TextButton.icon(
+                      onPressed: onSell,
+                      icon: const Icon(Icons.sell, size: 18),
+                      label: const Text('فروش'),
+                    ),
+                ],
               ),
             ),
           ],

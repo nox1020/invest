@@ -126,4 +126,48 @@ void main() {
       throwsA(isA<ArgumentError>()),
     );
   });
+
+  test('updateOpenTrade changes lot and resyncs inventory', () async {
+    final asset = await service.createAsset(
+      name: 'BTC',
+      symbol: 'BTC',
+      quantity: 0,
+    );
+    await service.registerBuy(
+      assetId: asset.id,
+      quantity: 2,
+      buyPrice: 100,
+      buyFee: 10,
+    );
+    final open = await service.trades.listOpen();
+    final updated = await service.updateOpenTrade(
+      tradeId: open.first.id!,
+      quantity: 5,
+      buyPrice: 80,
+      buyFee: 4,
+    );
+    expect(updated.quantity, 5);
+    expect(updated.buyPrice, 80);
+    expect(updated.buyFee, 4);
+
+    final refreshed = await service.assets.get(asset.id!);
+    expect(refreshed!.quantity, 5);
+    expect(refreshed.avgBuyPrice, 80);
+  });
+
+  test('updateOpenTrade rejects closed lots', () async {
+    final asset = await service.createAsset(name: 'ETH', symbol: 'ETH', quantity: 0);
+    await service.registerBuy(assetId: asset.id, quantity: 1, buyPrice: 50);
+    final lot = (await service.trades.listOpen()).single;
+    await service.closeTrade(tradeId: lot.id!, sellPrice: 60);
+    final closed = (await service.trades.listClosed()).single;
+    await expectLater(
+      service.updateOpenTrade(
+        tradeId: closed.id!,
+        quantity: 1,
+        buyPrice: 50,
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+  });
 }

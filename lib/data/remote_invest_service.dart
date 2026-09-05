@@ -195,6 +195,42 @@ class RemoteInvestService {
     return Trade.fromMap(Map<String, Object?>.from(data['item'] as Map));
   }
 
+  Future<Trade> updateOpenTrade({
+    required int tradeId,
+    required double quantity,
+    required double buyPrice,
+    double buyFee = 0,
+    String? buyDate,
+    String? buyNote,
+  }) async {
+    final body = <String, dynamic>{
+      'quantity': quantity,
+      'buy_price': buyPrice,
+      'buy_fee': buyFee,
+    };
+    if (buyDate != null && buyDate.trim().isNotEmpty) {
+      body['buy_date'] = buyDate.trim();
+    }
+    if (buyNote != null) body['buy_note'] = buyNote;
+
+    try {
+      final data = await _api.patch(
+        '/invest/api/v1/trades/$tradeId',
+        body: body,
+      );
+      return Trade.fromMap(Map<String, Object?>.from(data['item'] as Map));
+    } on InvestApiException catch (e) {
+      if (e.statusCode == 404 || e.statusCode == 405) {
+        final data = await _api.put(
+          '/invest/api/v1/trades/$tradeId',
+          body: body,
+        );
+        return Trade.fromMap(Map<String, Object?>.from(data['item'] as Map));
+      }
+      rethrow;
+    }
+  }
+
   Future<Trade> closeTrade({
     required int tradeId,
     required double sellPrice,

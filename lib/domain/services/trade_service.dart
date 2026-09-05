@@ -143,6 +143,38 @@ class TradeService {
     return trade;
   }
 
+  Future<Trade> updateOpenTrade({
+    required int tradeId,
+    required double quantity,
+    required double buyPrice,
+    double buyFee = 0,
+    String? buyDate,
+    String? buyNote,
+  }) async {
+    final trade = await trades.get(tradeId);
+    if (trade == null) throw ArgumentError('معامله یافت نشد.');
+    if (!trade.isOpen) {
+      throw ArgumentError('فقط معاملات باز را می‌توان ویرایش کرد.');
+    }
+    if (quantity <= 0) throw ArgumentError('مقدار باید بزرگ‌تر از صفر باشد.');
+    if (buyPrice <= 0) {
+      throw ArgumentError('قیمت خرید باید بزرگ‌تر از صفر باشد.');
+    }
+    if (buyFee < 0) throw ArgumentError('کارمزد نمی‌تواند منفی باشد.');
+
+    trade
+      ..quantity = quantity
+      ..buyPrice = buyPrice
+      ..buyFee = buyFee;
+    if (buyDate != null && buyDate.trim().isNotEmpty) {
+      trade.buyDate = buyDate.trim();
+    }
+    if (buyNote != null) trade.buyNote = buyNote;
+    await trades.update(trade);
+    await _syncInventory(trade.assetId);
+    return (await trades.get(trade.id!))!;
+  }
+
   Future<Trade> closeTrade({
     required int tradeId,
     required double sellPrice,
