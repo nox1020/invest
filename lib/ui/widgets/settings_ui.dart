@@ -209,7 +209,7 @@ class TgSettingsTile extends StatelessWidget {
       ],
     );
   }
-
+}
 
 class TgSettingsSwitchTile extends StatelessWidget {
   const TgSettingsSwitchTile({
