@@ -115,15 +115,32 @@ class RemoteInvestService {
   }
 
   Future<AppSettings> saveSettings(AppSettings s) async {
-    final data = await _api.put('/invest/api/v1/settings', body: {
+    final body = <String, dynamic>{
       'calendar': s.calendar,
       'currency': s.currency,
       'theme': s.theme,
       'live_prices_enabled': s.livePricesEnabled,
       'usdt_api_enabled': s.usdtApiEnabled,
       'gold_api_enabled': s.goldApiEnabled,
-    });
-    return _settingsFrom(Map<String, dynamic>.from(data['settings'] as Map));
+    };
+    if (s.wallexUrl.trim().isNotEmpty) {
+      body['wallex_markets_url'] = s.wallexUrl.trim();
+    }
+    if (s.persianToolboxUrl.trim().isNotEmpty) {
+      body['persiantoolbox_url'] = s.persianToolboxUrl.trim();
+    }
+    if (s.usdtTmnRate != null) {
+      body['usdt_tmn_rate'] = s.usdtTmnRate;
+    }
+    if (s.goldTmnPerGram != null) {
+      body['gold_tmn_per_gram'] = s.goldTmnPerGram;
+    }
+    final data = await _api.put('/invest/api/v1/settings', body: body);
+    final saved =
+        _settingsFrom(Map<String, dynamic>.from(data['settings'] as Map));
+    saved.usdtTmnRate = s.usdtTmnRate ?? saved.usdtTmnRate;
+    saved.goldTmnPerGram = s.goldTmnPerGram ?? saved.goldTmnPerGram;
+    return saved;
   }
 
   Future<({double? usdt, double? gold})> fetchQuotes() async {
@@ -341,6 +358,16 @@ class RemoteInvestService {
       return v.toString() == '1' || v.toString().toLowerCase() == 'true';
     }
 
+    double? rate(dynamic v) {
+      if (v == null) return null;
+      if (v is num) return v.toDouble();
+      return double.tryParse('$v');
+    }
+
+    final raw = s['raw'] is Map
+        ? Map<String, dynamic>.from(s['raw'] as Map)
+        : const <String, dynamic>{};
+
     return AppSettings(
       calendar: (s['calendar'] as String?) ?? AppConfig.calendarJalali,
       currency: (s['currency'] as String?) ?? AppConfig.currencyToman,
@@ -355,6 +382,9 @@ class RemoteInvestService {
           (s['persiantoolbox_url'] as String?)?.trim().isNotEmpty == true
               ? (s['persiantoolbox_url'] as String)
               : AppConfig.defaultPersianToolboxUrl,
+      usdtTmnRate: rate(s['usdt_tmn_rate'] ?? raw['usdt_tmn_rate']),
+      goldTmnPerGram:
+          rate(s['gold_tmn_per_gram'] ?? raw['gold_tmn_per_gram']),
     );
   }
 

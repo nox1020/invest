@@ -553,31 +553,59 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    settings = s;
+    final prevUsdt = s.usdtTmnRate ?? settings.usdtTmnRate;
+    final prevGold = s.goldTmnPerGram ?? settings.goldTmnPerGram;
+    final prevWallex =
+        s.wallexUrl.trim().isNotEmpty ? s.wallexUrl : settings.wallexUrl;
+    final prevPersian = s.persianToolboxUrl.trim().isNotEmpty
+        ? s.persianToolboxUrl
+        : settings.persianToolboxUrl;
+
+    settings = s
+      ..usdtTmnRate = prevUsdt
+      ..goldTmnPerGram = prevGold
+      ..wallexUrl = prevWallex
+      ..persianToolboxUrl = prevPersian;
+    notifyListeners();
+
     if (useRemote && !offline) {
-      settings = await remote!.saveSettings(s);
-    } else {
-      await settingsRepo!.saveMap({
-        AppConfig.settingCalendar: s.calendar,
-        AppConfig.settingCurrency: s.currency,
-        AppConfig.settingTheme: s.theme,
-        AppConfig.settingLivePrices: s.livePricesEnabled ? '1' : '0',
-        AppConfig.settingUsdtApi: s.usdtApiEnabled ? '1' : '0',
-        AppConfig.settingGoldApi: s.goldApiEnabled ? '1' : '0',
-        AppConfig.settingWallexUrl: s.wallexUrl,
-        AppConfig.settingPersianToolboxUrl: s.persianToolboxUrl,
-        if (s.usdtTmnRate != null)
-          AppConfig.settingUsdtTmn: s.usdtTmnRate!.toString(),
-        if (s.goldTmnPerGram != null)
-          AppConfig.settingGoldTmn: s.goldTmnPerGram!.toString(),
-      });
+      final saved = await remote!.saveSettings(settings);
+      settings = saved
+        ..usdtTmnRate = prevUsdt
+        ..goldTmnPerGram = prevGold;
+      if (settings.wallexUrl.trim().isEmpty) {
+        settings.wallexUrl = prevWallex;
+      }
+      if (settings.persianToolboxUrl.trim().isEmpty) {
+        settings.persianToolboxUrl = prevPersian;
+      }
     }
+    await _persistSettingsLocal(settings);
     notifyListeners();
     await refreshAll(
       includeQuotes: false,
       fetchSettings: false,
       checkApiVersion: false,
     );
+  }
+
+  Future<void> _persistSettingsLocal(AppSettings s) async {
+    final repo = settingsRepo;
+    if (repo == null) return;
+    await repo.saveMap({
+      AppConfig.settingCalendar: s.calendar,
+      AppConfig.settingCurrency: s.currency,
+      AppConfig.settingTheme: s.theme,
+      AppConfig.settingLivePrices: s.livePricesEnabled ? '1' : '0',
+      AppConfig.settingUsdtApi: s.usdtApiEnabled ? '1' : '0',
+      AppConfig.settingGoldApi: s.goldApiEnabled ? '1' : '0',
+      AppConfig.settingWallexUrl: s.wallexUrl,
+      AppConfig.settingPersianToolboxUrl: s.persianToolboxUrl,
+      if (s.usdtTmnRate != null)
+        AppConfig.settingUsdtTmn: s.usdtTmnRate!.toString(),
+      if (s.goldTmnPerGram != null)
+        AppConfig.settingGoldTmn: s.goldTmnPerGram!.toString(),
+    });
   }
 
   /// Coalesced refresh — overlapping pulls merge into one run.

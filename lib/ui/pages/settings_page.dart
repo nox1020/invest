@@ -17,25 +17,14 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  late AppSettings draft;
-  late TextEditingController _serverCtrl;
-  bool _dirty = false;
+  bool _busy = false;
 
   @override
   void initState() {
     super.initState();
-    final state = context.read<AppState>();
-    draft = _clone(state.settings);
-    _serverCtrl = TextEditingController(text: state.baseUrl);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppState>().refreshBiometricCapability();
     });
-  }
-
-  @override
-  void dispose() {
-    _serverCtrl.dispose();
-    super.dispose();
   }
 
   AppSettings _clone(AppSettings s) => AppSettings(
@@ -51,15 +40,33 @@ class _SettingsPageState extends State<SettingsPage> {
         goldTmnPerGram: s.goldTmnPerGram,
       );
 
-  void _markDirty() => setState(() => _dirty = true);
-
-  Future<void> _saveDraft(AppState state) async {
-    await state.saveSettings(draft);
-    if (mounted) {
-      setState(() => _dirty = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تنظیمات ذخیره شد')),
-      );
+  Future<void> _persist(
+    AppState state,
+    void Function(AppSettings s) mutate,
+  ) async {
+    if (_busy || state.readOnlyOffline) {
+      if (state.readOnlyOffline && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('در حالت آفلاین ذخیره ممکن نیست'),
+          ),
+        );
+      }
+      return;
+    }
+    final next = _clone(state.settings);
+    mutate(next);
+    setState(() => _busy = true);
+    try {
+      await state.saveSettings(next);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ذخیره تنظیمات ناموفق: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -110,382 +117,300 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  String _calendarLabel(String v) =>
+      v == AppConfig.calendarGregorian ? 'میلادی' : 'شمسی';
+
+  String _currencyLabel(String v) => switch (v) {
+        AppConfig.currencyRial => 'ریال',
+        AppConfig.currencyUsd => 'دلار',
+        AppConfig.currencyUsdt => 'تتر',
+        _ => 'تومان',
+      };
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final isDark = draft.theme == AppConfig.themeDark;
+    final s = state.settings;
+    final isDark = s.isDark;
+    final canEdit = !_busy && !state.readOnlyOffline;
 
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: shellPagePadding(),
-      children: [
-        const SettingsHeroHeader(),
-        SettingsSectionCard(
-          title: 'امنیت و قفل برنامه',
-          subtitle: 'رمز محلی برای ورود — مستقل از OTP وینور',
-          icon: Icons.lock_outline_rounded,
-          accent: const Color(0xFF5B8DEF),
-          children: [
-            SettingsTile(
-              title: state.appLockEnabled ? 'رمز ورود فعال است' : 'رمز ورود تنظیم نشده',
-              subtitle: state.biometricUnlockEnabled
-                  ? 'باز شدن با ${state.biometricLabel} فعال است'
-                  : 'برای محافظت از داده‌های محلی رمز تعیین کنید',
-              trailing: SettingsStatusChip(
-                label: state.appLockEnabled ? 'فعال' : 'غیرفعال',
-                active: state.appLockEnabled,
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        final saved = await showAppLockSetDialog(
-                          context,
-                          hasLock: state.appLockEnabled,
-                        );
-                        if (saved && context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('رمز ورود ذخیره شد')),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.password_rounded, size: 18),
-                      label: Text(
-                        state.appLockEnabled ? 'تغییر رمز' : 'تنظیم رمز',
-                      ),
-                    ),
-                  ),
-                  if (state.appLockEnabled) ...[
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _removeAppLock(state),
-                        icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                        label: const Text('حذف رمز'),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            if (state.biometricDeviceSupported) ...[
-              const SettingsDivider(),
-              SwitchListTile(
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                secondary: Icon(
-                  Icons.fingerprint_rounded,
-                  color: state.appLockEnabled && state.biometricAvailable
-                      ? AppTheme.accent
-                      : AppTheme.muted,
-                ),
-                title: Text(
-                  'باز کردن با ${state.biometricLabel}',
-                  textAlign: TextAlign.right,
-                ),
-                subtitle: Text(
-                  !state.appLockEnabled
-                      ? 'ابتدا رمز ورود برنامه را تنظیم کنید'
-                      : !state.biometricAvailable
-                          ? 'اثر انگشت یا چهره را در تنظیمات گوشی ثبت کنید'
-                          : 'بدون وارد کردن رمز، با احراز هویت دستگاه وارد شوید',
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 12),
-                ),
-                value: state.biometricUnlockEnabled,
-                onChanged: state.appLockEnabled && state.biometricAvailable
-                    ? (value) async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        final err =
-                            await state.setBiometricUnlockEnabled(value);
-                        if (!mounted) return;
-                        if (err != null) {
-                          messenger.showSnackBar(
-                            SnackBar(content: Text(err)),
-                          );
-                        }
-                      }
-                    : null,
-              ),
-            ],
-          ],
-        ),
-        const SizedBox(height: 14),
-        if (state.useRemote) ...[
-          SettingsSectionCard(
-            title: 'حساب وینور',
-            subtitle: 'اتصال به سرور و خروج از حساب',
-            icon: Icons.cloud_outlined,
-            accent: AppTheme.positive,
+    return ColoredBox(
+      color: tgSettingsPageBg(context),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: shellPagePadding(),
+        children: [
+          TgSettingsSection(
+            title: 'امنیت',
             children: [
-              SettingsTile(
-                title: 'شماره موبایل',
-                subtitle: state.userPhone ?? '—',
-                leading: const Icon(Icons.phone_android_rounded, size: 20),
-              ),
-              const SettingsDivider(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: TextField(
-                  controller: _serverCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'آدرس سرور وینور',
-                    hintText: AppConfig.defaultBaseUrl,
-                    prefixIcon: Icon(Icons.link_rounded),
-                  ),
-                  textAlign: TextAlign.left,
-                  textDirection: TextDirection.ltr,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          await state.setBaseUrl(_serverCtrl.text.trim());
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('آدرس سرور ذخیره شد')),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.save_outlined, size: 18),
-                        label: const Text('ذخیره آدرس'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => state.logout(),
-                        icon: const Icon(Icons.logout_rounded, size: 18),
-                        label: const Text('خروج'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.negative.withValues(alpha: 0.85),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-        ],
-        const SizedBox(height: 14),
-        SettingsSectionCard(
-          title: 'پشتیبان‌گیری',
-          subtitle: 'صدور و ورود همه اطلاعات در فایل رمزگذاری‌شده مخصوص V+',
-          icon: Icons.folder_zip_outlined,
-          accent: const Color(0xFF2BBBAD),
-          children: [
-            SettingsTile(
-              title: 'فایل رمزگذاری‌شده',
-              subtitle:
-                  'شامل دارایی‌ها، معاملات، برداشت‌ها، تنظیمات و قفل برنامه — '
-                  'فقط همین اپلیکیشن می‌تواند باز کند',
-              leading: const Icon(Icons.lock_rounded, size: 20),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: state.authenticated
-                          ? () => exportAppBackup(context)
-                          : null,
-                      icon: const Icon(Icons.upload_rounded, size: 18),
-                      label: const Text('صدور'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: state.authenticated
-                          ? () => importAppBackup(context)
-                          : null,
-                      icon: const Icon(Icons.download_rounded, size: 18),
-                      label: const Text('ورود'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        SettingsSectionCard(
-          title: 'ظاهر و نمایش',
-          subtitle: 'تم، تقویم و واحد پول',
-          icon: Icons.palette_outlined,
-          accent: const Color(0xFF9B6BFF),
-          children: [
-            SwitchListTile(
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              title: const Text('تم تاریک', textAlign: TextAlign.right),
-              subtitle: Text(
-                isDark ? 'حالت شب فعال است' : 'حالت روشن فعال است',
-                textAlign: TextAlign.right,
-                style: const TextStyle(fontSize: 12),
-              ),
-              value: isDark,
-              onChanged: (v) {
-                setState(() {
-                  draft.theme = v ? AppConfig.themeDark : AppConfig.themeLight;
-                  _dirty = true;
-                });
-              },
-            ),
-            const SettingsDivider(),
-            SettingsTile(
-              title: 'تقویم',
-              trailing: DropdownButton<String>(
-                value: draft.calendar,
-                underline: const SizedBox.shrink(),
-                items: const [
-                  DropdownMenuItem(
-                    value: AppConfig.calendarJalali,
-                    child: Text('شمسی'),
-                  ),
-                  DropdownMenuItem(
-                    value: AppConfig.calendarGregorian,
-                    child: Text('میلادی'),
-                  ),
-                ],
-                onChanged: (v) => setState(() {
-                  draft.calendar = v!;
-                  _dirty = true;
-                }),
-              ),
-            ),
-            const SettingsDivider(),
-            SettingsTile(
-              title: 'ارز نمایش',
-              trailing: DropdownButton<String>(
-                value: draft.currency,
-                underline: const SizedBox.shrink(),
-                items: const [
-                  DropdownMenuItem(
-                    value: AppConfig.currencyToman,
-                    child: Text('تومان'),
-                  ),
-                  DropdownMenuItem(
-                    value: AppConfig.currencyRial,
-                    child: Text('ریال'),
-                  ),
-                  DropdownMenuItem(
-                    value: AppConfig.currencyUsd,
-                    child: Text('دلار'),
-                  ),
-                  DropdownMenuItem(
-                    value: AppConfig.currencyUsdt,
-                    child: Text('تتر'),
-                  ),
-                ],
-                onChanged: (v) => setState(() {
-                  draft.currency = v!;
-                  _dirty = true;
-                }),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        SettingsSectionCard(
-          title: 'قیمت زنده',
-          subtitle: 'نرخ تتر و طلا از APIهای خارجی',
-          icon: Icons.show_chart_rounded,
-          accent: const Color(0xFFE8A838),
-          children: [
-            SwitchListTile(
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              title: const Text('فعال‌سازی قیمت زنده', textAlign: TextAlign.right),
-              value: draft.livePricesEnabled,
-              onChanged: (v) {
-                setState(() {
-                  draft.livePricesEnabled = v;
-                  _markDirty();
-                });
-              },
-            ),
-            const SettingsDivider(),
-            SwitchListTile(
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              title: const Text('API تتر (Wallex)', textAlign: TextAlign.right),
-              value: draft.usdtApiEnabled,
-              onChanged: draft.livePricesEnabled
-                  ? (v) {
-                      setState(() {
-                        draft.usdtApiEnabled = v;
-                        _markDirty();
-                      });
-                    }
-                  : null,
-            ),
-            const SettingsDivider(),
-            SwitchListTile(
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              title: const Text(
-                'API طلا (PersianToolbox)',
-                textAlign: TextAlign.right,
-              ),
-              value: draft.goldApiEnabled,
-              onChanged: draft.livePricesEnabled
-                  ? (v) {
-                      setState(() {
-                        draft.goldApiEnabled = v;
-                        _markDirty();
-                      });
-                    }
-                  : null,
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  await state.refreshQuotes();
-                  if (context.mounted) {
+              TgSettingsTile(
+                icon: Icons.lock_rounded,
+                iconColor: const Color(0xFF34AADF),
+                title: state.appLockEnabled ? 'رمز ورود' : 'تنظیم رمز ورود',
+                value: state.appLockEnabled ? 'فعال' : 'خاموش',
+                onTap: () async {
+                  final saved = await showAppLockSetDialog(
+                    context,
+                    hasLock: state.appLockEnabled,
+                  );
+                  if (saved && context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('قیمت‌ها به‌روز شد')),
+                      const SnackBar(content: Text('رمز ورود ذخیره شد')),
                     );
                   }
                 },
-                icon: const Icon(Icons.sync_rounded, size: 18),
-                label: const Text('بروزرسانی فوری قیمت‌ها'),
+                showDivider: state.appLockEnabled ||
+                    state.biometricDeviceSupported,
               ),
+              if (state.appLockEnabled)
+                TgSettingsTile(
+                  icon: Icons.lock_open_rounded,
+                  iconColor: const Color(0xFFFF3B30),
+                  title: 'حذف رمز ورود',
+                  destructive: true,
+                  onTap: () => _removeAppLock(state),
+                  showDivider: state.biometricDeviceSupported,
+                ),
+              if (state.biometricDeviceSupported)
+                TgSettingsSwitchTile(
+                  icon: Icons.fingerprint_rounded,
+                  iconColor: const Color(0xFF5856D6),
+                  title: 'باز کردن با ${state.biometricLabel}',
+                  subtitle: !state.appLockEnabled
+                      ? 'ابتدا رمز ورود را تنظیم کنید'
+                      : !state.biometricAvailable
+                          ? 'اثر انگشت یا چهره را در گوشی ثبت کنید'
+                          : null,
+                  value: state.biometricUnlockEnabled,
+                  onChanged: state.appLockEnabled &&
+                          state.biometricAvailable &&
+                          canEdit
+                      ? (value) async {
+                          final err =
+                              await state.setBiometricUnlockEnabled(value);
+                          if (!mounted) return;
+                          if (err != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(err)),
+                            );
+                          }
+                        }
+                      : null,
+                  showDivider: false,
+                ),
+            ],
+          ),
+          if (state.useRemote)
+            TgSettingsSection(
+              title: 'حساب',
+              children: [
+                TgSettingsTile(
+                  icon: Icons.phone_iphone_rounded,
+                  iconColor: const Color(0xFF30D158),
+                  title: 'شماره موبایل',
+                  value: state.userPhone ?? '—',
+                  showDivider: true,
+                ),
+                TgSettingsTile(
+                  icon: Icons.logout_rounded,
+                  iconColor: const Color(0xFFFF3B30),
+                  title: 'خروج از حساب',
+                  destructive: true,
+                  onTap: () => state.logout(),
+                  showDivider: false,
+                ),
+              ],
             ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        ElevatedButton.icon(
-          onPressed: _dirty ? () => _saveDraft(state) : null,
-          icon: const Icon(Icons.check_circle_outline_rounded),
-          label: Text(_dirty ? 'ذخیره تغییرات' : 'همه‌چیز ذخیره شده'),
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size.fromHeight(50),
-            backgroundColor: _dirty ? AppTheme.accent : AppTheme.border,
+          TgSettingsSection(
+            title: 'پشتیبان‌گیری',
+            children: [
+              TgSettingsTile(
+                icon: Icons.ios_share_rounded,
+                iconColor: const Color(0xFF64D2FF),
+                title: 'صدور پشتیبان',
+                subtitle: 'فایل رمزگذاری‌شده مخصوص V+',
+                onTap: state.authenticated
+                    ? () => exportAppBackup(context)
+                    : null,
+              ),
+              TgSettingsTile(
+                icon: Icons.download_rounded,
+                iconColor: const Color(0xFF64D2FF),
+                title: 'ورود پشتیبان',
+                onTap: state.authenticated
+                    ? () => importAppBackup(context)
+                    : null,
+                showDivider: false,
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          AppConfig.appName,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 12,
-            color: AppTheme.muted.withValues(alpha: 0.8),
+          TgSettingsSection(
+            title: 'ظاهر و نمایش',
+            children: [
+              TgSettingsSwitchTile(
+                icon: Icons.dark_mode_rounded,
+                iconColor: const Color(0xFF8E8E93),
+                title: 'تم تاریک',
+                value: isDark,
+                onChanged: canEdit
+                    ? (v) => _persist(
+                          state,
+                          (d) => d.theme =
+                              v ? AppConfig.themeDark : AppConfig.themeLight,
+                        )
+                    : null,
+              ),
+              TgSettingsTile(
+                icon: Icons.calendar_month_rounded,
+                iconColor: const Color(0xFFFF9500),
+                title: 'تقویم',
+                value: _calendarLabel(s.calendar),
+                onTap: !canEdit
+                    ? null
+                    : () async {
+                        final picked = await showTgChoiceSheet<String>(
+                          context: context,
+                          title: 'تقویم',
+                          selected: s.calendar,
+                          options: const [
+                            (
+                              value: AppConfig.calendarJalali,
+                              label: 'شمسی',
+                            ),
+                            (
+                              value: AppConfig.calendarGregorian,
+                              label: 'میلادی',
+                            ),
+                          ],
+                        );
+                        if (picked == null || !mounted) return;
+                        await _persist(state, (d) => d.calendar = picked);
+                      },
+              ),
+              TgSettingsTile(
+                icon: Icons.payments_rounded,
+                iconColor: const Color(0xFF34C759),
+                title: 'ارز نمایش',
+                value: _currencyLabel(s.currency),
+                onTap: !canEdit
+                    ? null
+                    : () async {
+                        final picked = await showTgChoiceSheet<String>(
+                          context: context,
+                          title: 'ارز نمایش',
+                          selected: s.currency,
+                          options: const [
+                            (
+                              value: AppConfig.currencyToman,
+                              label: 'تومان',
+                            ),
+                            (
+                              value: AppConfig.currencyRial,
+                              label: 'ریال',
+                            ),
+                            (
+                              value: AppConfig.currencyUsd,
+                              label: 'دلار',
+                            ),
+                            (
+                              value: AppConfig.currencyUsdt,
+                              label: 'تتر',
+                            ),
+                          ],
+                        );
+                        if (picked == null || !mounted) return;
+                        await _persist(state, (d) => d.currency = picked);
+                      },
+                showDivider: false,
+              ),
+            ],
           ),
-        ),
-      ],
+          TgSettingsSection(
+            title: 'قیمت زنده',
+            children: [
+              TgSettingsSwitchTile(
+                icon: Icons.bolt_rounded,
+                iconColor: const Color(0xFFFFCC00),
+                title: 'قیمت زنده',
+                value: s.livePricesEnabled,
+                onChanged: canEdit
+                    ? (v) => _persist(
+                          state,
+                          (d) => d.livePricesEnabled = v,
+                        )
+                    : null,
+              ),
+              TgSettingsSwitchTile(
+                icon: Icons.currency_exchange_rounded,
+                iconColor: const Color(0xFF007AFF),
+                title: 'API تتر',
+                subtitle: 'Wallex',
+                value: s.usdtApiEnabled,
+                onChanged: canEdit && s.livePricesEnabled
+                    ? (v) => _persist(
+                          state,
+                          (d) => d.usdtApiEnabled = v,
+                        )
+                    : null,
+              ),
+              TgSettingsSwitchTile(
+                icon: Icons.diamond_rounded,
+                iconColor: const Color(0xFFFF9500),
+                title: 'API طلا',
+                subtitle: 'PersianToolbox',
+                value: s.goldApiEnabled,
+                onChanged: canEdit && s.livePricesEnabled
+                    ? (v) => _persist(
+                          state,
+                          (d) => d.goldApiEnabled = v,
+                        )
+                    : null,
+              ),
+              TgSettingsTile(
+                icon: Icons.sync_rounded,
+                iconColor: const Color(0xFF30B0C7),
+                title: 'بروزرسانی فوری قیمت‌ها',
+                onTap: _busy
+                    ? null
+                    : () async {
+                        setState(() => _busy = true);
+                        try {
+                          await state.refreshQuotes();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('قیمت‌ها به‌روز شد'),
+                              ),
+                            );
+                          }
+                        } finally {
+                          if (mounted) setState(() => _busy = false);
+                        }
+                      },
+                showDivider: false,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            AppConfig.appName,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: AppTheme.muted.withValues(alpha: 0.75),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'تنظیمات روی حساب ذخیره می‌شود',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 11,
+              color: AppTheme.muted.withValues(alpha: 0.55),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

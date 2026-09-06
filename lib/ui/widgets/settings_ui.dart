@@ -1,258 +1,309 @@
 import 'package:flutter/material.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 
-/// Card section for the settings page.
-class SettingsSectionCard extends StatelessWidget {
-  const SettingsSectionCard({
+Color tgSettingsPageBg(BuildContext context) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  return dark ? AppTheme.bg : const Color(0xFFEFF0F3);
+}
+
+Color tgSettingsGroupBg(BuildContext context) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  return dark ? AppTheme.card : Colors.white;
+}
+
+Color tgSettingsDivider(BuildContext context) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  return dark ? const Color(0xFF2A3A32) : const Color(0xFFE5E5EA);
+}
+
+/// Telegram-style section: muted caption + rounded grouped rows.
+class TgSettingsSection extends StatelessWidget {
+  const TgSettingsSection({
     super.key,
-    required this.title,
-    required this.icon,
+    this.title,
     required this.children,
-    this.subtitle,
-    this.accent = AppTheme.accent,
   });
 
-  final String title;
-  final String? subtitle;
-  final IconData icon;
-  final Color accent;
+  final String? title;
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final surface = isDark ? AppTheme.card : Colors.white;
-    final border = isDark ? AppTheme.border : const Color(0xFFE2EAE5);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: border),
-        boxShadow: isDark
-            ? null
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-      ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: accent.withValues(alpha: isDark ? 0.22 : 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: accent, size: 22),
+          if (title != null) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 7),
+              child: Text(
+                title!,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: AppTheme.muted,
+                  letterSpacing: 0.2,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        title,
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.title,
-                        ),
-                      ),
-                      if (subtitle != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle!,
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.muted,
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
+          ],
+          Container(
+            decoration: BoxDecoration(
+              color: tgSettingsGroupBg(context),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(children: children),
           ),
-          ...children,
         ],
       ),
     );
   }
 }
 
-class SettingsTile extends StatelessWidget {
-  const SettingsTile({
+class TgSettingsIcon extends StatelessWidget {
+  const TgSettingsIcon({
     super.key,
-    required this.title,
-    this.subtitle,
-    this.trailing,
-    this.leading,
-    this.onTap,
-    this.dense = false,
+    required this.icon,
+    required this.color,
   });
 
-  final String title;
-  final String? subtitle;
-  final Widget? trailing;
-  final Widget? leading;
-  final VoidCallback? onTap;
-  final bool dense;
+  final IconData icon;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    return Container(
+      width: 29,
+      height: 29,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Icon(icon, size: 18, color: Colors.white),
+    );
+  }
+}
+
+/// One Telegram settings row (icon · title · value/switch/chevron).
+class TgSettingsTile extends StatelessWidget {
+  const TgSettingsTile({
+    super.key,
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    this.subtitle,
+    this.value,
+    this.trailing,
+    this.onTap,
+    this.showDivider = true,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String? subtitle;
+  final String? value;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final bool showDivider;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final titleColor = destructive ? AppTheme.negative : AppTheme.text;
+
+    Widget? end;
+    if (trailing != null) {
+      end = trailing;
+    } else if (onTap != null) {
+      end = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (value != null && value!.isNotEmpty)
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 140),
+              child: Text(
+                value!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 15, color: AppTheme.muted),
+              ),
+            ),
+          const Icon(
+            Icons.chevron_left_rounded,
+            color: AppTheme.muted,
+            size: 22,
+          ),
+        ],
+      );
+    } else if (value != null) {
+      end = Text(
+        value!,
+        style: const TextStyle(fontSize: 15, color: AppTheme.muted),
+      );
+    }
+
+    final row = Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: dense ? 8 : 12,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
-              if (trailing != null) trailing!,
-              if (trailing != null) const SizedBox(width: 12),
+              TgSettingsIcon(icon: icon, color: iconColor),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       title,
                       textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.text,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: titleColor,
+                        height: 1.25,
                       ),
                     ),
                     if (subtitle != null) ...[
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 2),
                       Text(
                         subtitle!,
                         textAlign: TextAlign.right,
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppTheme.muted,
-                          height: 1.35,
+                          height: 1.3,
                         ),
                       ),
                     ],
                   ],
                 ),
               ),
-              if (leading != null) ...[
-                const SizedBox(width: 10),
-                leading!,
-              ],
+              if (end != null) end,
             ],
           ),
         ),
       ),
     );
-  }
-}
 
-class SettingsDivider extends StatelessWidget {
-  const SettingsDivider({super.key});
+    if (!showDivider) return row;
 
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      child: Divider(height: 1),
+    return Column(
+      children: [
+        row,
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 53),
+          child: Divider(
+            height: 1,
+            thickness: 0.6,
+            color: tgSettingsDivider(context),
+          ),
+        ),
+      ],
     );
   }
-}
 
-class SettingsStatusChip extends StatelessWidget {
-  const SettingsStatusChip({
+
+class TgSettingsSwitchTile extends StatelessWidget {
+  const TgSettingsSwitchTile({
     super.key,
-    required this.label,
-    required this.active,
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    this.subtitle,
+    required this.value,
+    required this.onChanged,
+    this.showDivider = true,
   });
 
-  final String label;
-  final bool active;
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String? subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppTheme.positive : AppTheme.muted;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.35)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
+    return TgSettingsTile(
+      icon: icon,
+      iconColor: iconColor,
+      title: title,
+      subtitle: subtitle,
+      showDivider: showDivider,
+      trailing: Switch.adaptive(
+        value: value,
+        onChanged: onChanged,
       ),
     );
   }
 }
 
-class SettingsHeroHeader extends StatelessWidget {
-  const SettingsHeroHeader({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          colors: isDark
-              ? const [Color(0xFF1A3D2E), Color(0xFF122820)]
-              : const [Color(0xFF1F5A42), Color(0xFF143D2E)],
+Future<T?> showTgChoiceSheet<T>({
+  required BuildContext context,
+  required String title,
+  required List<({T value, String label})> options,
+  required T selected,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    backgroundColor: tgSettingsGroupBg(context),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+    ),
+    builder: (ctx) {
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.muted.withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+              child: Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.title,
+                ),
+              ),
+            ),
+            for (var i = 0; i < options.length; i++) ...[
+              if (i > 0)
+                Divider(height: 1, color: tgSettingsDivider(ctx)),
+              ListTile(
+                onTap: () => Navigator.pop(ctx, options[i].value),
+                title: Text(
+                  options[i].label,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(fontSize: 16, color: AppTheme.text),
+                ),
+                trailing: options[i].value == selected
+                    ? const Icon(Icons.check_rounded, color: AppTheme.positive)
+                    : null,
+              ),
+            ],
+            const SizedBox(height: 8),
+          ],
         ),
-      ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(
-            'تنظیمات',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          SizedBox(height: 6),
-          Text(
-            'امنیت، ظاهر، قیمت زنده و حساب وینور',
-            textAlign: TextAlign.right,
-            style: TextStyle(
-              fontSize: 13,
-              color: Color(0xFFB8D4C6),
-              height: 1.4,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+      );
+    },
+  );
 }
