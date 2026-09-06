@@ -33,19 +33,20 @@ class AssetDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    Asset? asset;
+    Asset? matched;
     for (final a in state.assets) {
       if (a.id == assetId) {
-        asset = a;
+        matched = a;
         break;
       }
     }
-    if (asset == null) {
+    if (matched == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('دارایی')),
         body: const Center(child: Text('دارایی یافت نشد')),
       );
     }
+    final asset = matched;
 
     final metrics = HoldingMetrics.forAsset(asset, state.openTrades);
     final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
@@ -385,7 +386,9 @@ class _CompareBars extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxT = [buyToman, currentToman].fold<double>(0, (a, b) => a > b ? a : b);
-    final maxU = [buyUsd ?? 0, currentUsd ?? 0]
+    final usdBuy = buyUsd;
+    final usdCur = currentUsd;
+    final maxU = [usdBuy ?? 0, usdCur ?? 0]
         .fold<double>(0, (a, b) => a > b ? a : b);
 
     return Container(
@@ -406,12 +409,12 @@ class _CompareBars extends StatelessWidget {
             buyColor: AppTheme.muted,
             currentColor: AppTheme.positive,
           ),
-          if (buyUsd != null && currentUsd != null) ...[
+          if (usdBuy != null && usdCur != null) ...[
             const SizedBox(height: 12),
             _BarRow(
               label: 'دلار',
-              buy: buyUsd!,
-              current: currentUsd!,
+              buy: usdBuy,
+              current: usdCur,
               max: maxU <= 0 ? 1 : maxU,
               format: (v) => formatUsd(v, compact: true),
               buyColor: const Color(0xFFB89B2E),
