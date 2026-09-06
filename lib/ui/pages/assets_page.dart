@@ -6,6 +6,7 @@ import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
+import 'package:invest/ui/pages/asset_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/allocation_donut.dart';
 import 'package:invest/ui/widgets/asset_editor_sheet.dart';
@@ -362,7 +363,11 @@ class _AssetCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: canMutate ? () => showAssetEditor(context, edit: asset) : null,
+        onTap: () => openAssetDetail(
+          context,
+          asset: asset,
+          metrics: metrics,
+        ),
         child: Container(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           decoration: BoxDecoration(
