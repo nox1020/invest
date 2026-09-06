@@ -96,6 +96,7 @@ Future<String?> _pickJalaliDate(
                     Expanded(
                       flex: 3,
                       child: DropdownButtonFormField<int>(
+                        // ignore: deprecated_member_use
                         value: j.year,
                         decoration: const InputDecoration(
                           labelText: 'سال',
@@ -122,6 +123,7 @@ Future<String?> _pickJalaliDate(
                     Expanded(
                       flex: 4,
                       child: DropdownButtonFormField<int>(
+                        // ignore: deprecated_member_use
                         value: j.month,
                         decoration: const InputDecoration(
                           labelText: 'ماه',
@@ -147,6 +149,7 @@ Future<String?> _pickJalaliDate(
                     Expanded(
                       flex: 2,
                       child: DropdownButtonFormField<int>(
+                        // ignore: deprecated_member_use
                         value: j.day.clamp(1, monthLen),
                         decoration: const InputDecoration(
                           labelText: 'روز',

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -7,8 +6,6 @@ import 'package:invest/domain/services/backup_service.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -20,19 +17,15 @@ Future<void> exportAppBackup(BuildContext context) async {
       const SnackBar(content: Text('در حال آماده‌سازی پشتیبان رمزگذاری‌شده…')),
     );
     final bytes = await state.exportEncryptedBackup();
-    final dir = await getTemporaryDirectory();
     final stamp = todayIso().replaceAll('-', '');
-    final file = File(
-      p.join(dir.path, 'vplus-backup-$stamp.${BackupService.fileExtension}'),
-    );
-    await file.writeAsBytes(bytes, flush: true);
+    final name = 'vplus-backup-$stamp.${BackupService.fileExtension}';
     await SharePlus.instance.share(
       ShareParams(
         files: [
-          XFile(
-            file.path,
+          XFile.fromData(
+            bytes,
             mimeType: BackupService.mimeType,
-            name: p.basename(file.path),
+            name: name,
           ),
         ],
         subject: 'پشتیبان V+',
@@ -67,8 +60,8 @@ Future<void> importAppBackup(BuildContext context) async {
   if (picked == null || picked.files.isEmpty) return;
   final file = picked.files.single;
   Uint8List? bytes = file.bytes;
-  if (bytes == null && file.path != null) {
-    bytes = await File(file.path!).readAsBytes();
+  if ((bytes == null || bytes.isEmpty) && file.path != null) {
+    bytes = await XFile(file.path!).readAsBytes();
   }
   if (bytes == null || bytes.isEmpty) {
     messenger.showSnackBar(
@@ -77,7 +70,7 @@ Future<void> importAppBackup(BuildContext context) async {
     return;
   }
 
-  late final BackupRestoreReport preview;
+  BackupRestoreReport? preview;
   try {
     final payload = state.peekEncryptedBackup(bytes);
     if (!context.mounted) return;
@@ -123,7 +116,7 @@ Future<void> importAppBackup(BuildContext context) async {
     return;
   }
 
-  if (!context.mounted) return;
+  if (!context.mounted || preview == null) return;
   final msg = StringBuffer('پشتیبان با موفقیت وارد شد.');
   if (preview.remotePushed) {
     msg.write(' داده‌ها با سرور همگام شد.');
