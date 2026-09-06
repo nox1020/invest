@@ -42,14 +42,19 @@ class BackupService {
     required List<Trade> closedTrades,
     required List<Withdrawal> withdrawals,
     List<Map<String, Object?>> capitalSnapshots = const [],
+    Map<String, String>? settingsRaw,
     String? appLockHash,
     bool biometricUnlockEnabled = false,
     String? userPhone,
     String? baseUrl,
   }) {
+    final raw = Map<String, String>.from(settingsRaw ?? settings.toStorageMap());
+    // Ensure typed settings always win for known keys.
+    raw.addAll(settings.toStorageMap());
     return BackupPayload(
       exportedAt: nowIso(),
       settings: settings,
+      settingsRaw: raw,
       assets: List<Asset>.from(assets),
       trades: [...openTrades, ...closedTrades],
       withdrawals: List<Withdrawal>.from(withdrawals),
@@ -76,7 +81,11 @@ class BackupService {
       for (final e in AppConfig.defaultSettings.entries) {
         await txn.insert('settings', {'key': e.key, 'value': e.value});
       }
-      final settingsMap = _settingsMap(payload.settings);
+      final settingsMap = <String, String>{
+        ...payload.settings.toStorageMap(),
+        ...payload.settingsRaw,
+        ...payload.settings.toStorageMap(),
+      };
       for (final e in settingsMap.entries) {
         await txn.insert(
           'settings',
@@ -200,21 +209,6 @@ class BackupService {
       liveGold: payload.settings.goldTmnPerGram,
     );
   }
-
-  static Map<String, String> _settingsMap(AppSettings s) => {
-        AppConfig.settingCalendar: s.calendar,
-        AppConfig.settingCurrency: s.currency,
-        AppConfig.settingTheme: s.theme,
-        AppConfig.settingLivePrices: s.livePricesEnabled ? '1' : '0',
-        AppConfig.settingUsdtApi: s.usdtApiEnabled ? '1' : '0',
-        AppConfig.settingGoldApi: s.goldApiEnabled ? '1' : '0',
-        AppConfig.settingWallexUrl: s.wallexUrl,
-        AppConfig.settingPersianToolboxUrl: s.persianToolboxUrl,
-        if (s.usdtTmnRate != null)
-          AppConfig.settingUsdtTmn: '${s.usdtTmnRate}',
-        if (s.goldTmnPerGram != null)
-          AppConfig.settingGoldTmn: '${s.goldTmnPerGram}',
-      };
 
   /// Convenience for tests / local-only apps after restore.
   static Future<({List<Asset> assets, List<Trade> open, List<Trade> closed, List<Withdrawal> withdrawals})>

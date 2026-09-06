@@ -27,18 +27,7 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  AppSettings _clone(AppSettings s) => AppSettings(
-        calendar: s.calendar,
-        currency: s.currency,
-        theme: s.theme,
-        livePricesEnabled: s.livePricesEnabled,
-        usdtApiEnabled: s.usdtApiEnabled,
-        goldApiEnabled: s.goldApiEnabled,
-        wallexUrl: s.wallexUrl,
-        persianToolboxUrl: s.persianToolboxUrl,
-        usdtTmnRate: s.usdtTmnRate,
-        goldTmnPerGram: s.goldTmnPerGram,
-      );
+  AppSettings _clone(AppSettings s) => s.copyWith();
 
   Future<void> _persist(
     AppState state,
@@ -228,7 +217,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 icon: Icons.ios_share_rounded,
                 iconColor: const Color(0xFF64D2FF),
                 title: 'صدور پشتیبان',
-                subtitle: 'فایل رمزگذاری‌شده مخصوص V+',
+                subtitle: 'همه داده‌ها + تنظیمات (رمزگذاری‌شده)',
                 onTap: state.authenticated
                     ? () => exportAppBackup(context)
                     : null,
@@ -237,6 +226,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 icon: Icons.download_rounded,
                 iconColor: const Color(0xFF64D2FF),
                 title: 'ورود پشتیبان',
+                subtitle: 'جایگزینی کامل شامل تنظیمات',
                 onTap: state.authenticated
                     ? () => importAppBackup(context)
                     : null,

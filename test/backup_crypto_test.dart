@@ -118,8 +118,46 @@ void main() {
     expect(restored.settings.usdtApiEnabled, isFalse);
     expect(restored.settings.goldApiEnabled, isTrue);
     expect(restored.settings.usdtTmnRate, 100000);
+    expect(restored.settingsRaw[AppConfig.settingUsdtApi], '0');
+    expect(restored.settingsRaw.containsKey(AppConfig.settingCalendar), isTrue);
     expect(restored.userPhone, '0912');
     expect(restored.baseUrl, 'https://vinor.ir');
+  });
+
+  test('v1 backups without settings_raw still load settings', () {
+    final legacy = {
+      'format': 'vplus-backup',
+      'format_version': 1,
+      'exported_at': '2024-01-01T00:00:00',
+      'app_id': AppConfig.applicationId,
+      'settings': {
+        'calendar': AppConfig.calendarGregorian,
+        'currency': AppConfig.currencyToman,
+        'theme': AppConfig.themeLight,
+        'live_prices_enabled': false,
+        'usdt_api_enabled': true,
+        'gold_api_enabled': false,
+        'wallex_url': 'https://example.test/w',
+        'persian_toolbox_url': 'https://example.test/p',
+        'usdt_tmn_rate': 90000,
+        'gold_tmn_per_gram': 4.5,
+      },
+      'assets': <Map<String, dynamic>>[],
+      'trades': <Map<String, dynamic>>[],
+      'withdrawals': <Map<String, dynamic>>[],
+      'capital_snapshots': <Map<String, dynamic>>[],
+      'app_lock': {'hash': null, 'biometric_enabled': false},
+      'meta': <String, dynamic>{},
+    };
+    final json = const JsonEncoder().convert(legacy);
+    final bytes = BackupCrypto.encryptUtf8(json, iterations: 12000);
+    final restored = BackupService.decode(bytes);
+    expect(restored.settings.calendar, AppConfig.calendarGregorian);
+    expect(restored.settings.theme, AppConfig.themeLight);
+    expect(restored.settings.livePricesEnabled, isFalse);
+    expect(restored.settings.usdtTmnRate, 90000);
+    expect(restored.settings.wallexUrl, 'https://example.test/w');
+    expect(restored.settingsRaw[AppConfig.settingTheme], AppConfig.themeLight);
   });
 
   test('pbkdf2 is deterministic', () {

@@ -575,21 +575,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadLocalSettings() async {
     final map = await settingsRepo!.loadAll();
-    bool on(String k, {bool d = true}) =>
-        (map[k] ?? (d ? '1' : '0')) == '1';
-    settings = AppSettings(
-      calendar: map[AppConfig.settingCalendar] ?? AppConfig.calendarJalali,
-      currency: map[AppConfig.settingCurrency] ?? AppConfig.currencyToman,
-      theme: map[AppConfig.settingTheme] ?? AppConfig.themeDark,
-      livePricesEnabled: on(AppConfig.settingLivePrices),
-      usdtApiEnabled: on(AppConfig.settingUsdtApi),
-      goldApiEnabled: on(AppConfig.settingGoldApi),
-      wallexUrl: map[AppConfig.settingWallexUrl] ?? AppConfig.defaultWallexUrl,
-      persianToolboxUrl: map[AppConfig.settingPersianToolboxUrl] ??
-          AppConfig.defaultPersianToolboxUrl,
-      usdtTmnRate: double.tryParse(map[AppConfig.settingUsdtTmn] ?? ''),
-      goldTmnPerGram: double.tryParse(map[AppConfig.settingGoldTmn] ?? ''),
-    );
+    settings = AppSettings.fromStorageMap(map);
   }
 
   Future<void> saveSettings(AppSettings s) async {
@@ -637,20 +623,7 @@ class AppState extends ChangeNotifier {
   Future<void> _persistSettingsLocal(AppSettings s) async {
     final repo = settingsRepo;
     if (repo == null) return;
-    await repo.saveMap({
-      AppConfig.settingCalendar: s.calendar,
-      AppConfig.settingCurrency: s.currency,
-      AppConfig.settingTheme: s.theme,
-      AppConfig.settingLivePrices: s.livePricesEnabled ? '1' : '0',
-      AppConfig.settingUsdtApi: s.usdtApiEnabled ? '1' : '0',
-      AppConfig.settingGoldApi: s.goldApiEnabled ? '1' : '0',
-      AppConfig.settingWallexUrl: s.wallexUrl,
-      AppConfig.settingPersianToolboxUrl: s.persianToolboxUrl,
-      if (s.usdtTmnRate != null)
-        AppConfig.settingUsdtTmn: s.usdtTmnRate!.toString(),
-      if (s.goldTmnPerGram != null)
-        AppConfig.settingGoldTmn: s.goldTmnPerGram!.toString(),
-    });
+    await repo.saveMap(s.toStorageMap());
   }
 
   /// Coalesced refresh — overlapping pulls merge into one run.
@@ -882,14 +855,21 @@ class AppState extends ChangeNotifier {
       throw StateError('برای صدور پشتیبان باید وارد برنامه شوید.');
     }
     List<Map<String, Object?>> snaps = <Map<String, Object?>>[];
+    Map<String, String> settingsRaw = settings.toStorageMap();
     try {
       final db = await AppDatabase.instance.database;
       snaps = await BackupService.loadCapitalSnapshots(db);
+      settingsRepo ??= SettingsRepository(db);
+      final fromDb = await settingsRepo!.loadAll();
+      if (fromDb.isNotEmpty) {
+        settingsRaw = {...fromDb, ...settings.toStorageMap()};
+      }
     } catch (_) {
       snaps = <Map<String, Object?>>[];
     }
     final payload = BackupService.buildFromMemory(
       settings: settings,
+      settingsRaw: settingsRaw,
       assets: assets,
       openTrades: openTrades,
       closedTrades: closedTrades,
@@ -953,7 +933,7 @@ class AppState extends ChangeNotifier {
     // Keep session unlocked after restore so the user isn't locked out mid-flow.
     appUnlocked = true;
 
-    settings = payload.settings;
+    settings = payload.settings.copyWith();
     if (settings.wallexUrl.isEmpty) {
       settings.wallexUrl = AppConfig.defaultWallexUrl;
     }
@@ -974,7 +954,7 @@ class AppState extends ChangeNotifier {
     if (remotePushed) {
       await refreshAll(
         includeQuotes: false,
-        fetchSettings: true,
+        fetchSettings: false,
         checkApiVersion: false,
       );
     } else if (!useRemote) {
@@ -983,9 +963,21 @@ class AppState extends ChangeNotifier {
         fetchSettings: true,
         checkApiVersion: false,
       );
-    } else {
-      notifyListeners();
     }
+
+    // Always re-apply backed-up settings last so a server refresh cannot drop them.
+    settings = payload.settings.copyWith(
+      wallexUrl: payload.settings.wallexUrl.trim().isEmpty
+          ? AppConfig.defaultWallexUrl
+          : payload.settings.wallexUrl,
+      persianToolboxUrl: payload.settings.persianToolboxUrl.trim().isEmpty
+          ? AppConfig.defaultPersianToolboxUrl
+          : payload.settings.persianToolboxUrl,
+    );
+    await _persistSettingsLocal(settings);
+    liveUsdt = settings.usdtTmnRate ?? liveUsdt;
+    liveGold = settings.goldTmnPerGram ?? liveGold;
+    notifyListeners();
 
     return BackupRestoreReport(
       payload: payload,
@@ -1072,9 +1064,10 @@ class AppState extends ChangeNotifier {
         assetId: newId,
         quantity: t.quantity,
         buyPrice: t.buyPrice,
+        buyPriceUsd: t.buyPriceUsd,
         buyFee: t.buyFee,
         buyDate: t.buyDate.isEmpty ? null : t.buyDate,
-        buyNote: t.buyNote,
+        buyNote: t.buyNoteDisplay,
         currentPrice: t.currentPrice > 0 ? t.currentPrice : null,
       );
     }
@@ -1090,9 +1083,10 @@ class AppState extends ChangeNotifier {
         assetId: newId,
         quantity: t.quantity,
         buyPrice: t.buyPrice,
+        buyPriceUsd: t.buyPriceUsd,
         buyFee: t.buyFee,
         buyDate: t.buyDate.isEmpty ? null : t.buyDate,
-        buyNote: t.buyNote,
+        buyNote: t.buyNoteDisplay,
       );
       if (bought.id == null) continue;
       await svc.closeTrade(
@@ -1110,6 +1104,9 @@ class AppState extends ChangeNotifier {
         await svc.createWithdrawal(amount: w.amount, note: w.note);
       } catch (_) {}
     }
+
+    // Ensure settings stick after portfolio rebuild.
+    await svc.saveSettings(payload.settings);
   }
 }
 

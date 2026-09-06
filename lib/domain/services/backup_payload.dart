@@ -6,7 +6,9 @@ import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/utils/dates.dart';
 
 const backupFormatId = 'vplus-backup';
-const backupFormatVersion = 1;
+
+/// Current writer version. Readers accept 1..[backupFormatVersion].
+const backupFormatVersion = 2;
 
 /// Full portable snapshot of app data (before encryption).
 class BackupPayload {
@@ -17,6 +19,7 @@ class BackupPayload {
     required this.trades,
     required this.withdrawals,
     this.capitalSnapshots = const <Map<String, Object?>>[],
+    this.settingsRaw = const <String, String>{},
     this.appLockHash,
     this.biometricUnlockEnabled = false,
     this.userPhone,
@@ -25,6 +28,9 @@ class BackupPayload {
 
   final String exportedAt;
   final AppSettings settings;
+
+  /// Complete settings table dump (all keys) for lossless restore.
+  final Map<String, String> settingsRaw;
   final List<Asset> assets;
   final List<Trade> trades;
   final List<Withdrawal> withdrawals;
@@ -45,7 +51,8 @@ class BackupPayload {
         'exported_at': exportedAt,
         'app_id': AppConfig.applicationId,
         'app_name': AppConfig.appName,
-        'settings': _settingsToJson(settings),
+        'settings': settings.toJson(),
+        'settings_raw': settingsRaw,
         'assets': assets.map(_assetToJson).toList(),
         'trades': trades.map(_tradeToJson).toList(),
         'withdrawals': withdrawals.map(_withdrawalToJson).toList(),
@@ -57,6 +64,15 @@ class BackupPayload {
         'meta': {
           'user_phone': userPhone,
           'base_url': baseUrl,
+          'includes': const [
+            'settings',
+            'settings_raw',
+            'assets',
+            'trades',
+            'withdrawals',
+            'capital_snapshots',
+            'app_lock',
+          ],
         },
       };
 
@@ -79,6 +95,15 @@ class BackupPayload {
     final lock = Map<String, dynamic>.from(json['app_lock'] as Map? ?? {});
     final meta = Map<String, dynamic>.from(json['meta'] as Map? ?? {});
 
+    final raw = <String, String>{};
+    final rawJson = json['settings_raw'];
+    if (rawJson is Map) {
+      rawJson.forEach((k, v) {
+        if (k == null) return;
+        raw['$k'] = v == null ? '' : '$v';
+      });
+    }
+
     final assets = ((json['assets'] as List?) ?? const [])
         .map((e) => _assetFromJson(Map<String, dynamic>.from(e as Map)))
         .toList();
@@ -92,9 +117,24 @@ class BackupPayload {
         .map((e) => Map<String, Object?>.from(e as Map))
         .toList();
 
+    final settings = AppSettings.fromJson(settingsMap);
+    // Prefer typed settings; fill gaps from raw table when present.
+    if (raw.isNotEmpty) {
+      final fromRaw = AppSettings.fromStorageMap(raw);
+      if (settings.wallexUrl.trim().isEmpty) {
+        settings.wallexUrl = fromRaw.wallexUrl;
+      }
+      if (settings.persianToolboxUrl.trim().isEmpty) {
+        settings.persianToolboxUrl = fromRaw.persianToolboxUrl;
+      }
+      settings.usdtTmnRate ??= fromRaw.usdtTmnRate;
+      settings.goldTmnPerGram ??= fromRaw.goldTmnPerGram;
+    }
+
     return BackupPayload(
       exportedAt: (json['exported_at'] as String?) ?? nowIso(),
-      settings: _settingsFromJson(settingsMap),
+      settings: settings,
+      settingsRaw: raw.isEmpty ? settings.toStorageMap() : raw,
       assets: assets,
       trades: trades,
       withdrawals: withdrawals,
@@ -103,49 +143,6 @@ class BackupPayload {
       biometricUnlockEnabled: lock['biometric_enabled'] == true,
       userPhone: meta['user_phone'] as String?,
       baseUrl: meta['base_url'] as String?,
-    );
-  }
-
-  static Map<String, dynamic> _settingsToJson(AppSettings s) => {
-        'calendar': s.calendar,
-        'currency': s.currency,
-        'theme': s.theme,
-        'live_prices_enabled': s.livePricesEnabled,
-        'usdt_api_enabled': s.usdtApiEnabled,
-        'gold_api_enabled': s.goldApiEnabled,
-        'wallex_url': s.wallexUrl,
-        'persian_toolbox_url': s.persianToolboxUrl,
-        'usdt_tmn_rate': s.usdtTmnRate,
-        'gold_tmn_per_gram': s.goldTmnPerGram,
-      };
-
-  static AppSettings _settingsFromJson(Map<String, dynamic> s) {
-    bool on(dynamic v, {bool d = true}) {
-      if (v == null) return d;
-      if (v is bool) return v;
-      if (v is num) return v != 0;
-      final t = '$v'.trim().toLowerCase();
-      return t == '1' || t == 'true' || t == 'yes';
-    }
-
-    double? d(dynamic v) {
-      if (v == null) return null;
-      if (v is num) return v.toDouble();
-      return double.tryParse('$v');
-    }
-
-    return AppSettings(
-      calendar: (s['calendar'] as String?) ?? AppConfig.calendarJalali,
-      currency: (s['currency'] as String?) ?? AppConfig.currencyToman,
-      theme: (s['theme'] as String?) ?? AppConfig.themeDark,
-      livePricesEnabled: on(s['live_prices_enabled']),
-      usdtApiEnabled: on(s['usdt_api_enabled']),
-      goldApiEnabled: on(s['gold_api_enabled']),
-      wallexUrl: (s['wallex_url'] as String?) ?? AppConfig.defaultWallexUrl,
-      persianToolboxUrl:
-          (s['persian_toolbox_url'] as String?) ?? AppConfig.defaultPersianToolboxUrl,
-      usdtTmnRate: d(s['usdt_tmn_rate']),
-      goldTmnPerGram: d(s['gold_tmn_per_gram']),
     );
   }
 

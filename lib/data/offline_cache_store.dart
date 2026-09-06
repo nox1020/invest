@@ -31,18 +31,7 @@ class OfflineCacheStore {
     final prefs = await SharedPreferences.getInstance();
     final payload = {
       'saved_at': DateTime.now().toIso8601String(),
-      'settings': {
-        'calendar': settings.calendar,
-        'currency': settings.currency,
-        'theme': settings.theme,
-        'live_prices_enabled': settings.livePricesEnabled,
-        'usdt_api_enabled': settings.usdtApiEnabled,
-        'gold_api_enabled': settings.goldApiEnabled,
-        'wallex_url': settings.wallexUrl,
-        'persian_toolbox_url': settings.persianToolboxUrl,
-        'usdt_tmn_rate': settings.usdtTmnRate,
-        'gold_tmn_per_gram': settings.goldTmnPerGram,
-      },
+      'settings': settings.toJson(),
       'metrics': {
         'total_value': metrics.totalValue,
         'total_pnl': metrics.totalPnl,
@@ -77,18 +66,7 @@ class OfflineCacheStore {
       final map = jsonDecode(raw) as Map<String, dynamic>;
       final s = Map<String, dynamic>.from(map['settings'] as Map? ?? {});
       final m = Map<String, dynamic>.from(map['metrics'] as Map? ?? {});
-      final settings = AppSettings(
-        calendar: (s['calendar'] as String?) ?? 'jalali',
-        currency: (s['currency'] as String?) ?? 'toman',
-        theme: (s['theme'] as String?) ?? 'dark',
-        livePricesEnabled: s['live_prices_enabled'] == true,
-        usdtApiEnabled: s['usdt_api_enabled'] != false,
-        goldApiEnabled: s['gold_api_enabled'] != false,
-        wallexUrl: (s['wallex_url'] as String?) ?? '',
-        persianToolboxUrl: (s['persian_toolbox_url'] as String?) ?? '',
-        usdtTmnRate: (s['usdt_tmn_rate'] as num?)?.toDouble(),
-        goldTmnPerGram: (s['gold_tmn_per_gram'] as num?)?.toDouble(),
-      );
+      final settings = AppSettings.fromJson(s);
       final metrics = DashboardMetrics(
         totalValue: _d(m['total_value']),
         totalPnl: _d(m['total_pnl']),

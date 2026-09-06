@@ -36,9 +36,10 @@ Future<void> exportAppBackup(BuildContext context) async {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            'پشتیبان آماده شد '
-            '(${state.assets.length} دارایی، '
-            '${state.openTrades.length + state.closedTrades.length} معامله).',
+            'پشتیبان کامل آماده شد '
+            '(تنظیمات، ${state.assets.length} دارایی، '
+            '${state.openTrades.length + state.closedTrades.length} معامله، '
+            '${state.withdrawals.length} برداشت).',
           ),
         ),
       );
@@ -81,10 +82,12 @@ Future<void> importAppBackup(BuildContext context) async {
         content: Text(
           'تمام داده‌های فعلی با این پشتیبان جایگزین می‌شود.\n\n'
           'صاده‌شده: ${formatDisplayDate(payload.exportedAt, state.settings.calendar)}\n'
+          'تنظیمات: تقویم، تم، ارز، نرخ‌ها، آدرس APIها\n'
           'دارایی: ${payload.assets.length}\n'
           'معاملات باز: ${payload.openTradeCount}\n'
           'معاملات بسته: ${payload.closedTradeCount}\n'
           'برداشت‌ها: ${payload.withdrawals.length}\n'
+          'اسنپ‌شات سرمایه: ${payload.capitalSnapshots.length}\n'
           'قفل برنامه: ${payload.appLockHash != null && payload.appLockHash!.isNotEmpty ? 'دارد' : 'ندارد'}\n\n'
           'این فایل فقط با اپ V+ رمزگشایی می‌شود.',
           textAlign: TextAlign.right,
