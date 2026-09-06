@@ -16,7 +16,7 @@ class BackupPayload {
     required this.assets,
     required this.trades,
     required this.withdrawals,
-    this.capitalSnapshots = const [],
+    this.capitalSnapshots = const <Map<String, Object?>>[],
     this.appLockHash,
     this.biometricUnlockEnabled = false,
     this.userPhone,

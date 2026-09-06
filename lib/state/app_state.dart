@@ -810,12 +810,12 @@ class AppState extends ChangeNotifier {
     if (!authenticated) {
       throw StateError('برای صدور پشتیبان باید وارد برنامه شوید.');
     }
-    List<Map<String, Object?>> snaps = const [];
+    List<Map<String, Object?>> snaps = <Map<String, Object?>>[];
     try {
       final db = await AppDatabase.instance.database;
       snaps = await BackupService.loadCapitalSnapshots(db);
     } catch (_) {
-      snaps = const [];
+      snaps = <Map<String, Object?>>[];
     }
     final payload = BackupService.buildFromMemory(
       settings: settings,

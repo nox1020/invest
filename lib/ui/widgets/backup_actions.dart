@@ -26,16 +26,18 @@ Future<void> exportAppBackup(BuildContext context) async {
       p.join(dir.path, 'vplus-backup-$stamp.${BackupService.fileExtension}'),
     );
     await file.writeAsBytes(bytes, flush: true);
-    await Share.shareXFiles(
-      [
-        XFile(
-          file.path,
-          mimeType: BackupService.mimeType,
-          name: p.basename(file.path),
-        ),
-      ],
-      subject: 'پشتیبان V+',
-      text: 'فایل رمزگذاری‌شده پشتیبان V+ — فقط با همین اپلیکیشن باز می‌شود.',
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [
+          XFile(
+            file.path,
+            mimeType: BackupService.mimeType,
+            name: p.basename(file.path),
+          ),
+        ],
+        subject: 'پشتیبان V+',
+        text: 'فایل رمزگذاری‌شده پشتیبان V+ — فقط با همین اپلیکیشن باز می‌شود.',
+      ),
     );
     if (context.mounted) {
       messenger.showSnackBar(
