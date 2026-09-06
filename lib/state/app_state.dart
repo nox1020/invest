@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/app_lock_store.dart';

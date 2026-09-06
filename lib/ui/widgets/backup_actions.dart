@@ -70,7 +70,7 @@ Future<void> importAppBackup(BuildContext context) async {
     return;
   }
 
-  BackupRestoreReport? preview;
+  final BackupRestoreReport preview;
   try {
     final payload = state.peekEncryptedBackup(bytes);
     if (!context.mounted) return;
@@ -116,7 +116,7 @@ Future<void> importAppBackup(BuildContext context) async {
     return;
   }
 
-  if (!context.mounted || preview == null) return;
+  if (!context.mounted) return;
   final msg = StringBuffer('پشتیبان با موفقیت وارد شد.');
   if (preview.remotePushed) {
     msg.write(' داده‌ها با سرور همگام شد.');
