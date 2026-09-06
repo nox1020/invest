@@ -2,12 +2,32 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/services/backup_service.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shamsi_date/shamsi_date.dart';
+
+/// Backup share filename = export date in the user's calendar setting.
+String backupExportFileName({
+  required String calendar,
+  DateTime? at,
+}) {
+  final now = at ?? DateTime.now();
+  final String date;
+  if (calendar == AppConfig.calendarJalali) {
+    final j = Jalali.fromDateTime(now);
+    date = '${j.year.toString().padLeft(4, '0')}-'
+        '${j.month.toString().padLeft(2, '0')}-'
+        '${j.day.toString().padLeft(2, '0')}';
+  } else {
+    date = toIsoDate(now);
+  }
+  return '$date.${BackupService.fileExtension}';
+}
 
 Future<void> exportAppBackup(BuildContext context) async {
   final state = context.read<AppState>();
@@ -17,8 +37,7 @@ Future<void> exportAppBackup(BuildContext context) async {
       const SnackBar(content: Text('در حال آماده‌سازی پشتیبان رمزگذاری‌شده…')),
     );
     final bytes = await state.exportEncryptedBackup();
-    final stamp = todayIso().replaceAll('-', '');
-    final name = 'vplus-backup-$stamp.${BackupService.fileExtension}';
+    final name = backupExportFileName(calendar: state.settings.calendar);
     await SharePlus.instance.share(
       ShareParams(
         files: [

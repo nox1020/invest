@@ -10,8 +10,26 @@ import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/services/backup_service.dart';
 import 'package:invest/security/backup_crypto.dart';
 import 'package:invest/security/pbkdf2.dart';
+import 'package:invest/ui/widgets/backup_actions.dart';
+import 'package:shamsi_date/shamsi_date.dart';
 
 void main() {
+  test('export filename is the export date', () {
+    final at = DateTime(2026, 9, 6, 21, 30);
+    expect(
+      backupExportFileName(calendar: AppConfig.calendarGregorian, at: at),
+      '2026-09-06.${BackupService.fileExtension}',
+    );
+    final j = Jalali.fromDateTime(at);
+    final jalali = '${j.year.toString().padLeft(4, '0')}-'
+        '${j.month.toString().padLeft(2, '0')}-'
+        '${j.day.toString().padLeft(2, '0')}';
+    expect(
+      backupExportFileName(calendar: AppConfig.calendarJalali, at: at),
+      '$jalali.${BackupService.fileExtension}',
+    );
+  });
+
   test('backup crypto round-trip is authenticated', () {
     const plain = '{"hello":"world","n":42}';
     final enc = BackupCrypto.encryptUtf8(plain, iterations: 12000);
