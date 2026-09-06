@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/app_lock_store.dart';
@@ -14,6 +16,8 @@ import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/domain/services/backup_payload.dart';
+import 'package:invest/domain/services/backup_service.dart';
 import 'package:invest/domain/services/chart_series.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/portfolio_service.dart';
@@ -800,4 +804,252 @@ class AppState extends ChangeNotifier {
 
   /// Used by UI for buy/sell/asset mutations.
   dynamic get tradeService => useRemote && !offline ? remote : trades;
+
+  /// Encrypted full backup bytes (`.vplusbak`).
+  Future<Uint8List> exportEncryptedBackup() async {
+    if (!authenticated) {
+      throw StateError('برای صدور پشتیبان باید وارد برنامه شوید.');
+    }
+    List<Map<String, Object?>> snaps = const [];
+    try {
+      final db = await AppDatabase.instance.database;
+      snaps = await BackupService.loadCapitalSnapshots(db);
+    } catch (_) {
+      snaps = const [];
+    }
+    final payload = BackupService.buildFromMemory(
+      settings: settings,
+      assets: assets,
+      openTrades: openTrades,
+      closedTrades: closedTrades,
+      withdrawals: withdrawals,
+      capitalSnapshots: snaps,
+      appLockHash: appLockHash,
+      biometricUnlockEnabled: biometricUnlockEnabled,
+      userPhone: userPhone,
+      baseUrl: baseUrl,
+    );
+    return BackupService.encode(payload);
+  }
+
+  /// Decrypt + validate backup file without applying it.
+  BackupPayload peekEncryptedBackup(Uint8List bytes) =>
+      BackupService.decode(bytes);
+
+  /// Restore encrypted backup into local DB, offline cache, lock, and memory.
+  ///
+  /// When online with remote API and [pushToRemote], also rebuilds Vinor data.
+  Future<BackupRestoreReport> importEncryptedBackup(
+    Uint8List bytes, {
+    bool pushToRemote = true,
+  }) async {
+    if (!authenticated) {
+      throw StateError('برای وارد کردن پشتیبان باید وارد برنامه شوید.');
+    }
+    final payload = BackupService.decode(bytes);
+
+    final db = await AppDatabase.instance.database;
+    // Ensure local service handles exist even in remote mode.
+    trades ??= TradeService(db);
+    portfolio ??= PortfolioService(db);
+    settingsRepo ??= SettingsRepository(db);
+    _withdrawalsRepo ??= WithdrawalRepository(db);
+
+    await BackupService.restoreLocalDatabase(db, payload);
+    await BackupService.restoreAppLock(payload);
+    await BackupService.saveOfflineCache(
+      payload: payload,
+      metrics: metrics,
+    );
+
+    var remotePushed = false;
+    String? remoteWarning;
+    if (pushToRemote && useRemote && !offline && remote != null && !readOnlyOffline) {
+      try {
+        await _rebuildRemoteFromBackup(payload);
+        remotePushed = true;
+      } catch (e) {
+        remoteWarning =
+            'پشتیبان محلی اعمال شد، اما همگام‌سازی با سرور کامل نشد: $e';
+      }
+    } else if (useRemote && (offline || readOnlyOffline)) {
+      remoteWarning =
+          'پشتیبان روی دستگاه ذخیره شد. در حالت آفلاین به سرور ارسال نشد؛ '
+          'با آنلاین شدن، همگام‌سازی از سرور ممکن است داده‌ها را بازنویسی کند.';
+    }
+
+    await _loadAppLock();
+    // Keep session unlocked after restore so the user isn't locked out mid-flow.
+    appUnlocked = true;
+
+    settings = payload.settings;
+    if (settings.wallexUrl.isEmpty) {
+      settings.wallexUrl = AppConfig.defaultWallexUrl;
+    }
+    if (settings.persianToolboxUrl.isEmpty) {
+      settings.persianToolboxUrl = AppConfig.defaultPersianToolboxUrl;
+    }
+    assets = List<Asset>.from(payload.assets);
+    openTrades = payload.trades
+        .where((t) => t.status == AppConfig.tradeOpen)
+        .toList();
+    closedTrades = payload.trades
+        .where((t) => t.status == AppConfig.tradeClosed)
+        .toList();
+    withdrawals = List<Withdrawal>.from(payload.withdrawals);
+    liveUsdt = settings.usdtTmnRate;
+    liveGold = settings.goldTmnPerGram;
+
+    if (remotePushed) {
+      await refreshAll(
+        includeQuotes: false,
+        fetchSettings: true,
+        checkApiVersion: false,
+      );
+    } else if (!useRemote) {
+      await refreshAll(
+        includeQuotes: false,
+        fetchSettings: true,
+        checkApiVersion: false,
+      );
+    } else {
+      notifyListeners();
+    }
+
+    return BackupRestoreReport(
+      payload: payload,
+      remotePushed: remotePushed,
+      remoteWarning: remoteWarning,
+    );
+  }
+
+  Future<void> _rebuildRemoteFromBackup(BackupPayload payload) async {
+    final svc = remote!;
+    await svc.saveSettings(payload.settings);
+
+    // Clear existing remote portfolio (closed → open → assets).
+    final existingClosed = await svc.listClosed();
+    for (final t in existingClosed) {
+      if (t.id != null) {
+        try {
+          await svc.deleteClosedTrade(t.id!);
+        } catch (_) {}
+      }
+    }
+    final existingOpen = await svc.listOpen();
+    for (final t in existingOpen) {
+      if (t.id == null) continue;
+      try {
+        await svc.closeTrade(
+          tradeId: t.id!,
+          sellPrice: t.buyPrice > 0 ? t.buyPrice : 1,
+          sellFee: 0,
+          quantity: t.quantity,
+          sellNote: 'پاکسازی قبل از بازیابی پشتیبان',
+        );
+      } catch (_) {}
+    }
+    final closedAfter = await svc.listClosed();
+    for (final t in closedAfter) {
+      if (t.id != null) {
+        try {
+          await svc.deleteClosedTrade(t.id!);
+        } catch (_) {}
+      }
+    }
+    final existingAssets = await svc.assets.listAll();
+    for (final a in existingAssets) {
+      if (a.id != null) {
+        try {
+          await svc.assets.delete(a.id!);
+        } catch (_) {}
+      }
+    }
+
+    // Recreate assets, then trades keyed by previous asset id.
+    final idMap = <int, int>{};
+    for (final a in payload.assets) {
+      final created = await svc.assets.create(
+        Asset(
+          name: a.name,
+          symbol: a.symbol,
+          quantity: 0,
+          avgBuyPrice: 0,
+          currentPrice: a.currentPrice > 0 ? a.currentPrice : a.avgBuyPrice,
+          notes: a.notes,
+        ),
+      );
+      if (a.id != null && created.id != null) {
+        idMap[a.id!] = created.id!;
+      }
+      if (a.currentPrice > 0 && created.id != null) {
+        created.currentPrice = a.currentPrice;
+        await svc.assets.update(created);
+      }
+    }
+
+    int? mapAssetId(int oldId) => idMap[oldId];
+
+    final open = payload.trades
+        .where((t) => t.status == AppConfig.tradeOpen)
+        .toList()
+      ..sort((a, b) => a.buyDate.compareTo(b.buyDate));
+    for (final t in open) {
+      final newId = mapAssetId(t.assetId);
+      if (newId == null) continue;
+      await svc.registerBuy(
+        assetId: newId,
+        quantity: t.quantity,
+        buyPrice: t.buyPrice,
+        buyFee: t.buyFee,
+        buyDate: t.buyDate.isEmpty ? null : t.buyDate,
+        buyNote: t.buyNote,
+        currentPrice: t.currentPrice > 0 ? t.currentPrice : null,
+      );
+    }
+
+    final closed = payload.trades
+        .where((t) => t.status == AppConfig.tradeClosed)
+        .toList()
+      ..sort((a, b) => a.buyDate.compareTo(b.buyDate));
+    for (final t in closed) {
+      final newId = mapAssetId(t.assetId);
+      if (newId == null) continue;
+      final bought = await svc.registerBuy(
+        assetId: newId,
+        quantity: t.quantity,
+        buyPrice: t.buyPrice,
+        buyFee: t.buyFee,
+        buyDate: t.buyDate.isEmpty ? null : t.buyDate,
+        buyNote: t.buyNote,
+      );
+      if (bought.id == null) continue;
+      await svc.closeTrade(
+        tradeId: bought.id!,
+        sellPrice: t.sellPrice ?? t.buyPrice,
+        sellFee: t.sellFee,
+        quantity: t.quantity,
+        sellDate: t.sellDate,
+        sellNote: t.sellNote,
+      );
+    }
+
+    for (final w in payload.withdrawals) {
+      try {
+        await svc.createWithdrawal(amount: w.amount, note: w.note);
+      } catch (_) {}
+    }
+  }
+}
+
+class BackupRestoreReport {
+  const BackupRestoreReport({
+    required this.payload,
+    required this.remotePushed,
+    this.remoteWarning,
+  });
+
+  final BackupPayload payload;
+  final bool remotePushed;
+  final String? remoteWarning;
 }

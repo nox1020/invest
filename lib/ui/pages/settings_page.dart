@@ -4,6 +4,7 @@ import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/app_lock_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/backup_actions.dart';
 import 'package:invest/ui/widgets/settings_ui.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:provider/provider.dart';
@@ -276,6 +277,49 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 14),
         ],
+        const SizedBox(height: 14),
+        SettingsSectionCard(
+          title: 'پشتیبان‌گیری',
+          subtitle: 'صدور و ورود همه اطلاعات در فایل رمزگذاری‌شده مخصوص V+',
+          icon: Icons.folder_zip_outlined,
+          accent: const Color(0xFF2BBBAD),
+          children: [
+            SettingsTile(
+              title: 'فایل رمزگذاری‌شده',
+              subtitle:
+                  'شامل دارایی‌ها، معاملات، برداشت‌ها، تنظیمات و قفل برنامه — '
+                  'فقط همین اپلیکیشن می‌تواند باز کند',
+              leading: const Icon(Icons.lock_rounded, size: 20),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: state.authenticated
+                          ? () => exportAppBackup(context)
+                          : null,
+                      icon: const Icon(Icons.upload_rounded, size: 18),
+                      label: const Text('صدور'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: state.authenticated
+                          ? () => importAppBackup(context)
+                          : null,
+                      icon: const Icon(Icons.download_rounded, size: 18),
+                      label: const Text('ورود'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
         SettingsSectionCard(
           title: 'ظاهر و نمایش',
           subtitle: 'تم، تقویم و واحد پول',
