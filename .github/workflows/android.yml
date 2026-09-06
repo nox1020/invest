@@ -52,108 +52,108 @@ jobs:
         uses: actions/cache@v4
         with:
           path: android/app/vplus-ci.keystore
-          key: vplus-ci-release-keystore-v3
+          key: vplus-ci-release-keystore-v4
 
       - name: Prepare release keystore
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           KS_PATH="android/app/vplus-ci.keystore"
           mkdir -p android/app
-
-          # Fixed durable sideload signing identity (must stay stable across runs).
-          # Do not read ANDROID_KEYSTORE_* here: incomplete/mismatched secrets were
-          # failing this step and flipping certs between builds.
           STORE_PASS="vplus-ci-stable-store-2026"
-          KEY_PASS="${STORE_PASS}"
           KEY_ALIAS="vplus"
-          SIGN_SOURCE="unknown"
+          SIGN_SOURCE="bootstrap"
 
-          keystore_ok() {
-            keytool -list \
-              -keystore "$1" \
-              -storepass "${STORE_PASS}" \
-              -alias "${KEY_ALIAS}" >/dev/null 2>&1
-          }
+          # Avoid '+' in DN (LDAP treats it as multi-value separator).
+          DNAME="CN=Vplus Invest CI, OU=nox1020, O=nox1020, C=IR"
 
-          if [ -f "${KS_PATH}" ] && keystore_ok "${KS_PATH}"; then
-            SIGN_SOURCE="cache"
-            echo "Using cached release keystore."
-          else
-            rm -f "${KS_PATH}"
-            # Survive cache eviction via prior workflow artifact.
-            ARTIFACT_ID="$(curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?name=vplus-ci-release-keystore&per_page=20" \
-              | python3 -c 'import json,sys; d=json.load(sys.stdin); ids=[a["id"] for a in d.get("artifacts",[]) if not a.get("expired")]; print(ids[0] if ids else "")' \
-              || true)"
+          if [ -f "${KS_PATH}" ]; then
+            if keytool -list -keystore "${KS_PATH}" -storepass "${STORE_PASS}" -alias "${KEY_ALIAS}"; then
+              SIGN_SOURCE="cache"
+              echo "Using cached release keystore."
+            else
+              echo "Cached keystore invalid; regenerating."
+              rm -f "${KS_PATH}"
+            fi
+          fi
+
+          if [ ! -f "${KS_PATH}" ]; then
+            ARTIFACT_ID=""
+            if command -v curl >/dev/null && command -v python3 >/dev/null; then
+              ARTIFACT_ID="$(curl -sS \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?name=vplus-ci-release-keystore&per_page=20" \
+                | python3 -c 'import json,sys
+try:
+ d=json.load(sys.stdin)
+ ids=[a["id"] for a in d.get("artifacts",[]) if not a.get("expired")]
+ print(ids[0] if ids else "")
+except Exception:
+ print("")' || true)"
+            fi
             if [ -n "${ARTIFACT_ID}" ]; then
-              echo "Downloading keystore artifact ${ARTIFACT_ID}..."
-              curl -fsSL \
+              echo "Trying artifact ${ARTIFACT_ID}"
+              curl -sS -L \
                 -H "Authorization: Bearer ${GH_TOKEN}" \
                 -H "Accept: application/vnd.github+json" \
                 "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip" \
-                -o /tmp/vplus-ks.zip
-              rm -rf /tmp/vplus-ks
-              mkdir -p /tmp/vplus-ks
-              unzip -o /tmp/vplus-ks.zip -d /tmp/vplus-ks
-              FOUND="$(find /tmp/vplus-ks -type f \( -name '*.keystore' -o -name '*.jks' -o -name '*.p12' \) | head -n 1 || true)"
-              if [ -n "${FOUND}" ] && cp "${FOUND}" "${KS_PATH}" && keystore_ok "${KS_PATH}"; then
-                SIGN_SOURCE="artifact-${ARTIFACT_ID}"
-                echo "Recovered release keystore from artifact ${ARTIFACT_ID}."
-              else
-                echo "Artifact ${ARTIFACT_ID} was not usable; will bootstrap."
-                rm -f "${KS_PATH}"
+                -o /tmp/vplus-ks.zip || true
+              if [ -f /tmp/vplus-ks.zip ]; then
+                rm -rf /tmp/vplus-ks
+                mkdir -p /tmp/vplus-ks
+                unzip -o /tmp/vplus-ks.zip -d /tmp/vplus-ks || true
+                FOUND="$(find /tmp/vplus-ks -type f \( -name '*.keystore' -o -name '*.jks' -o -name '*.p12' \) | head -n 1 || true)"
+                if [ -n "${FOUND}" ]; then
+                  cp "${FOUND}" "${KS_PATH}"
+                  if keytool -list -keystore "${KS_PATH}" -storepass "${STORE_PASS}" -alias "${KEY_ALIAS}"; then
+                    SIGN_SOURCE="artifact-${ARTIFACT_ID}"
+                    echo "Recovered keystore from artifact."
+                  else
+                    rm -f "${KS_PATH}"
+                  fi
+                fi
               fi
             fi
-
-            if [ ! -f "${KS_PATH}" ]; then
-              keytool -genkeypair \
-                -storetype PKCS12 \
-                -keystore "${KS_PATH}" \
-                -alias "${KEY_ALIAS}" \
-                -keyalg RSA -keysize 2048 -validity 10000 \
-                -storepass "${STORE_PASS}" \
-                -keypass "${KEY_PASS}" \
-                -dname "CN=V+ Invest CI, OU=nox1020, O=nox1020, C=IR"
-              SIGN_SOURCE="bootstrap"
-              echo "Bootstrapped a new stable release keystore for sideload updates."
-              echo "::warning::New CI signing key created. Devices with older differently-signed installs need one uninstall/reinstall, then updates work."
-            fi
           fi
 
-          if ! keystore_ok "${KS_PATH}"; then
-            echo "Release keystore is missing or invalid after prepare step." >&2
-            exit 1
+          if [ ! -f "${KS_PATH}" ]; then
+            keytool -genkeypair \
+              -noprompt \
+              -storetype PKCS12 \
+              -keystore "${KS_PATH}" \
+              -alias "${KEY_ALIAS}" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "${STORE_PASS}" \
+              -keypass "${STORE_PASS}" \
+              -dname "${DNAME}"
+            SIGN_SOURCE="bootstrap"
+            echo "Bootstrapped stable release keystore."
+            echo "::warning::New CI signing key created. Uninstall the old app once, then future APKs update in place."
           fi
 
-          {
-            echo "storePassword=${STORE_PASS}"
-            echo "keyPassword=${KEY_PASS}"
-            echo "keyAlias=${KEY_ALIAS}"
-            echo "storeFile=vplus-ci.keystore"
-          } > android/key.properties
+          keytool -list -keystore "${KS_PATH}" -storepass "${STORE_PASS}" -alias "${KEY_ALIAS}"
+          test -f "${KS_PATH}"
 
+          printf '%s\n' \
+            "storePassword=${STORE_PASS}" \
+            "keyPassword=${STORE_PASS}" \
+            "keyAlias=${KEY_ALIAS}" \
+            "storeFile=vplus-ci.keystore" \
+            > android/key.properties
+
+          CERT_SHA="$(keytool -list -v -keystore "${KS_PATH}" -storepass "${STORE_PASS}" | awk '/SHA256:/{print $2; exit}')"
+          test -n "${CERT_SHA}"
           echo "SIGN_SOURCE=${SIGN_SOURCE}" >> "$GITHUB_ENV"
           echo "KEY_ALIAS=${KEY_ALIAS}" >> "$GITHUB_ENV"
-
-          CERT_SHA="$(keytool -list -v \
-            -keystore "${KS_PATH}" \
-            -storepass "${STORE_PASS}" \
-            | awk '/SHA256:/{print $2; exit}')"
-          if [ -z "${CERT_SHA}" ]; then
-            echo "Could not read keystore certificate fingerprint." >&2
-            exit 1
-          fi
           echo "CERT_SHA256=${CERT_SHA}" >> "$GITHUB_ENV"
-          {
-            echo "### Signing"
-            echo "- source: ${SIGN_SOURCE}"
-            echo "- alias: ${KEY_ALIAS}"
-            echo "- cert SHA-256: \`${CERT_SHA}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "### Signing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- source: ${SIGN_SOURCE}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- alias: ${KEY_ALIAS}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- cert SHA-256: \`${CERT_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
