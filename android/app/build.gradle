@@ -19,6 +19,10 @@ if (envVersionCode != null && envVersionCode ==~ /^\d+$/) {
     }
 }
 
+def hasReleaseKeystore = keystorePropertiesFile.exists() &&
+        keystoreProperties["storeFile"] != null &&
+        file(keystoreProperties["storeFile"]).exists()
+
 android {
     namespace = "com.nox1020.invest"
     compileSdk = flutter.compileSdkVersion
@@ -36,7 +40,7 @@ android {
 
     signingConfigs {
         release {
-            if (keystorePropertiesFile.exists()) {
+            if (hasReleaseKeystore) {
                 keyAlias = keystoreProperties["keyAlias"]
                 keyPassword = keystoreProperties["keyPassword"]
                 storeFile = file(keystoreProperties["storeFile"])
@@ -55,12 +59,15 @@ android {
 
     buildTypes {
         release {
-            // Same package + same cert + higher versionCode is required for
-            // in-place APK updates. Prefer upload keystore when present;
-            // otherwise the CI-cached debug keystore (not a new one each run).
-            signingConfig = keystorePropertiesFile.exists()
-                    ? signingConfigs.release
-                    : signingConfigs.debug
+            // In-place updates need the SAME signing cert every build.
+            // CI always writes android/key.properties + a stable keystore file.
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.release
+            } else {
+                // Local/dev only. CI must fail before reaching a release APK
+                // without key.properties (see workflow).
+                signingConfig = signingConfigs.debug
+            }
         }
     }
 }

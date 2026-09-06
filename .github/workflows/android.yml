@@ -18,12 +18,20 @@ jobs:
     concurrency:
       group: android-apk-${{ github.ref }}
       cancel-in-progress: true
+    permissions:
+      actions: read
+      contents: write
+      checks: write
+      pull-requests: read
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       VINOR_API_VERSION: ${{ github.event.client_payload.api_version || '' }}
       VINOR_SHA: ${{ github.event.client_payload.vinor_sha || '' }}
       ANDROID_VERSION_CODE: ${{ github.run_number }}
+      VPLUS_CI_STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      VPLUS_CI_KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      VPLUS_CI_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
     steps:
       - name: Backend trigger info
         if: github.event_name == 'repository_dispatch'
@@ -42,43 +50,104 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Restore stable debug keystore
+      - name: Restore stable release keystore
+        id: ks-cache
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: vplus-android-debug-keystore-v1
+          path: android/app/vplus-ci.keystore
+          key: vplus-ci-release-keystore-v2
 
-      - name: Decode upload keystore
+      - name: Prepare release keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -n "${ANDROID_KEYSTORE_BASE64}" ]; then
-            echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > android/upload-keystore.jks
-            {
-              echo "storePassword=${ANDROID_KEYSTORE_PASSWORD}"
-              echo "keyPassword=${ANDROID_KEY_PASSWORD:-${ANDROID_KEYSTORE_PASSWORD}}"
-              echo "keyAlias=${ANDROID_KEY_ALIAS:-upload}"
-              echo "storeFile=../upload-keystore.jks"
-            } > android/key.properties
-            echo "Using upload keystore from secrets."
+          set -euo pipefail
+          KS_PATH="android/app/vplus-ci.keystore"
+          mkdir -p android/app
+
+          # Defaults for the durable CI sideload key (recovered via cache/artifact).
+          STORE_PASS="${VPLUS_CI_STORE_PASS:-vplus-ci-stable-store-2026}"
+          KEY_PASS="${VPLUS_CI_KEY_PASS:-$STORE_PASS}"
+          KEY_ALIAS="${VPLUS_CI_KEY_ALIAS:-vplus}"
+
+          SIGN_SOURCE="unknown"
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            if [ -z "${VPLUS_CI_STORE_PASS:-}" ]; then
+              echo "ANDROID_KEYSTORE_BASE64 is set but ANDROID_KEYSTORE_PASSWORD is missing." >&2
+              exit 1
+            fi
+            STORE_PASS="${VPLUS_CI_STORE_PASS}"
+            KEY_PASS="${VPLUS_CI_KEY_PASS:-$STORE_PASS}"
+            KEY_ALIAS="${VPLUS_CI_KEY_ALIAS:-upload}"
+            echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > "${KS_PATH}"
+            SIGN_SOURCE="github-secret"
+            echo "Using upload keystore from GitHub secrets."
+          elif [ -f "${KS_PATH}" ]; then
+            SIGN_SOURCE="cache"
+            echo "Using cached release keystore."
           else
-            mkdir -p ~/.android
-            if [ ! -f ~/.android/debug.keystore ]; then
-              keytool -genkeypair \
-                -keystore ~/.android/debug.keystore \
-                -alias androiddebugkey \
-                -storepass android \
-                -keypass android \
-                -keyalg RSA -keysize 2048 -validity 10000 \
-                -dname "CN=Android Debug,O=Android,C=US"
-              echo "Created debug keystore for cache seed."
+            # Survive cache eviction: recover the exact same keystore from a
+            # previous successful workflow artifact.
+            ARTIFACT_ID="$(gh api \
+              "repos/${{ github.repository }}/actions/artifacts?name=vplus-ci-release-keystore&per_page=20" \
+              --jq '.artifacts[] | select(.expired==false) | .id' \
+              | head -n 1 || true)"
+            if [ -n "${ARTIFACT_ID:-}" ]; then
+              gh api \
+                "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip" \
+                > /tmp/vplus-ks.zip
+              unzip -o /tmp/vplus-ks.zip -d /tmp/vplus-ks
+              FOUND="$(find /tmp/vplus-ks -type f \( -name '*.keystore' -o -name '*.jks' -o -name '*.p12' \) | head -n 1)"
+              if [ -z "${FOUND}" ]; then
+                echo "Artifact ${ARTIFACT_ID} did not contain a keystore file." >&2
+                exit 1
+              fi
+              cp "${FOUND}" "${KS_PATH}"
+              SIGN_SOURCE="artifact-${ARTIFACT_ID}"
+              echo "Recovered release keystore from artifact ${ARTIFACT_ID}."
             else
-              echo "Reusing cached debug keystore."
+              # First-ever bootstrap only. Later runs must reuse cache/artifact.
+              keytool -genkeypair \
+                -storetype PKCS12 \
+                -keystore "${KS_PATH}" \
+                -alias "${KEY_ALIAS}" \
+                -keyalg RSA -keysize 2048 -validity 10000 \
+                -storepass "${STORE_PASS}" \
+                -keypass "${KEY_PASS}" \
+                -dname "CN=V+ Invest CI, OU=nox1020, O=nox1020, C=IR"
+              SIGN_SOURCE="bootstrap"
+              echo "Bootstrapped a new stable release keystore for sideload updates."
+              echo "::warning::New CI signing key created. Devices with older differently-signed installs need one uninstall/reinstall, then updates work."
             fi
           fi
+
+          if [ ! -f "${KS_PATH}" ]; then
+            echo "Release keystore missing after prepare step." >&2
+            exit 1
+          fi
+
+          {
+            echo "storePassword=${STORE_PASS}"
+            echo "keyPassword=${KEY_PASS}"
+            echo "keyAlias=${KEY_ALIAS}"
+            echo "storeFile=vplus-ci.keystore"
+          } > android/key.properties
+
+          echo "SIGN_SOURCE=${SIGN_SOURCE}" >> "$GITHUB_ENV"
+          echo "KEY_ALIAS=${KEY_ALIAS}" >> "$GITHUB_ENV"
+
+          CERT_SHA="$(keytool -list -v \
+            -keystore "${KS_PATH}" \
+            -storepass "${STORE_PASS}" \
+            | awk '/SHA256:/{print $2; exit}')"
+          echo "CERT_SHA256=${CERT_SHA}" >> "$GITHUB_ENV"
+          {
+            echo "### Signing"
+            echo "- source: ${SIGN_SOURCE}"
+            echo "- alias: ${KEY_ALIAS}"
+            echo "- cert SHA-256: \`${CERT_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -104,6 +173,8 @@ jobs:
         id: apk
         run: |
           set -o pipefail
+          test -f android/key.properties
+          test -f android/app/vplus-ci.keystore
           flutter build apk --release \
             --build-number="${ANDROID_VERSION_CODE}" \
             --build-name="1.0.${ANDROID_VERSION_CODE}" \
@@ -114,6 +185,47 @@ jobs:
             echo "- versionCode: ${ANDROID_VERSION_CODE}"
             echo "- versionName: 1.0.${ANDROID_VERSION_CODE}"
             echo "- applicationId: com.nox1020.invest"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify APK version + signing cert
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -f "${APK}"
+
+          BT="$(ls -d "${ANDROID_HOME}/build-tools"/* | sort -V | tail -n 1)"
+          AAPT="${BT}/aapt"
+          APKSIGNER="${BT}/apksigner"
+
+          BADGING="$("${AAPT}" dump badging "${APK}")"
+          echo "${BADGING}" | head -n 5
+          echo "${BADGING}" | grep -E "package: name='com.nox1020.invest'" >/dev/null
+
+          CODE="$(echo "${BADGING}" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")"
+          NAME="$(echo "${BADGING}" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+          echo "Parsed versionCode=${CODE} versionName=${NAME}"
+          if [ "${CODE}" != "${ANDROID_VERSION_CODE}" ]; then
+            echo "versionCode mismatch: apk=${CODE} expected=${ANDROID_VERSION_CODE}" >&2
+            exit 1
+          fi
+
+          CERTS="$("${APKSIGNER}" verify --print-certs "${APK}" 2>&1 || true)"
+          echo "${CERTS}"
+          APK_SHA="$(echo "${CERTS}" | tr '[:lower:]' '[:upper:]' | sed -n 's/.*SHA-256 DIGEST: *//p' | head -n1 | tr -d ' :')"
+          EXPECT_SHA="$(echo "${CERT_SHA256}" | tr '[:lower:]' '[:upper:]' | tr -d ' :')"
+          echo "APK cert SHA-256: ${APK_SHA}"
+          echo "Keystore cert SHA-256: ${EXPECT_SHA}"
+          if [ -z "${APK_SHA}" ] || [ -z "${EXPECT_SHA}" ] || [ "${APK_SHA}" != "${EXPECT_SHA}" ]; then
+            echo "APK signing certificate does not match the prepared keystore." >&2
+            exit 1
+          fi
+
+          {
+            echo "### Verified APK"
+            echo "- versionCode: ${CODE}"
+            echo "- versionName: ${NAME}"
+            echo "- cert SHA-256: \`${CERT_SHA256}\`"
+            echo "- sign source: ${SIGN_SOURCE}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Annotate APK build errors
@@ -138,6 +250,16 @@ jobs:
           name: apk-build-log
           path: apk-build.log
           if-no-files-found: ignore
+
+      - name: Persist release keystore for future runs
+        if: success() && env.SIGN_SOURCE != 'github-secret'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vplus-ci-release-keystore
+          path: android/app/vplus-ci.keystore
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true
 
       - name: Upload APK artifact
         if: success()

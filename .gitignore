@@ -15,3 +15,6 @@ Thumbs.db
 credentials.json
 android/key.properties
 android/upload-keystore.jks
+android/app/vplus-ci.keystore
+android/app/*.keystore
+android/app/*.jks
