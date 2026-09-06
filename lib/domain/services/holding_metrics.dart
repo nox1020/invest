@@ -79,7 +79,12 @@ class HoldingMetrics {
       usdCost += t.quantity * u;
     }
     if (usdQty > _eps && (qty - usdQty).abs() <= _eps) {
+      // Only when every open lot has a registered USD unit price.
       avgUsd = usdCost / usdQty;
+    } else {
+      // Inventory meta fallback when lots lack a complete USD basis.
+      final metaUsd = parseAssetNotes(asset.notes).meta.buyPriceUsd;
+      if (metaUsd != null && metaUsd > 0) avgUsd = metaUsd;
     }
 
     return HoldingMetrics(

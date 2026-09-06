@@ -331,8 +331,8 @@ class _AssetCard extends StatelessWidget {
     final usdValue = tomanToUsd(metrics.marketValue, usdt);
     final usdPnl = tomanToUsd(metrics.unrealizedPnl, usdt);
     final usdPrice = tomanToUsd(metrics.currentPrice, usdt);
-    final usdAvg = metrics.avgBuyPriceUsd ??
-        tomanToUsd(metrics.avgBuyPrice, usdt);
+    // Only the registered USD buy basis — never live USDT conversion.
+    final buyUsd = metrics.avgBuyPriceUsd;
     final kind = detectAssetKind(
       name: asset.name,
       symbol: asset.symbol,
@@ -495,13 +495,13 @@ class _AssetCard extends StatelessWidget {
               ),
               _StatRow(
                 label: kind.isUnitAsset ? 'بهای خرید' : 'میانگین خرید',
-                value: usdAvg != null
-                    ? formatUsd(usdAvg)
-                    : formatMoney(metrics.avgBuyPrice),
-                secondary: usdAvg != null
-                    ? formatMoney(metrics.avgBuyPrice)
-                    : null,
+                value: formatMoney(metrics.avgBuyPrice),
               ),
+              if (buyUsd != null && buyUsd > 0)
+                _StatRow(
+                  label: 'بهای دلاری خرید',
+                  value: formatUsd(buyUsd),
+                ),
               _StatRow(
                 label: kind.isUnitAsset ? 'ارزش فعلی واحد' : 'قیمت لحظه‌ای',
                 value: usdPrice != null
