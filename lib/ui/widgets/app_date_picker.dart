@@ -96,8 +96,7 @@ Future<String?> _pickJalaliDate(
                     Expanded(
                       flex: 3,
                       child: DropdownButtonFormField<int>(
-                        key: ValueKey('y-${j.year}'),
-                        initialValue: j.year,
+                        value: j.year,
                         decoration: const InputDecoration(
                           labelText: 'سال',
                           isDense: true,
@@ -123,8 +122,7 @@ Future<String?> _pickJalaliDate(
                     Expanded(
                       flex: 4,
                       child: DropdownButtonFormField<int>(
-                        key: ValueKey('m-${j.year}-${j.month}'),
-                        initialValue: j.month,
+                        value: j.month,
                         decoration: const InputDecoration(
                           labelText: 'ماه',
                           isDense: true,
@@ -149,8 +147,7 @@ Future<String?> _pickJalaliDate(
                     Expanded(
                       flex: 2,
                       child: DropdownButtonFormField<int>(
-                        key: ValueKey('d-${j.year}-${j.month}-${j.day}'),
-                        initialValue: j.day.clamp(1, monthLen),
+                        value: j.day.clamp(1, monthLen),
                         decoration: const InputDecoration(
                           labelText: 'روز',
                           isDense: true,
