@@ -29,9 +29,6 @@ jobs:
       VINOR_API_VERSION: ${{ github.event.client_payload.api_version || '' }}
       VINOR_SHA: ${{ github.event.client_payload.vinor_sha || '' }}
       ANDROID_VERSION_CODE: ${{ github.run_number }}
-      VPLUS_CI_STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      VPLUS_CI_KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      VPLUS_CI_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
     steps:
       - name: Backend trigger info
         if: github.event_name == 'repository_dispatch'
@@ -55,76 +52,80 @@ jobs:
         uses: actions/cache@v4
         with:
           path: android/app/vplus-ci.keystore
-          key: vplus-ci-release-keystore-v2
+          key: vplus-ci-release-keystore-v3
 
       - name: Prepare release keystore
         env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           KS_PATH="android/app/vplus-ci.keystore"
           mkdir -p android/app
 
-          # Defaults for the durable CI sideload key (recovered via cache/artifact).
-          STORE_PASS="${VPLUS_CI_STORE_PASS:-vplus-ci-stable-store-2026}"
-          KEY_PASS="${VPLUS_CI_KEY_PASS:-$STORE_PASS}"
-          KEY_ALIAS="${VPLUS_CI_KEY_ALIAS:-vplus}"
-
+          # Fixed durable sideload signing identity (must stay stable across runs).
+          # Do not read ANDROID_KEYSTORE_* here: incomplete/mismatched secrets were
+          # failing this step and flipping certs between builds.
+          STORE_PASS="vplus-ci-stable-store-2026"
+          KEY_PASS="${STORE_PASS}"
+          KEY_ALIAS="vplus"
           SIGN_SOURCE="unknown"
-          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${VPLUS_CI_STORE_PASS:-}" ]; then
-            STORE_PASS="${VPLUS_CI_STORE_PASS}"
-            KEY_PASS="${VPLUS_CI_KEY_PASS:-$STORE_PASS}"
-            KEY_ALIAS="${VPLUS_CI_KEY_ALIAS:-upload}"
-            echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > "${KS_PATH}"
-            SIGN_SOURCE="github-secret"
-            echo "Using upload keystore from GitHub secrets."
+
+          keystore_ok() {
+            keytool -list \
+              -keystore "$1" \
+              -storepass "${STORE_PASS}" \
+              -alias "${KEY_ALIAS}" >/dev/null 2>&1
+          }
+
+          if [ -f "${KS_PATH}" ] && keystore_ok "${KS_PATH}"; then
+            SIGN_SOURCE="cache"
+            echo "Using cached release keystore."
           else
-            if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
-              echo "::warning::ANDROID_KEYSTORE_BASE64 is set without ANDROID_KEYSTORE_PASSWORD; falling back to durable CI keystore."
-            fi
-            if [ -f "${KS_PATH}" ]; then
-              SIGN_SOURCE="cache"
-              echo "Using cached release keystore."
-            else
-              # Survive cache eviction: recover the exact same keystore from a
-              # previous successful workflow artifact.
-              ARTIFACT_ID="$(gh api \
-                "repos/${{ github.repository }}/actions/artifacts?name=vplus-ci-release-keystore&per_page=20" \
-                --jq '.artifacts[] | select(.expired==false) | .id' \
-                | head -n 1 || true)"
-              if [ -n "${ARTIFACT_ID:-}" ]; then
-                gh api \
-                  "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip" \
-                  > /tmp/vplus-ks.zip
-                unzip -o /tmp/vplus-ks.zip -d /tmp/vplus-ks
-                FOUND="$(find /tmp/vplus-ks -type f \( -name '*.keystore' -o -name '*.jks' -o -name '*.p12' \) | head -n 1)"
-                if [ -z "${FOUND}" ]; then
-                  echo "Artifact ${ARTIFACT_ID} did not contain a keystore file." >&2
-                  exit 1
-                fi
-                cp "${FOUND}" "${KS_PATH}"
+            rm -f "${KS_PATH}"
+            # Survive cache eviction via prior workflow artifact.
+            ARTIFACT_ID="$(curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?name=vplus-ci-release-keystore&per_page=20" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); ids=[a["id"] for a in d.get("artifacts",[]) if not a.get("expired")]; print(ids[0] if ids else "")' \
+              || true)"
+            if [ -n "${ARTIFACT_ID}" ]; then
+              echo "Downloading keystore artifact ${ARTIFACT_ID}..."
+              curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip" \
+                -o /tmp/vplus-ks.zip
+              rm -rf /tmp/vplus-ks
+              mkdir -p /tmp/vplus-ks
+              unzip -o /tmp/vplus-ks.zip -d /tmp/vplus-ks
+              FOUND="$(find /tmp/vplus-ks -type f \( -name '*.keystore' -o -name '*.jks' -o -name '*.p12' \) | head -n 1 || true)"
+              if [ -n "${FOUND}" ] && cp "${FOUND}" "${KS_PATH}" && keystore_ok "${KS_PATH}"; then
                 SIGN_SOURCE="artifact-${ARTIFACT_ID}"
                 echo "Recovered release keystore from artifact ${ARTIFACT_ID}."
               else
-                # First-ever bootstrap only. Later runs must reuse cache/artifact.
-                keytool -genkeypair \
-                  -storetype PKCS12 \
-                  -keystore "${KS_PATH}" \
-                  -alias "${KEY_ALIAS}" \
-                  -keyalg RSA -keysize 2048 -validity 10000 \
-                  -storepass "${STORE_PASS}" \
-                  -keypass "${KEY_PASS}" \
-                  -dname "CN=V+ Invest CI, OU=nox1020, O=nox1020, C=IR"
-                SIGN_SOURCE="bootstrap"
-                echo "Bootstrapped a new stable release keystore for sideload updates."
-                echo "::warning::New CI signing key created. Devices with older differently-signed installs need one uninstall/reinstall, then updates work."
+                echo "Artifact ${ARTIFACT_ID} was not usable; will bootstrap."
+                rm -f "${KS_PATH}"
               fi
+            fi
+
+            if [ ! -f "${KS_PATH}" ]; then
+              keytool -genkeypair \
+                -storetype PKCS12 \
+                -keystore "${KS_PATH}" \
+                -alias "${KEY_ALIAS}" \
+                -keyalg RSA -keysize 2048 -validity 10000 \
+                -storepass "${STORE_PASS}" \
+                -keypass "${KEY_PASS}" \
+                -dname "CN=V+ Invest CI, OU=nox1020, O=nox1020, C=IR"
+              SIGN_SOURCE="bootstrap"
+              echo "Bootstrapped a new stable release keystore for sideload updates."
+              echo "::warning::New CI signing key created. Devices with older differently-signed installs need one uninstall/reinstall, then updates work."
             fi
           fi
 
-          if [ ! -f "${KS_PATH}" ]; then
-            echo "Release keystore missing after prepare step." >&2
+          if ! keystore_ok "${KS_PATH}"; then
+            echo "Release keystore is missing or invalid after prepare step." >&2
             exit 1
           fi
 
@@ -142,6 +143,10 @@ jobs:
             -keystore "${KS_PATH}" \
             -storepass "${STORE_PASS}" \
             | awk '/SHA256:/{print $2; exit}')"
+          if [ -z "${CERT_SHA}" ]; then
+            echo "Could not read keystore certificate fingerprint." >&2
+            exit 1
+          fi
           echo "CERT_SHA256=${CERT_SHA}" >> "$GITHUB_ENV"
           {
             echo "### Signing"
@@ -253,7 +258,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Persist release keystore for future runs
-        if: success() && env.SIGN_SOURCE != 'github-secret'
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: vplus-ci-release-keystore
