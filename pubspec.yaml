@@ -23,6 +23,7 @@ dependencies:
   intl: any
   shamsi_date: ^1.0.2
   provider: ^6.1.2
+  smart_auth: ^3.2.0
 
 dev_dependencies:
   flutter_test:
