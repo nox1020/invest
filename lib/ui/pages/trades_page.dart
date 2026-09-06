@@ -42,6 +42,20 @@ class TradesPage extends StatelessWidget {
   }
 }
 
+String _formatUsdField(double usd) {
+  if ((usd - usd.roundToDouble()).abs() < 1e-12) return '${usd.round()}';
+  if (usd >= 1) return usd.toStringAsFixed(2);
+  return usd.toStringAsFixed(4);
+}
+
+double? _parseOptionalPositive(String raw) {
+  final t = raw.trim().replaceAll(',', '');
+  if (t.isEmpty) return null;
+  final v = double.tryParse(t);
+  if (v == null || v <= 0) return null;
+  return v;
+}
+
 Future<void> showBuyTradeDialog(BuildContext context) async {
   final state = context.read<AppState>();
   if (state.assets.isEmpty) {
@@ -56,6 +70,16 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
     text: '${state.assets.first.currentPrice}',
   );
   final feeCtrl = TextEditingController(text: '0');
+  final usdCtrl = TextEditingController();
+  void suggestUsdFromPrice() {
+    final p = double.tryParse(priceCtrl.text.replaceAll(',', ''));
+    final u = tomanToUsd(p ?? 0, state.settings.usdtTmnRate);
+    if (u != null && u > 0) {
+      usdCtrl.text = _formatUsdField(u);
+    }
+  }
+
+  suggestUsdFromPrice();
   var buyDate = todayIso();
   final calendar = state.settings.calendar;
 
@@ -82,6 +106,7 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
                   setLocal(() {
                     choice = AssetChoice(a.id!, a.name);
                     priceCtrl.text = '${a.currentPrice}';
+                    suggestUsdFromPrice();
                   });
                 },
                 decoration: const InputDecoration(labelText: 'دارایی'),
@@ -94,8 +119,19 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
               ),
               TextField(
                 controller: priceCtrl,
-                decoration: const InputDecoration(labelText: 'قیمت خرید'),
+                decoration: const InputDecoration(labelText: 'قیمت خرید (تومان)'),
                 keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+                onChanged: (_) => setLocal(suggestUsdFromPrice),
+              ),
+              TextField(
+                controller: usdCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'بهای دلاری خرید',
+                  hintText: 'اختیاری — دلار به ازای هر واحد',
+                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 textAlign: TextAlign.right,
               ),
               TextField(
@@ -126,6 +162,7 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
       assetId: choice!.id,
       quantity: double.parse(qtyCtrl.text),
       buyPrice: double.parse(priceCtrl.text),
+      buyPriceUsd: _parseOptionalPositive(usdCtrl.text),
       buyFee: double.tryParse(feeCtrl.text) ?? 0,
       buyDate: buyDate,
     );
@@ -218,7 +255,12 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
   final qtyCtrl = TextEditingController(text: '${trade.quantity}');
   final priceCtrl = TextEditingController(text: '${trade.buyPrice}');
   final feeCtrl = TextEditingController(text: '${trade.buyFee}');
-  final noteCtrl = TextEditingController(text: trade.buyNote);
+  final usdCtrl = TextEditingController(
+    text: trade.buyPriceUsd != null && trade.buyPriceUsd! > 0
+        ? _formatUsdField(trade.buyPriceUsd!)
+        : '',
+  );
+  final noteCtrl = TextEditingController(text: trade.buyNoteDisplay);
   var buyDate = trade.buyDate.isEmpty ? todayIso() : trade.buyDate;
 
   final ok = await showDialog<bool>(
@@ -238,8 +280,18 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
               ),
               TextField(
                 controller: priceCtrl,
-                decoration: const InputDecoration(labelText: 'قیمت خرید'),
+                decoration: const InputDecoration(labelText: 'قیمت خرید (تومان)'),
                 keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+              ),
+              TextField(
+                controller: usdCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'بهای دلاری خرید',
+                  hintText: 'اختیاری — دلار به ازای هر واحد',
+                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 textAlign: TextAlign.right,
               ),
               TextField(
@@ -289,6 +341,7 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
       tradeId: trade.id!,
       quantity: qty,
       buyPrice: price,
+      buyPriceUsd: _parseOptionalPositive(usdCtrl.text),
       buyFee: double.tryParse(feeCtrl.text) ?? 0,
       buyDate: buyDate,
       buyNote: noteCtrl.text,
@@ -413,6 +466,11 @@ class _TradeTile extends StatelessWidget {
             label: 'قیمت خرید',
             value: formatMoney(trade.buyPrice),
           ),
+          if (trade.buyPriceUsd != null && trade.buyPriceUsd! > 0)
+            _TradeDetailRow(
+              label: 'بهای دلاری خرید',
+              value: formatUsd(trade.buyPriceUsd!),
+            ),
           if (trade.buyFee > 0)
             _TradeDetailRow(
               label: 'کارمزد خرید',

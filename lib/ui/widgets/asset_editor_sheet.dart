@@ -114,6 +114,9 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
   // Gold
   late final TextEditingController _purityCtrl;
 
+  // Optional USD buy unit price (all kinds)
+  late final TextEditingController _buyUsdCtrl;
+
   String? _error;
 
   bool get _isEdit => widget.edit != null;
@@ -187,6 +190,11 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     );
     _colorCtrl = TextEditingController(text: meta.color ?? '');
     _purityCtrl = TextEditingController(text: meta.purity ?? '');
+    _buyUsdCtrl = TextEditingController(
+      text: meta.buyPriceUsd == null || meta.buyPriceUsd! <= 0
+          ? ''
+          : _formatQty(meta.buyPriceUsd!),
+    );
   }
 
   @override
@@ -195,6 +203,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     _symbolCtrl.dispose();
     _qtyCtrl.dispose();
     _buyCtrl.dispose();
+    _buyUsdCtrl.dispose();
     _currentCtrl.dispose();
     _notesCtrl.dispose();
     _addressCtrl.dispose();
@@ -236,6 +245,8 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     double? parseD(String s) =>
         double.tryParse(s.trim().replaceAll(',', ''));
     int? parseI(String s) => int.tryParse(s.trim().replaceAll(',', ''));
+    final usdRaw = parseD(_buyUsdCtrl.text);
+    final usd = (usdRaw != null && usdRaw > 0) ? usdRaw : null;
 
     switch (_kind) {
       case AssetKind.property:
@@ -245,6 +256,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
           usage: _usage,
           deedNotes: _deedCtrl.text,
           purchaseDate: _purchaseDate,
+          buyPriceUsd: usd,
         );
       case AssetKind.vehicle:
         return AssetMeta(
@@ -254,13 +266,14 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
           mileageKm: parseD(_mileageCtrl.text),
           color: _colorCtrl.text,
           purchaseDate: _purchaseDate,
+          buyPriceUsd: usd,
         );
       case AssetKind.gold:
-        return AssetMeta(purity: _purityCtrl.text);
+        return AssetMeta(purity: _purityCtrl.text, buyPriceUsd: usd);
       case AssetKind.cash:
       case AssetKind.crypto:
       case AssetKind.other:
-        return AssetMeta.empty;
+        return usd == null ? AssetMeta.empty : AssetMeta(buyPriceUsd: usd);
     }
   }
 
@@ -416,14 +429,21 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
               ),
-            if (_showBuyField)
+            if (_showBuyField) ...[
               _field(
                 _buyCtrl,
                 label: _kind.buyPriceLabel,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-              )
-            else if (_isEdit) ...[
+              ),
+              _field(
+                _buyUsdCtrl,
+                label: 'بهای دلاری خرید',
+                hint: 'اختیاری — دلار به ازای هر واحد',
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+              ),
+            ] else if (_isEdit) ...[
               const SizedBox(height: 8),
               const Text(
                 'برای تغییر مقدار از تب «باز» استفاده کنید.',

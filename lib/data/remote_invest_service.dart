@@ -2,9 +2,11 @@ import 'package:invest/config/app_config.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
+import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
 
 /// Remote asset repository backed by Vinor Invest API.
@@ -156,10 +158,12 @@ class RemoteInvestService {
       if (avgBuyPrice <= 0) {
         throw ArgumentError('برای موجودی اولیه، قیمت خرید الزامی است.');
       }
+      final usd = parseAssetNotes(notes).meta.buyPriceUsd;
       await registerBuy(
         assetId: asset.id,
         quantity: quantity,
         buyPrice: avgBuyPrice,
+        buyPriceUsd: (usd != null && usd > 0) ? usd : null,
         buyNote: 'موجودی اولیه',
         currentPrice: price,
       );
@@ -175,18 +179,23 @@ class RemoteInvestService {
     String symbol = '',
     required double quantity,
     required double buyPrice,
+    double? buyPriceUsd,
     double buyFee = 0,
     String? buyDate,
     String buyNote = '',
     double? currentPrice,
   }) async {
+    final note = encodeBuyNoteUsd(usd: buyPriceUsd, note: buyNote);
     final body = <String, dynamic>{
       'quantity': quantity,
       'buy_price': buyPrice,
       'buy_fee': buyFee,
-      'buy_note': buyNote,
+      'buy_note': note,
       'symbol': symbol,
     };
+    if (buyPriceUsd != null && buyPriceUsd > 0) {
+      body['buy_price_usd'] = buyPriceUsd;
+    }
     if (assetId != null) body['asset_id'] = assetId;
     if (name != null && name.trim().isNotEmpty) body['name'] = name.trim();
     if (buyDate != null) body['buy_date'] = buyDate;
@@ -200,6 +209,7 @@ class RemoteInvestService {
     required int tradeId,
     required double quantity,
     required double buyPrice,
+    double? buyPriceUsd,
     double buyFee = 0,
     String? buyDate,
     String? buyNote,
@@ -212,7 +222,15 @@ class RemoteInvestService {
     if (buyDate != null && buyDate.trim().isNotEmpty) {
       body['buy_date'] = buyDate.trim();
     }
-    if (buyNote != null) body['buy_note'] = buyNote;
+    if (buyNote != null || buyPriceUsd != null) {
+      body['buy_note'] = encodeBuyNoteUsd(
+        usd: buyPriceUsd,
+        note: buyNote ?? '',
+      );
+    }
+    if (buyPriceUsd != null && buyPriceUsd > 0) {
+      body['buy_price_usd'] = buyPriceUsd;
+    }
 
     try {
       final data = await _api.patch(

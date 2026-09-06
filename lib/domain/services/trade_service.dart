@@ -1,8 +1,10 @@
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/repositories.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:sqflite/sqflite.dart';
@@ -88,11 +90,13 @@ class TradeService {
     );
     asset = await assets.create(asset);
     if (quantity > _eps) {
+      final usd = parseAssetNotes(notes).meta.buyPriceUsd;
       await trades.create(Trade(
         assetId: asset.id!,
         status: AppConfig.tradeOpen,
         quantity: quantity,
         buyPrice: avgBuyPrice,
+        buyPriceUsd: (usd != null && usd > 0) ? usd : null,
         buyDate: todayIso(),
         buyNote: 'موجودی اولیه',
       ));
@@ -107,6 +111,7 @@ class TradeService {
     String symbol = '',
     required double quantity,
     required double buyPrice,
+    double? buyPriceUsd,
     double buyFee = 0,
     String? buyDate,
     String buyNote = '',
@@ -115,6 +120,9 @@ class TradeService {
     if (quantity <= 0) throw ArgumentError('مقدار باید بزرگ‌تر از صفر باشد.');
     if (buyPrice <= 0) throw ArgumentError('قیمت خرید باید بزرگ‌تر از صفر باشد.');
     if (buyFee < 0) throw ArgumentError('کارمزد نمی‌تواند منفی باشد.');
+    if (buyPriceUsd != null && buyPriceUsd < 0) {
+      throw ArgumentError('بهای دلاری خرید نمی‌تواند منفی باشد.');
+    }
 
     final asset = await _resolveAsset(
       assetId: assetId,
@@ -135,6 +143,7 @@ class TradeService {
       status: AppConfig.tradeOpen,
       quantity: quantity,
       buyPrice: buyPrice,
+      buyPriceUsd: (buyPriceUsd != null && buyPriceUsd > 0) ? buyPriceUsd : null,
       buyFee: buyFee,
       buyDate: buyDate ?? todayIso(),
       buyNote: buyNote,
@@ -147,6 +156,7 @@ class TradeService {
     required int tradeId,
     required double quantity,
     required double buyPrice,
+    double? buyPriceUsd,
     double buyFee = 0,
     String? buyDate,
     String? buyNote,
@@ -161,15 +171,30 @@ class TradeService {
       throw ArgumentError('قیمت خرید باید بزرگ‌تر از صفر باشد.');
     }
     if (buyFee < 0) throw ArgumentError('کارمزد نمی‌تواند منفی باشد.');
+    if (buyPriceUsd != null && buyPriceUsd < 0) {
+      throw ArgumentError('بهای دلاری خرید نمی‌تواند منفی باشد.');
+    }
 
     trade
       ..quantity = quantity
       ..buyPrice = buyPrice
+      ..buyPriceUsd =
+          (buyPriceUsd != null && buyPriceUsd > 0) ? buyPriceUsd : null
       ..buyFee = buyFee;
     if (buyDate != null && buyDate.trim().isNotEmpty) {
       trade.buyDate = buyDate.trim();
     }
-    if (buyNote != null) trade.buyNote = buyNote;
+    if (buyNote != null) {
+      trade.buyNote = encodeBuyNoteUsd(
+        usd: trade.buyPriceUsd,
+        note: buyNote,
+      );
+    } else {
+      trade.buyNote = encodeBuyNoteUsd(
+        usd: trade.buyPriceUsd,
+        note: parseBuyNoteUsd(trade.buyNote).note,
+      );
+    }
     await trades.update(trade);
     await _syncInventory(trade.assetId);
     return (await trades.get(trade.id!))!;

@@ -32,7 +32,7 @@ class AppDatabase {
     final path = p.join(dir.path, 'invest.db');
     return openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('PRAGMA foreign_keys = ON');
         await _createSchema(db);
@@ -41,6 +41,9 @@ class AppDatabase {
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await _createWithdrawalsTable(db);
+        }
+        if (oldVersion < 3) {
+          await _addBuyPriceUsdColumn(db);
         }
       },
       onOpen: (db) async {
@@ -70,6 +73,7 @@ CREATE TABLE IF NOT EXISTS trades (
   status TEXT NOT NULL,
   quantity REAL NOT NULL,
   buy_price REAL NOT NULL,
+  buy_price_usd REAL,
   buy_fee REAL NOT NULL DEFAULT 0,
   buy_date TEXT NOT NULL,
   buy_note TEXT NOT NULL DEFAULT '',
@@ -112,6 +116,14 @@ CREATE TABLE IF NOT EXISTS withdrawals (
   created_at TEXT NOT NULL
 );
 ''');
+  }
+
+  static Future<void> _addBuyPriceUsdColumn(Database db) async {
+    try {
+      await db.execute('ALTER TABLE trades ADD COLUMN buy_price_usd REAL');
+    } catch (_) {
+      // Column already present.
+    }
   }
 
   static Future<void> _seedSettings(Database db) async {

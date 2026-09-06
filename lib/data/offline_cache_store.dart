@@ -230,6 +230,7 @@ class OfflineCacheStore {
         'status': t.status,
         'quantity': t.quantity,
         'buy_price': t.buyPrice,
+        'buy_price_usd': t.buyPriceUsd,
         'buy_fee': t.buyFee,
         'buy_date': t.buyDate,
         'buy_note': t.buyNote,

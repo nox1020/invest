@@ -21,6 +21,7 @@ class AssetMeta {
     this.mileageKm,
     this.color,
     this.purity,
+    this.buyPriceUsd,
   });
 
   /// ملک — آدرس
@@ -56,6 +57,9 @@ class AssetMeta {
   /// طلا — عیار / خلوص
   final String? purity;
 
+  /// بهای دلاری خرید واحد (ثبت دستی؛ برای دارایی‌های بدون لات باز)
+  final double? buyPriceUsd;
+
   static const empty = AssetMeta();
 
   bool get isEmpty =>
@@ -69,7 +73,8 @@ class AssetMeta {
       (plate == null || plate!.trim().isEmpty) &&
       mileageKm == null &&
       (color == null || color!.trim().isEmpty) &&
-      (purity == null || purity!.trim().isEmpty);
+      (purity == null || purity!.trim().isEmpty) &&
+      (buyPriceUsd == null || buyPriceUsd! <= 0);
 
   Map<String, Object?> toJson() {
     final m = <String, Object?>{};
@@ -90,6 +95,9 @@ class AssetMeta {
     put('mileageKm', mileageKm);
     put('color', color);
     put('purity', purity);
+    if (buyPriceUsd != null && buyPriceUsd! > 0) {
+      put('buyPriceUsd', buyPriceUsd);
+    }
     return m;
   }
 
@@ -114,6 +122,7 @@ class AssetMeta {
       return s.isEmpty ? null : s;
     }
 
+    final usd = asDouble(json['buyPriceUsd'] ?? json['buy_price_usd']);
     return AssetMeta(
       address: asStr(json['address']),
       areaM2: asDouble(json['areaM2'] ?? json['area']),
@@ -126,6 +135,7 @@ class AssetMeta {
       mileageKm: asDouble(json['mileageKm'] ?? json['mileage']),
       color: asStr(json['color']),
       purity: asStr(json['purity'] ?? json['ayar']),
+      buyPriceUsd: (usd != null && usd > 0) ? usd : null,
     );
   }
 
@@ -141,6 +151,7 @@ class AssetMeta {
     double? mileageKm,
     String? color,
     String? purity,
+    double? buyPriceUsd,
   }) =>
       AssetMeta(
         address: address ?? this.address,
@@ -154,6 +165,7 @@ class AssetMeta {
         mileageKm: mileageKm ?? this.mileageKm,
         color: color ?? this.color,
         purity: purity ?? this.purity,
+        buyPriceUsd: buyPriceUsd ?? this.buyPriceUsd,
       );
 }
 

@@ -1,4 +1,5 @@
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/trade.dart';
 
 const _eps = 1e-9;
@@ -12,6 +13,7 @@ class HoldingMetrics {
     required this.quantity,
     required this.currentPrice,
     required this.avgBuyPrice,
+    this.avgBuyPriceUsd,
     required this.costBasis,
     required this.marketValue,
     required this.unrealizedPnl,
@@ -20,6 +22,10 @@ class HoldingMetrics {
   final double quantity;
   final double currentPrice;
   final double avgBuyPrice;
+
+  /// Weighted unit buy price in USD when every open lot has a stored USD price
+  /// (or asset meta for inventory-only holdings).
+  final double? avgBuyPriceUsd;
   final double costBasis;
   final double marketValue;
   final double unrealizedPnl;
@@ -35,10 +41,13 @@ class HoldingMetrics {
     final avg = asset.avgBuyPrice;
     final cost = qty * avg;
     final value = qty * price;
+    final metaUsd = parseAssetNotes(asset.notes).meta.buyPriceUsd;
     return HoldingMetrics(
       quantity: qty,
       currentPrice: price,
       avgBuyPrice: avg,
+      avgBuyPriceUsd:
+          (metaUsd != null && metaUsd > 0) ? metaUsd : null,
       costBasis: cost,
       marketValue: value,
       unrealizedPnl: value - cost,
@@ -59,10 +68,25 @@ class HoldingMetrics {
         : lots.first.currentPrice;
     final value = qty * price;
     final avg = qty > _eps ? cost / qty : 0.0;
+
+    double? avgUsd;
+    var usdQty = 0.0;
+    var usdCost = 0.0;
+    for (final t in lots) {
+      final u = t.buyPriceUsd;
+      if (u == null || u <= 0) continue;
+      usdQty += t.quantity;
+      usdCost += t.quantity * u;
+    }
+    if (usdQty > _eps && (qty - usdQty).abs() <= _eps) {
+      avgUsd = usdCost / usdQty;
+    }
+
     return HoldingMetrics(
       quantity: qty,
       currentPrice: price,
       avgBuyPrice: avg,
+      avgBuyPriceUsd: avgUsd,
       costBasis: cost,
       marketValue: value,
       unrealizedPnl: value - cost,

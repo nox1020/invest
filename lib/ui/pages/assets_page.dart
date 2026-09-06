@@ -331,7 +331,8 @@ class _AssetCard extends StatelessWidget {
     final usdValue = tomanToUsd(metrics.marketValue, usdt);
     final usdPnl = tomanToUsd(metrics.unrealizedPnl, usdt);
     final usdPrice = tomanToUsd(metrics.currentPrice, usdt);
-    final usdAvg = tomanToUsd(metrics.avgBuyPrice, usdt);
+    final usdAvg = metrics.avgBuyPriceUsd ??
+        tomanToUsd(metrics.avgBuyPrice, usdt);
     final kind = detectAssetKind(
       name: asset.name,
       symbol: asset.symbol,
