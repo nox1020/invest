@@ -201,12 +201,15 @@ AssetKind detectAssetKind({
 String notesWithKind(String notes, AssetKind kind) {
   final cleaned = notes
       .replaceAll(RegExp(r'\[kind:[a-z]+\]\s*', caseSensitive: false), '')
+      .replaceAll(RegExp(r'\[meta:\{.*?\}\]\s*', caseSensitive: false, dotAll: true), '')
       .trim();
   final tag = '[kind:${kind.id}]';
   if (cleaned.isEmpty) return tag;
   return '$tag $cleaned';
 }
 
+/// Free-text notes with `[kind:…]` / `[meta:…]` markers removed.
 String stripKindMarker(String notes) => notes
     .replaceAll(RegExp(r'\[kind:[a-z]+\]\s*', caseSensitive: false), '')
+    .replaceAll(RegExp(r'\[meta:\{.*?\}\]\s*', caseSensitive: false, dotAll: true), '')
     .trim();

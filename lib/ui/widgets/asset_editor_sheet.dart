@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_kind.dart';
+import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:provider/provider.dart';
@@ -38,6 +39,12 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
         ..symbol = result.symbol
         ..currentPrice = result.currentPrice
         ..notes = result.notes;
+      if (result.updateBuyPrice) {
+        edit.avgBuyPrice = result.buyPrice;
+      }
+      if (result.updateQuantity) {
+        edit.quantity = result.quantity;
+      }
       await svc.assets.update(edit);
     }
     await state.refresh();
@@ -56,6 +63,8 @@ class _AssetEditorResult {
     required this.buyPrice,
     required this.currentPrice,
     required this.notes,
+    this.updateBuyPrice = false,
+    this.updateQuantity = false,
   });
 
   final String name;
@@ -64,6 +73,8 @@ class _AssetEditorResult {
   final double buyPrice;
   final double currentPrice;
   final String notes;
+  final bool updateBuyPrice;
+  final bool updateQuantity;
 }
 
 class _AssetEditorSheet extends StatefulWidget {
@@ -83,21 +94,63 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
   late final TextEditingController _buyCtrl;
   late final TextEditingController _currentCtrl;
   late final TextEditingController _notesCtrl;
+
+  // Property
+  late final TextEditingController _addressCtrl;
+  late final TextEditingController _areaCtrl;
+  late final TextEditingController _deedCtrl;
+  late final TextEditingController _purchaseDateCtrl;
+  String? _usage; // residential | commercial
+
+  // Vehicle
+  late final TextEditingController _brandCtrl;
+  late final TextEditingController _yearCtrl;
+  late final TextEditingController _plateCtrl;
+  late final TextEditingController _mileageCtrl;
+  late final TextEditingController _colorCtrl;
+
+  // Gold
+  late final TextEditingController _purityCtrl;
+
   String? _error;
 
   bool get _isEdit => widget.edit != null;
+
+  /// Buy price field visible on create, or on edit for non-crypto kinds.
+  bool get _showBuyField =>
+      !_isEdit ||
+      _kind == AssetKind.property ||
+      _kind == AssetKind.vehicle ||
+      _kind == AssetKind.gold ||
+      _kind == AssetKind.cash ||
+      _kind == AssetKind.other;
+
+  /// Qty field: create always; edit only for unit-like kinds that are not lot-traded.
+  bool get _showQtyField =>
+      !_isEdit ||
+      _kind == AssetKind.property ||
+      _kind == AssetKind.vehicle;
 
   @override
   void initState() {
     super.initState();
     final edit = widget.edit;
+    final parts = edit == null
+        ? const AssetNotesParts(
+            kind: null,
+            meta: AssetMeta.empty,
+            freeNotes: '',
+          )
+        : parseAssetNotes(edit.notes);
+    final meta = parts.meta;
     _kind = edit == null
         ? AssetKind.other
-        : detectAssetKind(
-            name: edit.name,
-            symbol: edit.symbol,
-            notes: edit.notes,
-          );
+        : (parts.kind ??
+            detectAssetKind(
+              name: edit.name,
+              symbol: edit.symbol,
+              notes: edit.notes,
+            ));
     _nameCtrl = TextEditingController(text: edit?.name ?? '');
     _symbolCtrl = TextEditingController(text: edit?.symbol ?? '');
     _qtyCtrl = TextEditingController(
@@ -113,9 +166,24 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
           ? ''
           : '${edit.currentPrice}',
     );
-    _notesCtrl = TextEditingController(
-      text: edit == null ? '' : stripKindMarker(edit.notes),
+    _notesCtrl = TextEditingController(text: parts.freeNotes);
+
+    _addressCtrl = TextEditingController(text: meta.address ?? '');
+    _areaCtrl = TextEditingController(
+      text: meta.areaM2 == null ? '' : _formatQty(meta.areaM2!),
     );
+    _deedCtrl = TextEditingController(text: meta.deedNotes ?? '');
+    _purchaseDateCtrl = TextEditingController(text: meta.purchaseDate ?? '');
+    _usage = meta.usage;
+
+    _brandCtrl = TextEditingController(text: meta.brandModel ?? '');
+    _yearCtrl = TextEditingController(text: meta.year?.toString() ?? '');
+    _plateCtrl = TextEditingController(text: meta.plate ?? '');
+    _mileageCtrl = TextEditingController(
+      text: meta.mileageKm == null ? '' : _formatQty(meta.mileageKm!),
+    );
+    _colorCtrl = TextEditingController(text: meta.color ?? '');
+    _purityCtrl = TextEditingController(text: meta.purity ?? '');
   }
 
   @override
@@ -126,6 +194,16 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     _buyCtrl.dispose();
     _currentCtrl.dispose();
     _notesCtrl.dispose();
+    _addressCtrl.dispose();
+    _areaCtrl.dispose();
+    _deedCtrl.dispose();
+    _purchaseDateCtrl.dispose();
+    _brandCtrl.dispose();
+    _yearCtrl.dispose();
+    _plateCtrl.dispose();
+    _mileageCtrl.dispose();
+    _colorCtrl.dispose();
+    _purityCtrl.dispose();
     super.dispose();
   }
 
@@ -140,7 +218,8 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
       _error = null;
       if (_isEdit) return;
       if (_symbolCtrl.text.trim().isEmpty ||
-          AssetKind.values.any((k) => k.defaultSymbol == _symbolCtrl.text.trim())) {
+          AssetKind.values
+              .any((k) => k.defaultSymbol == _symbolCtrl.text.trim())) {
         _symbolCtrl.text = kind.defaultSymbol;
       }
       if (_qtyCtrl.text.trim().isEmpty ||
@@ -149,6 +228,38 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
         _qtyCtrl.text = _formatQty(kind.defaultQuantity);
       }
     });
+  }
+
+  AssetMeta _collectMeta() {
+    double? parseD(String s) =>
+        double.tryParse(s.trim().replaceAll(',', ''));
+    int? parseI(String s) => int.tryParse(s.trim().replaceAll(',', ''));
+
+    switch (_kind) {
+      case AssetKind.property:
+        return AssetMeta(
+          address: _addressCtrl.text,
+          areaM2: parseD(_areaCtrl.text),
+          usage: _usage,
+          deedNotes: _deedCtrl.text,
+          purchaseDate: _purchaseDateCtrl.text,
+        );
+      case AssetKind.vehicle:
+        return AssetMeta(
+          brandModel: _brandCtrl.text,
+          year: parseI(_yearCtrl.text),
+          plate: _plateCtrl.text,
+          mileageKm: parseD(_mileageCtrl.text),
+          color: _colorCtrl.text,
+          purchaseDate: _purchaseDateCtrl.text,
+        );
+      case AssetKind.gold:
+        return AssetMeta(purity: _purityCtrl.text);
+      case AssetKind.cash:
+      case AssetKind.crypto:
+      case AssetKind.other:
+        return AssetMeta.empty;
+    }
   }
 
   void _submit() {
@@ -165,20 +276,29 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     final current =
         double.tryParse(_currentCtrl.text.replaceAll(',', '')) ?? buy;
     double qty;
-    if (_isEdit) {
+    if (_isEdit && !_showQtyField) {
       qty = widget.edit!.quantity;
     } else {
       qty = double.tryParse(_qtyCtrl.text.replaceAll(',', '')) ?? 0;
       if (_kind.isUnitAsset && qty <= 0) qty = 1;
     }
     if (!_isEdit && qty > 0 && buy <= 0) {
-      setState(() => _error = 'برای موجودی اولیه، ${_kind.buyPriceLabel} را وارد کنید.');
+      setState(
+        () => _error =
+            'برای موجودی اولیه، ${_kind.buyPriceLabel} را وارد کنید.',
+      );
       return;
     }
     if (current < 0 || buy < 0 || qty < 0) {
       setState(() => _error = 'مقادیر منفی مجاز نیست.');
       return;
     }
+
+    final notes = encodeAssetNotes(
+      kind: _kind,
+      meta: _collectMeta(),
+      freeNotes: _notesCtrl.text,
+    );
 
     Navigator.pop(
       context,
@@ -188,10 +308,35 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
         quantity: qty,
         buyPrice: buy,
         currentPrice: current > 0 ? current : buy,
-        notes: notesWithKind(_notesCtrl.text, _kind),
+        notes: notes,
+        updateBuyPrice: _isEdit && _showBuyField && buy > 0,
+        updateQuantity: _isEdit && _showQtyField && qty > 0,
       ),
     );
   }
+
+  InputDecoration _dec(String label, {String? hint}) => InputDecoration(
+        labelText: label,
+        hintText: hint,
+      );
+
+  Widget _field(
+    TextEditingController c, {
+    required String label,
+    String? hint,
+    TextInputType? keyboardType,
+    int maxLines = 1,
+  }) =>
+      Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: TextField(
+          controller: c,
+          textAlign: TextAlign.right,
+          maxLines: maxLines,
+          keyboardType: keyboardType,
+          decoration: _dec(label, hint: hint),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -247,66 +392,54 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
               textAlign: TextAlign.right,
               style: const TextStyle(color: AppTheme.muted, fontSize: 11),
             ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _nameCtrl,
-              textAlign: TextAlign.right,
-              decoration: InputDecoration(
-                labelText: 'نام',
-                hintText: _kind.nameHint,
-              ),
+            _field(
+              _nameCtrl,
+              label: _kind == AssetKind.vehicle ? 'نام / مدل' : 'نام',
+              hint: _kind.nameHint,
             ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _symbolCtrl,
-              textAlign: TextAlign.right,
-              decoration: InputDecoration(
-                labelText: 'نماد',
-                hintText: _kind.symbolHint,
+            if (_kind == AssetKind.crypto ||
+                _kind == AssetKind.cash ||
+                _kind == AssetKind.other ||
+                _kind == AssetKind.gold)
+              _field(
+                _symbolCtrl,
+                label: _kind == AssetKind.cash ? 'ارز / نماد' : 'نماد',
+                hint: _kind.symbolHint,
               ),
-            ),
-            if (!_isEdit) ...[
-              const SizedBox(height: 10),
-              TextField(
-                controller: _qtyCtrl,
-                textAlign: TextAlign.right,
+            ..._kindSpecificFields(),
+            if (_showQtyField)
+              _field(
+                _qtyCtrl,
+                label: _kind.quantityLabel,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(labelText: _kind.quantityLabel),
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _buyCtrl,
-                textAlign: TextAlign.right,
+            if (_showBuyField)
+              _field(
+                _buyCtrl,
+                label: _kind.buyPriceLabel,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(labelText: _kind.buyPriceLabel),
-              ),
-            ] else ...[
+              )
+            else if (_isEdit) ...[
               const SizedBox(height: 8),
-              Text(
+              const Text(
                 'برای تغییر مقدار از تب «باز» استفاده کنید.',
                 textAlign: TextAlign.right,
-                style: const TextStyle(color: AppTheme.muted, fontSize: 11),
+                style: TextStyle(color: AppTheme.muted, fontSize: 11),
               ),
             ],
-            const SizedBox(height: 10),
-            TextField(
-              controller: _currentCtrl,
-              textAlign: TextAlign.right,
+            _field(
+              _currentCtrl,
+              label: _kind.currentPriceLabel,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(labelText: _kind.currentPriceLabel),
             ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _notesCtrl,
-              textAlign: TextAlign.right,
+            _field(
+              _notesCtrl,
+              label: 'توضیح (اختیاری)',
+              hint: 'یادداشت آزاد',
               maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'توضیح (اختیاری)',
-                hintText: 'آدرس، پلاک، مدل، …',
-              ),
             ),
             if (_error != null) ...[
               const SizedBox(height: 10),
@@ -335,6 +468,132 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _kindSpecificFields() {
+    switch (_kind) {
+      case AssetKind.property:
+        return [
+          _field(_addressCtrl, label: 'آدرس', hint: 'مثل ونک، خیابان …'),
+          _field(
+            _areaCtrl,
+            label: 'متراژ (م²)',
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'کاربری',
+            textAlign: TextAlign.right,
+            style: TextStyle(color: AppTheme.muted, fontSize: 12),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            alignment: WrapAlignment.end,
+            children: [
+              _UsageChip(
+                label: 'مسکونی',
+                selected: _usage == 'residential',
+                onTap: () => setState(() => _usage = 'residential'),
+              ),
+              _UsageChip(
+                label: 'تجاری',
+                selected: _usage == 'commercial',
+                onTap: () => setState(() => _usage = 'commercial'),
+              ),
+            ],
+          ),
+          _field(
+            _deedCtrl,
+            label: 'سند / پلاک ثبتی',
+            hint: 'شماره سند یا پلاک',
+          ),
+          _field(
+            _purchaseDateCtrl,
+            label: 'تاریخ خرید',
+            hint: 'مثل ۱۴۰۲/۰۵/۰۱',
+          ),
+        ];
+      case AssetKind.vehicle:
+        return [
+          _field(_brandCtrl, label: 'برند / مدل', hint: 'مثل پژو ۲۰۷'),
+          _field(
+            _yearCtrl,
+            label: 'سال ساخت',
+            hint: 'مثل ۱۳۹۹',
+            keyboardType: TextInputType.number,
+          ),
+          _field(_plateCtrl, label: 'پلاک', hint: 'مثل ۱۲ب۳۴۵ ایران ۱۱'),
+          _field(
+            _mileageCtrl,
+            label: 'کارکرد (کیلومتر)',
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+          ),
+          _field(_colorCtrl, label: 'رنگ'),
+          _field(
+            _purchaseDateCtrl,
+            label: 'تاریخ خرید',
+            hint: 'مثل ۱۴۰۲/۰۵/۰۱',
+          ),
+        ];
+      case AssetKind.gold:
+        return [
+          _field(
+            _purityCtrl,
+            label: 'عیار / خلوص',
+            hint: 'مثل ۱۸ یا ۷۵۰',
+          ),
+        ];
+      case AssetKind.cash:
+      case AssetKind.crypto:
+      case AssetKind.other:
+        return const [];
+    }
+  }
+}
+
+class _UsageChip extends StatelessWidget {
+  const _UsageChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected
+          ? AppTheme.accent.withValues(alpha: 0.18)
+          : AppTheme.bg,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? AppTheme.accent : AppTheme.border,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? AppTheme.title : AppTheme.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_kind.dart';
+import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
@@ -345,7 +346,12 @@ class _AssetCard extends StatelessWidget {
         ? kind.unitLabel
         : (asset.symbol.trim().isEmpty ? '' : asset.symbol.trim());
     final qtyLabel = unit.isEmpty ? qtyNumber : '$qtyNumber $unit';
-    final note = stripKindMarker(asset.notes);
+    final notesParts = parseAssetNotes(asset.notes);
+    final note = assetMetaCardSummary(
+      kind,
+      notesParts.meta,
+      freeNotes: notesParts.freeNotes,
+    );
     final pnlTone =
         metrics.unrealizedPnl >= 0 ? AppTheme.positive : AppTheme.negative;
 

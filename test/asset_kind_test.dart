@@ -41,6 +41,12 @@ void main() {
     );
   });
 
+  test('stripKindMarker keeps free text when meta present', () {
+    final raw =
+        '[kind:property] [meta:{"address":"ونک","areaM2":100}] طبقه ۲';
+    expect(stripKindMarker(raw), 'طبقه ۲');
+  });
+
   test('unit assets default to quantity 1', () {
     expect(AssetKind.property.defaultQuantity, 1);
     expect(AssetKind.vehicle.defaultQuantity, 1);
