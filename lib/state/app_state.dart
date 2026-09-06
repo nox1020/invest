@@ -14,10 +14,12 @@ import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/domain/models/iran_inflation.dart';
 import 'package:invest/domain/services/backup_payload.dart';
 import 'package:invest/domain/services/backup_service.dart';
 import 'package:invest/domain/services/chart_series.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
+import 'package:invest/domain/services/iran_inflation_service.dart';
 import 'package:invest/domain/services/portfolio_service.dart';
 import 'package:invest/domain/services/quote_clients.dart';
 import 'package:invest/domain/services/trade_service.dart';
@@ -66,6 +68,11 @@ class AppState extends ChangeNotifier {
   bool commodityIndexLoading = false;
   String? commodityIndexError;
   DateTime? commodityIndexUpdatedAt;
+
+  IranInflationService? iranInflationService;
+  IranInflationSnapshot? iranInflation;
+  bool iranInflationLoading = false;
+  String? iranInflationError;
 
   String? appLockHash;
   bool appLockEnabled = false;
@@ -127,6 +134,7 @@ class AppState extends ChangeNotifier {
       _api = InvestApiClient(_session!);
       remote = RemoteInvestService(_api!);
       commodityIndexService = CommodityIndexService();
+      iranInflationService = IranInflationService();
       quotes = QuoteClients();
       _api!.restoreSessionCookie();
       userPhone = _session!.phone;
@@ -191,6 +199,7 @@ class AppState extends ChangeNotifier {
     _withdrawalsRepo = WithdrawalRepository(db);
     quotes = QuoteClients();
     commodityIndexService = CommodityIndexService();
+    iranInflationService = IranInflationService();
     authenticated = true;
     await _loadLocalSettings();
     await refresh();
@@ -244,10 +253,15 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadCommodityCacheQuietly() async {
     final snap = await OfflineCacheStore.loadCommodities();
-    if (snap == null) return;
-    commodityIndex = snap.quotes;
-    wallexMarkets = snap.wallexMarkets;
-    commodityIndexUpdatedAt = snap.savedAt;
+    if (snap != null) {
+      commodityIndex = snap.quotes;
+      wallexMarkets = snap.wallexMarkets;
+      commodityIndexUpdatedAt = snap.savedAt;
+    }
+    final inflation = await OfflineCacheStore.loadIranInflation();
+    if (inflation != null) {
+      iranInflation = inflation;
+    }
   }
 
   Future<void> _enterLocalSqliteMode({required bool markOffline}) async {
@@ -261,6 +275,7 @@ class AppState extends ChangeNotifier {
     _withdrawalsRepo = WithdrawalRepository(db);
     quotes ??= QuoteClients();
     commodityIndexService ??= CommodityIndexService();
+    iranInflationService ??= IranInflationService();
     authenticated = true;
     await _loadLocalSettings();
     // Prefer remote cache settings/theme if local DB is empty-ish.
@@ -508,6 +523,36 @@ class AppState extends ChangeNotifier {
       }
     } finally {
       commodityIndexLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> refreshIranInflation({bool force = true}) async {
+    iranInflationService ??= IranInflationService();
+    if (!force &&
+        iranInflation != null &&
+        DateTime.now().difference(iranInflation!.fetchedAt) <
+            const Duration(hours: 6)) {
+      return;
+    }
+    iranInflationLoading = true;
+    iranInflationError = null;
+    notifyListeners();
+    try {
+      final snap = await iranInflationService!.fetchLatest();
+      iranInflation = snap;
+      await OfflineCacheStore.saveIranInflation(snap);
+      iranInflationError = null;
+    } catch (e) {
+      final cached = await OfflineCacheStore.loadIranInflation();
+      if (cached != null) {
+        iranInflation = cached;
+        iranInflationError = 'آفلاین — آخرین داده تورم ذخیره‌شده';
+      } else {
+        iranInflationError = e.toString();
+      }
+    } finally {
+      iranInflationLoading = false;
       notifyListeners();
     }
   }

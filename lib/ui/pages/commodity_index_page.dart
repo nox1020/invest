@@ -3,6 +3,7 @@ import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
+import 'package:invest/ui/pages/iran_inflation_pane.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 
@@ -65,11 +66,15 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: _IndexHeader(
-            updatedAt: state.commodityIndexUpdatedAt,
-            offlineHint: offlineHint,
+            updatedAt: _page == 2
+                ? state.iranInflation?.fetchedAt
+                : state.commodityIndexUpdatedAt,
+            offlineHint: offlineHint ||
+                (state.iranInflationError?.contains('آفلاین') ?? false),
             page: _page,
             essentialsCount: state.commodityIndex.length,
             wallexCount: state.wallexMarkets.length,
+            inflationPeriod: state.iranInflation?.periodLabel,
           ),
         ),
         Padding(
@@ -83,6 +88,9 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
                 duration: const Duration(milliseconds: 280),
                 curve: Curves.easeOutCubic,
               );
+              if (i == 2) {
+                context.read<AppState>().refreshIranInflation(force: false);
+              }
             },
           ),
         ),
@@ -122,7 +130,12 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
         Expanded(
           child: PageView(
             controller: _pageController,
-            onPageChanged: (i) => setState(() => _page = i),
+            onPageChanged: (i) {
+              setState(() => _page = i);
+              if (i == 2) {
+                context.read<AppState>().refreshIranInflation(force: false);
+              }
+            },
             children: [
               _QuoteListPane(
                 loading: state.commodityIndexLoading &&
@@ -146,6 +159,7 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
                 emptyIcon: Icons.currency_exchange_rounded,
                 showVolume: true,
               ),
+              const IranInflationPane(),
             ],
           ),
         ),
@@ -173,16 +187,23 @@ class _SegmentTabs extends StatelessWidget {
         children: [
           Expanded(
             child: _TabChip(
-              label: 'کالاهای اساسی',
+              label: 'کالاها',
               selected: index == 0,
               onTap: () => onChanged(0),
             ),
           ),
           Expanded(
             child: _TabChip(
-              label: 'بازار والکس',
+              label: 'والکس',
               selected: index == 1,
               onTap: () => onChanged(1),
+            ),
+          ),
+          Expanded(
+            child: _TabChip(
+              label: 'تورم',
+              selected: index == 2,
+              onTap: () => onChanged(2),
             ),
           ),
         ],
@@ -234,6 +255,7 @@ class _IndexHeader extends StatelessWidget {
     required this.page,
     required this.essentialsCount,
     required this.wallexCount,
+    this.inflationPeriod,
   });
 
   final DateTime? updatedAt;
@@ -241,24 +263,35 @@ class _IndexHeader extends StatelessWidget {
   final int page;
   final int essentialsCount;
   final int wallexCount;
+  final String? inflationPeriod;
 
   @override
   Widget build(BuildContext context) {
     final time = updatedAt;
-    final title = page == 0 ? 'شاخص کالاهای اساسی' : 'بازار والکس';
+    final title = switch (page) {
+      1 => 'بازار والکس',
+      2 => 'تورم ایران',
+      _ => 'شاخص کالاهای اساسی',
+    };
     final subtitle = offlineHint
-        ? 'نمایش قیمت‌های ذخیره‌شده — اتصال اینترنت برای بروزرسانی'
-        : (page == 0
-            ? '۱۰ کالای پرکاربرد — سوایپ کنید برای همه ارزهای والکس'
-            : '$wallexCount بازار تومان — مرتب‌شده بر اساس حجم معامله');
+        ? 'نمایش داده‌های ذخیره‌شده — اتصال اینترنت برای بروزرسانی'
+        : switch (page) {
+            1 => '$wallexCount بازار تومان — مرتب‌شده بر اساس حجم معامله',
+            2 => inflationPeriod == null
+                ? 'انواع تورم رسمی مرکز آمار ایران'
+                : 'انواع تورم رسمی · $inflationPeriod',
+            _ => '۱۰ کالای پرکاربرد — سوایپ کنید برای والکس و تورم',
+          };
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [Color(0xFF1A3D2E), Color(0xFF122820)],
+          colors: page == 2
+              ? const [Color(0xFF3D1A1A), Color(0xFF241212)]
+              : const [Color(0xFF1A3D2E), Color(0xFF122820)],
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.border),
@@ -279,10 +312,12 @@ class _IndexHeader extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Icon(
-                page == 0
-                    ? Icons.insights_rounded
-                    : Icons.currency_exchange_rounded,
-                color: AppTheme.positive,
+                switch (page) {
+                  1 => Icons.currency_exchange_rounded,
+                  2 => Icons.trending_up_rounded,
+                  _ => Icons.insights_rounded,
+                },
+                color: page == 2 ? const Color(0xFFFF8A80) : AppTheme.positive,
                 size: 22,
               ),
             ],
@@ -291,8 +326,10 @@ class _IndexHeader extends StatelessWidget {
           Text(
             subtitle,
             textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: Color(0xFFB8D4C6),
+            style: TextStyle(
+              color: page == 2
+                  ? const Color(0xFFD7B0B0)
+                  : const Color(0xFFB8D4C6),
               fontSize: 12,
               height: 1.4,
             ),
@@ -342,7 +379,7 @@ class _PageDots extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: List.generate(2, (i) {
+      children: List.generate(3, (i) {
         final on = i == active;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 200),

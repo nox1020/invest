@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/domain/models/iran_inflation.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
@@ -15,6 +16,7 @@ class OfflineCacheStore {
   static const _keySnapshot = 'offline_portfolio_snapshot_v1';
   static const _keyCommodities = 'offline_commodity_index_v2';
   static const _keyWallex = 'offline_wallex_markets_v1';
+  static const _keyInflation = 'offline_iran_inflation_v1';
 
   static Future<void> savePortfolio({
     required AppSettings settings,
@@ -168,6 +170,24 @@ class OfflineCacheStore {
                 })
             .toList(),
       };
+
+  static Future<void> saveIranInflation(IranInflationSnapshot snap) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyInflation, jsonEncode(snap.toJson()));
+  }
+
+  static Future<IranInflationSnapshot?> loadIranInflation() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_keyInflation);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return IranInflationSnapshot.fromJson(
+        Map<String, dynamic>.from(jsonDecode(raw) as Map),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 
   static Future<OfflineCommoditySnapshot?> loadCommodities() async {
     final prefs = await SharedPreferences.getInstance();
