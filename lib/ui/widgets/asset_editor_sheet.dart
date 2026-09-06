@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/models/asset_meta.dart';
+import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -9,6 +10,14 @@ import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:provider/provider.dart';
 
 Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
+  final state = context.read<AppState>();
+  final openLots = edit == null
+      ? const <Trade>[]
+      : state.openTrades
+          .where((t) => t.assetId == edit.id && t.quantity > 1e-9)
+          .toList();
+  final primaryLot = openLots.length == 1 ? openLots.first : null;
+
   final result = await showModalBottomSheet<_AssetEditorResult>(
     context: context,
     isScrollControlled: true,
@@ -18,12 +27,15 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
     ),
     builder: (ctx) => Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
-      child: _AssetEditorSheet(edit: edit),
+      child: _AssetEditorSheet(
+        edit: edit,
+        openLotCount: openLots.length,
+        primaryLot: primaryLot,
+      ),
     ),
   );
   if (result == null || !context.mounted) return;
 
-  final state = context.read<AppState>();
   final svc = state.tradeService;
   try {
     if (edit == null) {
@@ -48,6 +60,26 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
         edit.quantity = result.quantity;
       }
       await svc.assets.update(edit);
+
+      // Keep the single open lot in sync so cards/metrics see the edit.
+      if (primaryLot != null &&
+          (result.updateBuyPrice ||
+              result.updateQuantity ||
+              result.updateBuyPriceUsd)) {
+        final usd = parseAssetNotes(result.notes).meta.buyPriceUsd;
+        await svc.updateOpenTrade(
+          tradeId: primaryLot.id!,
+          quantity:
+              result.updateQuantity ? result.quantity : primaryLot.quantity,
+          buyPrice:
+              result.updateBuyPrice ? result.buyPrice : primaryLot.buyPrice,
+          buyPriceUsd:
+              result.updateBuyPriceUsd ? usd : primaryLot.buyPriceUsd,
+          buyFee: primaryLot.buyFee,
+          buyDate: primaryLot.buyDate,
+          buyNote: primaryLot.buyNoteDisplay,
+        );
+      }
     }
     await state.refresh();
   } catch (e) {
@@ -67,6 +99,7 @@ class _AssetEditorResult {
     required this.notes,
     this.updateBuyPrice = false,
     this.updateQuantity = false,
+    this.updateBuyPriceUsd = false,
   });
 
   final String name;
@@ -77,12 +110,19 @@ class _AssetEditorResult {
   final String notes;
   final bool updateBuyPrice;
   final bool updateQuantity;
+  final bool updateBuyPriceUsd;
 }
 
 class _AssetEditorSheet extends StatefulWidget {
-  const _AssetEditorSheet({this.edit});
+  const _AssetEditorSheet({
+    this.edit,
+    this.openLotCount = 0,
+    this.primaryLot,
+  });
 
   final Asset? edit;
+  final int openLotCount;
+  final Trade? primaryLot;
 
   @override
   State<_AssetEditorSheet> createState() => _AssetEditorSheetState();
@@ -121,20 +161,26 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
 
   bool get _isEdit => widget.edit != null;
 
-  /// Buy price field visible on create, or on edit for non-crypto kinds.
+  /// Multiple open lots: edit buy/qty via «باز» so we don't overwrite one lot.
+  bool get _lotsBlockBuyEdit => _isEdit && widget.openLotCount > 1;
+
+  /// Buy price field visible on create, or on edit for non-crypto kinds
+  /// when at most one open lot can stay in sync.
   bool get _showBuyField =>
-      !_isEdit ||
-      _kind == AssetKind.property ||
-      _kind == AssetKind.vehicle ||
-      _kind == AssetKind.gold ||
-      _kind == AssetKind.cash ||
-      _kind == AssetKind.other;
+      !_lotsBlockBuyEdit &&
+      (!_isEdit ||
+          _kind == AssetKind.property ||
+          _kind == AssetKind.vehicle ||
+          _kind == AssetKind.gold ||
+          _kind == AssetKind.cash ||
+          _kind == AssetKind.other);
 
   /// Qty field: create always; edit only for unit-like kinds that are not lot-traded.
   bool get _showQtyField =>
-      !_isEdit ||
-      _kind == AssetKind.property ||
-      _kind == AssetKind.vehicle;
+      !_lotsBlockBuyEdit &&
+      (!_isEdit ||
+          _kind == AssetKind.property ||
+          _kind == AssetKind.vehicle);
 
   @override
   void initState() {
@@ -156,15 +202,22 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
               symbol: edit.symbol,
               notes: edit.notes,
             ));
+    final lot = widget.primaryLot;
+    final seedQty = lot?.quantity ?? edit?.quantity;
+    final seedBuy = lot?.buyPrice ?? edit?.avgBuyPrice;
+    final lotUsd = lot?.buyPriceUsd;
+    final seedUsd =
+        (lotUsd != null && lotUsd > 0) ? lotUsd : meta.buyPriceUsd;
+
     _nameCtrl = TextEditingController(text: edit?.name ?? '');
     _symbolCtrl = TextEditingController(text: edit?.symbol ?? '');
     _qtyCtrl = TextEditingController(
       text: edit == null
           ? _formatQty(_kind.defaultQuantity)
-          : _formatQty(edit.quantity),
+          : _formatQty(seedQty ?? edit.quantity),
     );
     _buyCtrl = TextEditingController(
-      text: edit == null || edit.avgBuyPrice <= 0 ? '' : '${edit.avgBuyPrice}',
+      text: edit == null || (seedBuy ?? 0) <= 0 ? '' : '$seedBuy',
     );
     _currentCtrl = TextEditingController(
       text: edit == null || edit.currentPrice <= 0
@@ -191,9 +244,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     _colorCtrl = TextEditingController(text: meta.color ?? '');
     _purityCtrl = TextEditingController(text: meta.purity ?? '');
     _buyUsdCtrl = TextEditingController(
-      text: meta.buyPriceUsd == null || meta.buyPriceUsd! <= 0
-          ? ''
-          : _formatQty(meta.buyPriceUsd!),
+      text: seedUsd == null || seedUsd <= 0 ? '' : _formatQty(seedUsd),
     );
   }
 
@@ -326,6 +377,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
         notes: notes,
         updateBuyPrice: _isEdit && _showBuyField && buy > 0,
         updateQuantity: _isEdit && _showQtyField && qty > 0,
+        updateBuyPriceUsd: _isEdit && _showBuyField,
       ),
     );
   }
@@ -445,10 +497,12 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
               ),
             ] else if (_isEdit) ...[
               const SizedBox(height: 8),
-              const Text(
-                'برای تغییر مقدار از تب «باز» استفاده کنید.',
+              Text(
+                _lotsBlockBuyEdit
+                    ? 'چند لات باز دارید؛ برای تغییر مقدار یا بهای خرید از تب «باز» استفاده کنید.'
+                    : 'برای تغییر مقدار از تب «باز» استفاده کنید.',
                 textAlign: TextAlign.right,
-                style: TextStyle(color: AppTheme.muted, fontSize: 11),
+                style: const TextStyle(color: AppTheme.muted, fontSize: 11),
               ),
             ],
             _field(

@@ -25,16 +25,29 @@ class AssetsPage extends StatelessWidget {
       openTrades: state.openTrades,
     );
 
-    if (state.assets.isEmpty) {
-      return const Center(child: Text('هنوز دارایی ثبت نشده'));
-    }
-    if (holdings.isEmpty) {
-      return const Center(
-        child: Text(
-          'موجودی بازی برای نمایش نیست',
-          style: TextStyle(color: AppTheme.muted),
+    Widget emptyBody(String message) {
+      return RefreshIndicator(
+        onRefresh: () => state.refreshAll(),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: shellPagePadding(extraForFab: state.canMutate),
+          children: [
+            SizedBox(height: MediaQuery.sizeOf(context).height * 0.28),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppTheme.muted),
+            ),
+          ],
         ),
       );
+    }
+
+    if (state.assets.isEmpty) {
+      return emptyBody('هنوز دارایی ثبت نشده');
+    }
+    if (holdings.isEmpty) {
+      return emptyBody('موجودی بازی برای نمایش نیست');
     }
 
     final totalValue =
@@ -366,7 +379,6 @@ class _AssetCard extends StatelessWidget {
         onTap: () => openAssetDetail(
           context,
           asset: asset,
-          metrics: metrics,
         ),
         child: Container(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),

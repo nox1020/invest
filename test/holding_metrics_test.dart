@@ -66,4 +66,44 @@ void main() {
     expect(cost, 1000 + 250);
     expect(pnl, (800 - 1000) + (300 - 250));
   });
+
+  test('avgBuyPriceUsd only when every open lot has USD', () {
+    final asset = Asset(
+      id: 1,
+      name: 'Gold',
+      quantity: 2,
+      avgBuyPrice: 100,
+      currentPrice: 110,
+      notes: '[kind:gold][meta:{"buyPriceUsd":9}]',
+    );
+    final open = [
+      Trade(
+        assetId: 1,
+        status: AppConfig.tradeOpen,
+        quantity: 1,
+        buyPrice: 100,
+        buyPriceUsd: 2,
+      ),
+      Trade(
+        assetId: 1,
+        status: AppConfig.tradeOpen,
+        quantity: 1,
+        buyPrice: 100,
+      ),
+    ];
+    final partial = HoldingMetrics.forAsset(asset, open);
+    expect(partial.avgBuyPriceUsd, isNull);
+
+    final full = HoldingMetrics.forAsset(asset, [
+      open[0],
+      Trade(
+        assetId: 1,
+        status: AppConfig.tradeOpen,
+        quantity: 1,
+        buyPrice: 100,
+        buyPriceUsd: 4,
+      ),
+    ]);
+    expect(full.avgBuyPriceUsd, closeTo(3, 1e-9));
+  });
 }

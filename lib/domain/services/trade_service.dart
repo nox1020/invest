@@ -311,6 +311,7 @@ class TradeService {
       status: AppConfig.tradeClosed,
       quantity: closeQty,
       buyPrice: trade.buyPrice,
+      buyPriceUsd: trade.buyPriceUsd,
       buyFee: buyFeeClosed,
       buyDate: trade.buyDate,
       buyNote: trade.buyNote,

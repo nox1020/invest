@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
-import 'package:invest/domain/services/chart_series.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
@@ -15,11 +14,10 @@ import 'package:provider/provider.dart';
 Future<void> openAssetDetail(
   BuildContext context, {
   required Asset asset,
-  required HoldingMetrics metrics,
 }) {
   return Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => AssetDetailPage(asset: asset, metrics: metrics),
+      builder: (_) => AssetDetailPage(assetId: asset.id!),
     ),
   );
 }
@@ -27,16 +25,29 @@ Future<void> openAssetDetail(
 class AssetDetailPage extends StatelessWidget {
   const AssetDetailPage({
     super.key,
-    required this.asset,
-    required this.metrics,
+    required this.assetId,
   });
 
-  final Asset asset;
-  final HoldingMetrics metrics;
+  final int assetId;
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    Asset? asset;
+    for (final a in state.assets) {
+      if (a.id == assetId) {
+        asset = a;
+        break;
+      }
+    }
+    if (asset == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('دارایی')),
+        body: const Center(child: Text('دارایی یافت نشد')),
+      );
+    }
+
+    final metrics = HoldingMetrics.forAsset(asset, state.openTrades);
     final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
     final calendar = state.settings.calendar;
     final lots = state.openTrades
@@ -45,7 +56,8 @@ class AssetDetailPage extends StatelessWidget {
       ..sort((a, b) => a.buyDate.compareTo(b.buyDate));
 
     final buyToman = metrics.avgBuyPrice;
-    final buyUsd = metrics.avgBuyPriceUsd ?? tomanToUsd(buyToman, usdt);
+    // Registered USD only — match asset cards (no live USDT conversion).
+    final buyUsd = metrics.avgBuyPriceUsd;
     final curToman = metrics.currentPrice;
     final curUsd = tomanToUsd(curToman, usdt);
     final series = _unitPriceSeries(
@@ -89,9 +101,7 @@ class AssetDetailPage extends StatelessWidget {
                   toman: buyToman,
                   usd: buyUsd,
                   accent: AppTheme.muted,
-                  usdHint: metrics.avgBuyPriceUsd != null
-                      ? 'ثبت‌شده'
-                      : (buyUsd != null ? 'بر اساس نرخ تتر' : null),
+                  usdHint: buyUsd != null ? 'ثبت‌شده' : null,
                 ),
               ),
               const SizedBox(width: 10),
@@ -147,7 +157,7 @@ class AssetDetailPage extends StatelessWidget {
             const _SectionTitle('لات‌های باز'),
             const SizedBox(height: 8),
             for (final t in lots) ...[
-              _LotTile(trade: t, usdt: usdt, calendar: calendar),
+              _LotTile(trade: t, calendar: calendar),
               const SizedBox(height: 8),
             ],
           ],
@@ -177,22 +187,22 @@ class AssetDetailPage extends StatelessWidget {
       points.add(SeriesPoint(date: buyDay, value: metrics.avgBuyPrice));
     }
 
+    // Always append current price; do not overwrite a same-day buy point.
     if (metrics.currentPrice > 0) {
-      if (points.isNotEmpty && points.last.date == today) {
-        points[points.length - 1] =
-            SeriesPoint(date: today, value: metrics.currentPrice);
-      } else {
-        points.add(SeriesPoint(date: today, value: metrics.currentPrice));
-      }
+      points.add(SeriesPoint(date: today, value: metrics.currentPrice));
     }
 
-    return ensureChartSeries(
-      points,
-      todayValue: metrics.currentPrice > 0
-          ? metrics.currentPrice
-          : metrics.avgBuyPrice,
-      today: today,
-    );
+    if (points.isEmpty) {
+      return [
+        SeriesPoint(
+          date: today,
+          value: metrics.currentPrice > 0
+              ? metrics.currentPrice
+              : metrics.avgBuyPrice,
+        ),
+      ];
+    }
+    return points;
   }
 }
 
@@ -396,12 +406,12 @@ class _CompareBars extends StatelessWidget {
             buyColor: AppTheme.muted,
             currentColor: AppTheme.positive,
           ),
-          if (buyUsd != null || currentUsd != null) ...[
+          if (buyUsd != null && currentUsd != null) ...[
             const SizedBox(height: 12),
             _BarRow(
               label: 'دلار',
-              buy: buyUsd ?? 0,
-              current: currentUsd ?? 0,
+              buy: buyUsd!,
+              current: currentUsd!,
               max: maxU <= 0 ? 1 : maxU,
               format: (v) => formatUsd(v, compact: true),
               buyColor: const Color(0xFFB89B2E),
@@ -496,17 +506,15 @@ class _BarRow extends StatelessWidget {
 class _LotTile extends StatelessWidget {
   const _LotTile({
     required this.trade,
-    required this.usdt,
     required this.calendar,
   });
 
   final Trade trade;
-  final double? usdt;
   final String calendar;
 
   @override
   Widget build(BuildContext context) {
-    final usd = trade.buyPriceUsd ?? tomanToUsd(trade.buyPrice, usdt);
+    final usd = trade.buyPriceUsd;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -544,7 +552,7 @@ class _LotTile extends StatelessWidget {
                 ),
               ),
               Text(
-                usd == null ? '—' : formatUsd(usd),
+                usd != null && usd > 0 ? formatUsd(usd) : '—',
                 textDirection: TextDirection.ltr,
                 style: const TextStyle(
                   color: Color(0xFFE8C547),
