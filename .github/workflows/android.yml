@@ -72,53 +72,54 @@ jobs:
           KEY_ALIAS="${VPLUS_CI_KEY_ALIAS:-vplus}"
 
           SIGN_SOURCE="unknown"
-          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
-            if [ -z "${VPLUS_CI_STORE_PASS:-}" ]; then
-              echo "ANDROID_KEYSTORE_BASE64 is set but ANDROID_KEYSTORE_PASSWORD is missing." >&2
-              exit 1
-            fi
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${VPLUS_CI_STORE_PASS:-}" ]; then
             STORE_PASS="${VPLUS_CI_STORE_PASS}"
             KEY_PASS="${VPLUS_CI_KEY_PASS:-$STORE_PASS}"
             KEY_ALIAS="${VPLUS_CI_KEY_ALIAS:-upload}"
             echo "${ANDROID_KEYSTORE_BASE64}" | base64 -d > "${KS_PATH}"
             SIGN_SOURCE="github-secret"
             echo "Using upload keystore from GitHub secrets."
-          elif [ -f "${KS_PATH}" ]; then
-            SIGN_SOURCE="cache"
-            echo "Using cached release keystore."
           else
-            # Survive cache eviction: recover the exact same keystore from a
-            # previous successful workflow artifact.
-            ARTIFACT_ID="$(gh api \
-              "repos/${{ github.repository }}/actions/artifacts?name=vplus-ci-release-keystore&per_page=20" \
-              --jq '.artifacts[] | select(.expired==false) | .id' \
-              | head -n 1 || true)"
-            if [ -n "${ARTIFACT_ID:-}" ]; then
-              gh api \
-                "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip" \
-                > /tmp/vplus-ks.zip
-              unzip -o /tmp/vplus-ks.zip -d /tmp/vplus-ks
-              FOUND="$(find /tmp/vplus-ks -type f \( -name '*.keystore' -o -name '*.jks' -o -name '*.p12' \) | head -n 1)"
-              if [ -z "${FOUND}" ]; then
-                echo "Artifact ${ARTIFACT_ID} did not contain a keystore file." >&2
-                exit 1
-              fi
-              cp "${FOUND}" "${KS_PATH}"
-              SIGN_SOURCE="artifact-${ARTIFACT_ID}"
-              echo "Recovered release keystore from artifact ${ARTIFACT_ID}."
+            if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+              echo "::warning::ANDROID_KEYSTORE_BASE64 is set without ANDROID_KEYSTORE_PASSWORD; falling back to durable CI keystore."
+            fi
+            if [ -f "${KS_PATH}" ]; then
+              SIGN_SOURCE="cache"
+              echo "Using cached release keystore."
             else
-              # First-ever bootstrap only. Later runs must reuse cache/artifact.
-              keytool -genkeypair \
-                -storetype PKCS12 \
-                -keystore "${KS_PATH}" \
-                -alias "${KEY_ALIAS}" \
-                -keyalg RSA -keysize 2048 -validity 10000 \
-                -storepass "${STORE_PASS}" \
-                -keypass "${KEY_PASS}" \
-                -dname "CN=V+ Invest CI, OU=nox1020, O=nox1020, C=IR"
-              SIGN_SOURCE="bootstrap"
-              echo "Bootstrapped a new stable release keystore for sideload updates."
-              echo "::warning::New CI signing key created. Devices with older differently-signed installs need one uninstall/reinstall, then updates work."
+              # Survive cache eviction: recover the exact same keystore from a
+              # previous successful workflow artifact.
+              ARTIFACT_ID="$(gh api \
+                "repos/${{ github.repository }}/actions/artifacts?name=vplus-ci-release-keystore&per_page=20" \
+                --jq '.artifacts[] | select(.expired==false) | .id' \
+                | head -n 1 || true)"
+              if [ -n "${ARTIFACT_ID:-}" ]; then
+                gh api \
+                  "repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip" \
+                  > /tmp/vplus-ks.zip
+                unzip -o /tmp/vplus-ks.zip -d /tmp/vplus-ks
+                FOUND="$(find /tmp/vplus-ks -type f \( -name '*.keystore' -o -name '*.jks' -o -name '*.p12' \) | head -n 1)"
+                if [ -z "${FOUND}" ]; then
+                  echo "Artifact ${ARTIFACT_ID} did not contain a keystore file." >&2
+                  exit 1
+                fi
+                cp "${FOUND}" "${KS_PATH}"
+                SIGN_SOURCE="artifact-${ARTIFACT_ID}"
+                echo "Recovered release keystore from artifact ${ARTIFACT_ID}."
+              else
+                # First-ever bootstrap only. Later runs must reuse cache/artifact.
+                keytool -genkeypair \
+                  -storetype PKCS12 \
+                  -keystore "${KS_PATH}" \
+                  -alias "${KEY_ALIAS}" \
+                  -keyalg RSA -keysize 2048 -validity 10000 \
+                  -storepass "${STORE_PASS}" \
+                  -keypass "${KEY_PASS}" \
+                  -dname "CN=V+ Invest CI, OU=nox1020, O=nox1020, C=IR"
+                SIGN_SOURCE="bootstrap"
+                echo "Bootstrapped a new stable release keystore for sideload updates."
+                echo "::warning::New CI signing key created. Devices with older differently-signed installs need one uninstall/reinstall, then updates work."
+              fi
             fi
           fi
 
