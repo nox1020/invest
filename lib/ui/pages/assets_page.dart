@@ -1,29 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
-import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/allocation_donut.dart';
+import 'package:invest/ui/widgets/asset_editor_sheet.dart';
 import 'package:provider/provider.dart';
 
-const _allocationColors = <Color>[
-  Color(0xFFF7931A),
-  Color(0xFFE8A598),
-  Color(0xFF3DDB7E),
-  Color(0xFF5B8DEF),
-  Color(0xFF9B8CFF),
-  Color(0xFF4ECDC4),
-  Color(0xFFE8C547),
-  Color(0xFFFF8FAB),
-];
-
-Color _colorForAsset(Asset asset) {
-  final key = asset.symbol.trim().isNotEmpty ? asset.symbol : asset.name;
-  return _allocationColors[key.hashCode.abs() % _allocationColors.length];
-}
+export 'package:invest/ui/widgets/asset_editor_sheet.dart' show showAssetEditor;
 
 class AssetsPage extends StatelessWidget {
   const AssetsPage({super.key});
@@ -244,13 +231,19 @@ class _AllocationSection extends StatelessWidget {
     final slices = <AllocationSlice>[];
     for (final h in holdings) {
       if (h.metrics.marketValue <= 0) continue;
+      final kind = detectAssetKind(
+        name: h.asset.name,
+        symbol: h.asset.symbol,
+        notes: h.asset.notes,
+      );
+      final useName = kind == AssetKind.property ||
+          kind == AssetKind.vehicle ||
+          h.asset.symbol.trim().isEmpty;
       slices.add(
         AllocationSlice(
-          label: h.asset.symbol.trim().isNotEmpty
-              ? h.asset.symbol.trim()
-              : h.asset.name,
+          label: useName ? h.asset.name : h.asset.symbol.trim(),
           share: totalValue <= 0 ? 0 : h.metrics.marketValue / totalValue,
-          color: _colorForAsset(h.asset),
+          color: kind.color,
         ),
       );
     }
@@ -338,13 +331,21 @@ class _AssetCard extends StatelessWidget {
     final usdPnl = tomanToUsd(metrics.unrealizedPnl, usdt);
     final usdPrice = tomanToUsd(metrics.currentPrice, usdt);
     final usdAvg = tomanToUsd(metrics.avgBuyPrice, usdt);
+    final kind = detectAssetKind(
+      name: asset.name,
+      symbol: asset.symbol,
+      notes: asset.notes,
+    );
     final qtyDecimals =
         (metrics.quantity - metrics.quantity.roundToDouble()).abs() < 1e-9
             ? 0
             : 4;
-    final qtyLabel = asset.symbol.trim().isEmpty
-        ? formatNumber(metrics.quantity, decimals: qtyDecimals)
-        : '${formatNumber(metrics.quantity, decimals: qtyDecimals)} ${asset.symbol.trim()}';
+    final qtyNumber = formatNumber(metrics.quantity, decimals: qtyDecimals);
+    final unit = kind.unitLabel.isNotEmpty
+        ? kind.unitLabel
+        : (asset.symbol.trim().isEmpty ? '' : asset.symbol.trim());
+    final qtyLabel = unit.isEmpty ? qtyNumber : '$qtyNumber $unit';
+    final note = stripKindMarker(asset.notes);
     final pnlTone =
         metrics.unrealizedPnl >= 0 ? AppTheme.positive : AppTheme.negative;
 
@@ -390,6 +391,37 @@ class _AssetCard extends StatelessWidget {
                             fontSize: 12,
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: kind.color.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            kind.label,
+                            style: TextStyle(
+                              color: kind.color,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        if (note.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            note,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppTheme.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -454,7 +486,7 @@ class _AssetCard extends StatelessWidget {
                 valueColor: pnlTone,
               ),
               _StatRow(
-                label: 'میانگین خرید',
+                label: kind.isUnitAsset ? 'بهای خرید' : 'میانگین خرید',
                 value: usdAvg != null
                     ? formatUsd(usdAvg)
                     : formatMoney(metrics.avgBuyPrice),
@@ -463,7 +495,7 @@ class _AssetCard extends StatelessWidget {
                     : null,
               ),
               _StatRow(
-                label: 'قیمت لحظه‌ای',
+                label: kind.isUnitAsset ? 'ارزش فعلی واحد' : 'قیمت لحظه‌ای',
                 value: usdPrice != null
                     ? formatUsd(usdPrice)
                     : formatMoney(metrics.currentPrice),
@@ -570,122 +602,15 @@ class _AssetAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _colorForAsset(asset);
+    final kind = detectAssetKind(
+      name: asset.name,
+      symbol: asset.symbol,
+      notes: asset.notes,
+    );
     return CircleAvatar(
       radius: 18,
-      backgroundColor: color.withValues(alpha: 0.18),
-      child: Icon(_iconFor(asset), color: color, size: 20),
+      backgroundColor: kind.color.withValues(alpha: 0.18),
+      child: Icon(kind.icon, color: kind.color, size: 20),
     );
-  }
-}
-
-IconData _iconFor(Asset asset) {
-  final symbol = asset.symbol.toUpperCase();
-  final name = asset.name;
-  if (symbol.contains('BTC') || name.contains('بیت')) {
-    return Icons.currency_bitcoin;
-  }
-  if (symbol.contains('ETH') || name.contains('اتریوم')) {
-    return Icons.token_outlined;
-  }
-  if (symbol.contains('USDT') ||
-      symbol.contains('USD') ||
-      name.contains('تتر') ||
-      name.contains('دلار')) {
-    return Icons.attach_money;
-  }
-  if (TradeService.isGoldAsset(asset.name, asset.symbol)) {
-    return Icons.diamond_outlined;
-  }
-  return Icons.account_balance_wallet_outlined;
-}
-
-Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
-  final nameCtrl = TextEditingController(text: edit?.name ?? '');
-  final symbolCtrl = TextEditingController(text: edit?.symbol ?? '');
-  final qtyCtrl =
-      TextEditingController(text: edit == null ? '0' : '${edit.quantity}');
-  final priceCtrl = TextEditingController(
-      text: edit == null ? '' : '${edit.avgBuyPrice}');
-  final currentCtrl = TextEditingController(
-      text: edit == null ? '' : '${edit.currentPrice}');
-
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text(edit == null ? 'افزودن دارایی' : 'ویرایش دارایی'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'نام'),
-              textAlign: TextAlign.right,
-            ),
-            TextField(
-              controller: symbolCtrl,
-              decoration: const InputDecoration(labelText: 'نماد (مثل GOLD)'),
-              textAlign: TextAlign.right,
-            ),
-            if (edit == null) ...[
-              TextField(
-                controller: qtyCtrl,
-                decoration: const InputDecoration(labelText: 'مقدار اولیه'),
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.right,
-              ),
-              TextField(
-                controller: priceCtrl,
-                decoration: const InputDecoration(labelText: 'قیمت خرید'),
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.right,
-              ),
-            ],
-            TextField(
-              controller: currentCtrl,
-              decoration: const InputDecoration(labelText: 'قیمت فعلی'),
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.right,
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('انصراف')),
-        ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('ذخیره')),
-      ],
-    ),
-  );
-  if (ok != true || !context.mounted) return;
-  final state = context.read<AppState>();
-  final svc = state.tradeService;
-  try {
-    if (edit == null) {
-      await svc.createAsset(
-        name: nameCtrl.text,
-        symbol: symbolCtrl.text,
-        quantity: double.tryParse(qtyCtrl.text) ?? 0,
-        avgBuyPrice: double.tryParse(priceCtrl.text) ?? 0,
-        currentPrice: double.tryParse(currentCtrl.text) ??
-            double.tryParse(priceCtrl.text) ??
-            0,
-      );
-    } else {
-      edit.name = nameCtrl.text.trim();
-      edit.symbol = symbolCtrl.text.trim();
-      final cp = double.tryParse(currentCtrl.text);
-      if (cp != null) edit.currentPrice = cp;
-      await svc.assets.update(edit);
-    }
-    await state.refresh();
-  } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-    }
   }
 }
