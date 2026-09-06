@@ -5,6 +5,7 @@ import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:provider/provider.dart';
 
 class TradesPage extends StatelessWidget {
@@ -55,6 +56,8 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
     text: '${state.assets.first.currentPrice}',
   );
   final feeCtrl = TextEditingController(text: '0');
+  var buyDate = todayIso();
+  final calendar = state.settings.calendar;
 
   final ok = await showDialog<bool>(
     context: context,
@@ -101,6 +104,12 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.right,
               ),
+              AppDateTile(
+                label: 'تاریخ خرید',
+                isoDate: buyDate,
+                calendar: calendar,
+                onChanged: (v) => setLocal(() => buyDate = v),
+              ),
             ],
           ),
         ),
@@ -118,6 +127,7 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
       quantity: double.parse(qtyCtrl.text),
       buyPrice: double.parse(priceCtrl.text),
       buyFee: double.tryParse(feeCtrl.text) ?? 0,
+      buyDate: buyDate,
     );
     await state.refresh();
   } catch (e) {
@@ -128,56 +138,72 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
 }
 
 Future<void> showSellTradeDialog(BuildContext context, Trade trade) async {
+  final state = context.read<AppState>();
   final qtyCtrl = TextEditingController(text: '${trade.quantity}');
   final priceCtrl = TextEditingController(
     text: trade.currentPrice > 0 ? '${trade.currentPrice}' : '${trade.buyPrice}',
   );
   final feeCtrl = TextEditingController(text: '0');
+  var sellDate = todayIso();
+  final calendar = state.settings.calendar;
+  final buyFloor = parseIsoDate(
+    trade.buyDate.isEmpty ? todayIso() : trade.buyDate,
+  );
+
   final ok = await showDialog<bool>(
     context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text('فروش ${trade.assetName}'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('حداکثر: ${formatNumber(trade.quantity, decimals: 4)}',
-                textAlign: TextAlign.right),
-            TextField(
-              controller: qtyCtrl,
-              decoration: const InputDecoration(labelText: 'مقدار فروش'),
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.right,
-            ),
-            TextField(
-              controller: priceCtrl,
-              decoration: const InputDecoration(labelText: 'قیمت فروش'),
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.right,
-            ),
-            TextField(
-              controller: feeCtrl,
-              decoration: const InputDecoration(labelText: 'کارمزد'),
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.right,
-            ),
-          ],
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setLocal) => AlertDialog(
+        title: Text('فروش ${trade.assetName}'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('حداکثر: ${formatNumber(trade.quantity, decimals: 4)}',
+                  textAlign: TextAlign.right),
+              TextField(
+                controller: qtyCtrl,
+                decoration: const InputDecoration(labelText: 'مقدار فروش'),
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+              ),
+              TextField(
+                controller: priceCtrl,
+                decoration: const InputDecoration(labelText: 'قیمت فروش'),
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+              ),
+              TextField(
+                controller: feeCtrl,
+                decoration: const InputDecoration(labelText: 'کارمزد'),
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+              ),
+              AppDateTile(
+                label: 'تاریخ فروش',
+                isoDate: sellDate,
+                calendar: calendar,
+                firstDate: buyFloor,
+                onChanged: (v) => setLocal(() => sellDate = v),
+              ),
+            ],
+          ),
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('انصراف')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('فروش')),
+        ],
       ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('انصراف')),
-        ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('فروش')),
-      ],
     ),
   );
   if (ok != true || !context.mounted) return;
-  final state = context.read<AppState>();
   try {
     await state.tradeService.closeTrade(
       tradeId: trade.id!,
       sellPrice: double.parse(priceCtrl.text),
       sellFee: double.tryParse(feeCtrl.text) ?? 0,
       quantity: double.parse(qtyCtrl.text),
+      sellDate: sellDate,
     );
     await state.refresh();
   } catch (e) {
@@ -222,29 +248,11 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.right,
               ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('تاریخ خرید'),
-                subtitle: Text(
-                  formatDisplayDate(buyDate, state.settings.calendar),
-                ),
-                trailing: const Icon(Icons.calendar_today_outlined, size: 18),
-                onTap: () async {
-                  final initial = parseIsoDate(buyDate);
-                  final picked = await showDatePicker(
-                    context: ctx,
-                    initialDate: initial,
-                    firstDate: DateTime(2000),
-                    lastDate: DateTime.now().add(const Duration(days: 1)),
-                  );
-                  if (picked == null) return;
-                  setLocal(() {
-                    buyDate =
-                        '${picked.year.toString().padLeft(4, '0')}-'
-                        '${picked.month.toString().padLeft(2, '0')}-'
-                        '${picked.day.toString().padLeft(2, '0')}';
-                  });
-                },
+              AppDateTile(
+                label: 'تاریخ خرید',
+                isoDate: buyDate,
+                calendar: state.settings.calendar,
+                onChanged: (v) => setLocal(() => buyDate = v),
               ),
               TextField(
                 controller: noteCtrl,

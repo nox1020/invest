@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/models/asset_meta.dart';
+import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:provider/provider.dart';
 
 Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
@@ -99,7 +101,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
   late final TextEditingController _addressCtrl;
   late final TextEditingController _areaCtrl;
   late final TextEditingController _deedCtrl;
-  late final TextEditingController _purchaseDateCtrl;
+  late String _purchaseDate;
   String? _usage; // residential | commercial
 
   // Vehicle
@@ -173,7 +175,8 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
       text: meta.areaM2 == null ? '' : _formatQty(meta.areaM2!),
     );
     _deedCtrl = TextEditingController(text: meta.deedNotes ?? '');
-    _purchaseDateCtrl = TextEditingController(text: meta.purchaseDate ?? '');
+    final rawPurchase = meta.purchaseDate ?? '';
+    _purchaseDate = tryNormalizeToIso(rawPurchase) ?? rawPurchase;
     _usage = meta.usage;
 
     _brandCtrl = TextEditingController(text: meta.brandModel ?? '');
@@ -197,7 +200,6 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     _addressCtrl.dispose();
     _areaCtrl.dispose();
     _deedCtrl.dispose();
-    _purchaseDateCtrl.dispose();
     _brandCtrl.dispose();
     _yearCtrl.dispose();
     _plateCtrl.dispose();
@@ -242,7 +244,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
           areaM2: parseD(_areaCtrl.text),
           usage: _usage,
           deedNotes: _deedCtrl.text,
-          purchaseDate: _purchaseDateCtrl.text,
+          purchaseDate: _purchaseDate,
         );
       case AssetKind.vehicle:
         return AssetMeta(
@@ -251,7 +253,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
           plate: _plateCtrl.text,
           mileageKm: parseD(_mileageCtrl.text),
           color: _colorCtrl.text,
-          purchaseDate: _purchaseDateCtrl.text,
+          purchaseDate: _purchaseDate,
         );
       case AssetKind.gold:
         return AssetMeta(purity: _purityCtrl.text);
@@ -406,7 +408,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
                 label: _kind == AssetKind.cash ? 'ارز / نماد' : 'نماد',
                 hint: _kind.symbolHint,
               ),
-            ..._kindSpecificFields(),
+            ..._kindSpecificFields(context),
             if (_showQtyField)
               _field(
                 _qtyCtrl,
@@ -473,7 +475,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     );
   }
 
-  List<Widget> _kindSpecificFields() {
+  List<Widget> _kindSpecificFields(BuildContext context) {
     switch (_kind) {
       case AssetKind.property:
         return [
@@ -512,11 +514,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
             label: 'سند / پلاک ثبتی',
             hint: 'شماره سند یا پلاک',
           ),
-          _field(
-            _purchaseDateCtrl,
-            label: 'تاریخ خرید',
-            hint: 'مثل ۱۴۰۲/۰۵/۰۱',
-          ),
+          _purchaseDateField(context),
         ];
       case AssetKind.vehicle:
         return [
@@ -535,11 +533,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
                 const TextInputType.numberWithOptions(decimal: true),
           ),
           _field(_colorCtrl, label: 'رنگ'),
-          _field(
-            _purchaseDateCtrl,
-            label: 'تاریخ خرید',
-            hint: 'مثل ۱۴۰۲/۰۵/۰۱',
-          ),
+          _purchaseDateField(context),
         ];
       case AssetKind.gold:
         return [
@@ -554,6 +548,19 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
       case AssetKind.other:
         return const [];
     }
+  }
+
+  Widget _purchaseDateField(BuildContext context) {
+    final calendar = context.watch<AppState>().settings.calendar;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: AppDateTile(
+        label: 'تاریخ خرید',
+        isoDate: _purchaseDate,
+        calendar: calendar,
+        onChanged: (v) => setState(() => _purchaseDate = v),
+      ),
+    );
   }
 }
 

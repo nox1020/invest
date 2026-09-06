@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/asset_kind.dart';
+import 'package:invest/domain/utils/dates.dart';
 
 /// Type-specific asset details persisted as `[meta:{…}]` inside [Asset.notes].
 ///
@@ -33,7 +35,7 @@ class AssetMeta {
   /// ملک — توضیحات سند / پلاک ثبتی
   final String? deedNotes;
 
-  /// ملک / خودرو — تاریخ خرید (متن آزاد، مثلاً ۱۴۰۲/۰۵/۰۱)
+  /// ملک / خودرو — تاریخ خرید (ترجیحاً ISO میلادی؛ نمایش با تقویم تنظیمات)
   final String? purchaseDate;
 
   /// خودرو — برند / مدل (در صورت تمایز از نام دارایی)
@@ -220,7 +222,12 @@ String encodeAssetNotes({
 }
 
 /// Short Persian summary for portfolio cards (empty if nothing useful).
-String assetMetaCardSummary(AssetKind kind, AssetMeta meta, {String freeNotes = ''}) {
+String assetMetaCardSummary(
+  AssetKind kind,
+  AssetMeta meta, {
+  String freeNotes = '',
+  String calendar = AppConfig.calendarJalali,
+}) {
   final bits = <String>[];
   switch (kind) {
     case AssetKind.property:
@@ -237,6 +244,9 @@ String assetMetaCardSummary(AssetKind kind, AssetMeta meta, {String freeNotes = 
       if (meta.address != null && meta.address!.trim().isNotEmpty) {
         bits.add(meta.address!.trim());
       }
+      if (meta.purchaseDate != null && meta.purchaseDate!.trim().isNotEmpty) {
+        bits.add(formatFlexibleDisplayDate(meta.purchaseDate, calendar));
+      }
     case AssetKind.vehicle:
       if (meta.plate != null && meta.plate!.trim().isNotEmpty) {
         bits.add(meta.plate!.trim());
@@ -250,6 +260,9 @@ String assetMetaCardSummary(AssetKind kind, AssetMeta meta, {String freeNotes = 
       }
       if (meta.color != null && meta.color!.trim().isNotEmpty) {
         bits.add(meta.color!.trim());
+      }
+      if (meta.purchaseDate != null && meta.purchaseDate!.trim().isNotEmpty) {
+        bits.add(formatFlexibleDisplayDate(meta.purchaseDate, calendar));
       }
     case AssetKind.gold:
       if (meta.purity != null && meta.purity!.trim().isNotEmpty) {

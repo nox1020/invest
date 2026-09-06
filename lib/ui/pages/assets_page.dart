@@ -351,6 +351,7 @@ class _AssetCard extends StatelessWidget {
       kind,
       notesParts.meta,
       freeNotes: notesParts.freeNotes,
+      calendar: context.watch<AppState>().settings.calendar,
     );
     final pnlTone =
         metrics.unrealizedPnl >= 0 ? AppTheme.positive : AppTheme.negative;
