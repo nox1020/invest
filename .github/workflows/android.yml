@@ -157,7 +157,26 @@ jobs:
         run: flutter pub get
 
       - name: Analyze
-        run: flutter analyze --no-fatal-infos
+        run: |
+          set +e
+          flutter analyze --no-fatal-infos 2>&1 | tee analyze.log
+          code=${PIPESTATUS[0]}
+          python3 - <<'PY'
+          import pathlib, re
+          text = pathlib.Path("analyze.log").read_text(errors="replace")
+          print("--- analyze tail ---")
+          print("\n".join(text.splitlines()[-60:]))
+          pat = re.compile(
+              r"^\s*(error|warning)\s*[•\-]\s*(.+?)\s*[•\-]\s*([^:\s]+):(\d+):(\d+)\s*[•\-]\s*(\S+)\s*$",
+              re.M,
+          )
+          for m in pat.finditer(text):
+              sev, msg, path, line, col, code = m.groups()
+              cmd = "error" if sev == "error" else "warning"
+              safe = msg.replace("%", "%25").replace("\n", "%0A")
+              print(f"::{cmd} file={path},line={line},col={col}::[{code}] {safe}")
+          PY
+          exit $code
 
       - name: Test
         run: flutter test
