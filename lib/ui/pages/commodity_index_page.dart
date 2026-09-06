@@ -4,6 +4,7 @@ import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/iran_inflation_pane.dart';
+import 'package:invest/ui/pages/quote_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 
@@ -455,6 +456,7 @@ class _QuoteListPane extends StatelessWidget {
               itemBuilder: (context, i) => _CommodityCard(
                 quote: quotes[i],
                 showVolume: showVolume,
+                onTap: () => openQuoteDetail(context, quotes[i]),
               ),
             ),
     );
@@ -462,10 +464,15 @@ class _QuoteListPane extends StatelessWidget {
 }
 
 class _CommodityCard extends StatelessWidget {
-  const _CommodityCard({required this.quote, this.showVolume = false});
+  const _CommodityCard({
+    required this.quote,
+    this.showVolume = false,
+    this.onTap,
+  });
 
   final CommodityQuote quote;
   final bool showVolume;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -479,81 +486,95 @@ class _CommodityCard extends StatelessWidget {
       changeText = formatPct(change);
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppTheme.card,
+    return Material(
+      color: AppTheme.card,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Row(
-        children: [
-          if (changeText != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: (changeColor ?? AppTheme.muted).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                changeText,
-                style: TextStyle(
-                  color: changeColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  quote.name,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    color: AppTheme.title,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.border),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.chevron_left_rounded,
+                  color: AppTheme.muted, size: 20),
+              if (changeText != null) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color:
+                        (changeColor ?? AppTheme.muted).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    changeText,
+                    style: TextStyle(
+                      color: changeColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                Text(
-                  [
-                    quote.symbol,
-                    if (showVolume && (quote.quoteVolume24h ?? 0) > 0)
-                      'حجم: ${formatNumber(quote.quoteVolume24h!, decimals: 0)}',
-                  ].join('  ·  '),
-                  style: const TextStyle(color: AppTheme.muted, fontSize: 11),
-                ),
               ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppTheme.accent.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(quote.icon, color: AppTheme.positive, size: 20),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 120,
-            child: Text(
-              _formatPrice(quote),
-              textAlign: TextAlign.left,
-              textDirection: TextDirection.ltr,
-              style: const TextStyle(
-                color: AppTheme.text,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      quote.name,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        color: AppTheme.title,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      [
+                        quote.symbol,
+                        if (showVolume && (quote.quoteVolume24h ?? 0) > 0)
+                          'حجم: ${formatNumber(quote.quoteVolume24h!, decimals: 0)}',
+                      ].join('  ·  '),
+                      style:
+                          const TextStyle(color: AppTheme.muted, fontSize: 11),
+                    ),
+                  ],
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppTheme.accent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(quote.icon, color: AppTheme.positive, size: 20),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 110,
+                child: Text(
+                  _formatPrice(quote),
+                  textAlign: TextAlign.left,
+                  textDirection: TextDirection.ltr,
+                  style: const TextStyle(
+                    color: AppTheme.text,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

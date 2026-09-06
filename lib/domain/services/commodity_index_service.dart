@@ -88,6 +88,7 @@ class CommodityIndexService {
     final ethUsd = _num(market?['crypto']?['ETH']?['priceUSD']);
 
     // Prefer live Wallex TMN prices for BTC/ETH when available.
+    final wallexUsdt = _findWallexQuote(wallex, 'USDTTMN');
     final wallexBtc = _findWallexQuote(wallex, 'BTCTMN');
     final wallexEth = _findWallexQuote(wallex, 'ETHTMN');
 
@@ -98,8 +99,14 @@ class CommodityIndexService {
         symbol: 'USDT',
         unit: 'toman',
         price: usdt,
-        change24h: _findWallexQuote(wallex, 'USDTTMN')?.change24h,
+        change24h: wallexUsdt?.change24h,
         icon: Icons.currency_bitcoin_rounded,
+        marketSymbol: 'USDTTMN',
+        high24h: wallexUsdt?.high24h,
+        low24h: wallexUsdt?.low24h,
+        bidPrice: wallexUsdt?.bidPrice,
+        askPrice: wallexUsdt?.askPrice,
+        quoteVolume24h: wallexUsdt?.quoteVolume24h,
       ),
       CommodityQuote(
         id: 'usd',
@@ -173,6 +180,12 @@ class CommodityIndexService {
         change24h: wallexBtc?.change24h ??
             _num(market?['crypto']?['BTC']?['change24h']),
         icon: Icons.currency_bitcoin,
+        marketSymbol: wallexBtc != null ? 'BTCTMN' : null,
+        high24h: wallexBtc?.high24h,
+        low24h: wallexBtc?.low24h,
+        bidPrice: wallexBtc?.bidPrice,
+        askPrice: wallexBtc?.askPrice,
+        quoteVolume24h: wallexBtc?.quoteVolume24h,
       ),
       CommodityQuote(
         id: 'eth',
@@ -183,6 +196,12 @@ class CommodityIndexService {
         change24h: wallexEth?.change24h ??
             _num(market?['crypto']?['ETH']?['change24h']),
         icon: Icons.token_outlined,
+        marketSymbol: wallexEth != null ? 'ETHTMN' : null,
+        high24h: wallexEth?.high24h,
+        low24h: wallexEth?.low24h,
+        bidPrice: wallexEth?.bidPrice,
+        askPrice: wallexEth?.askPrice,
+        quoteVolume24h: wallexEth?.quoteVolume24h,
       ),
     ];
   }
@@ -223,6 +242,10 @@ class CommodityIndexService {
           icon: Icons.currency_exchange_rounded,
           quoteVolume24h: volume,
           marketSymbol: '${entry.key}',
+          high24h: _num(stats['24h_highPrice']) ?? _num(stats['24h_high']),
+          low24h: _num(stats['24h_lowPrice']) ?? _num(stats['24h_low']),
+          bidPrice: _num(stats['bidPrice']),
+          askPrice: _num(stats['askPrice']),
         ),
       );
     }
@@ -256,6 +279,13 @@ class CommodityIndexService {
       unit: 'toman',
       price: price,
       change24h: _num(stats['24h_ch']),
+      marketSymbol: marketSymbol,
+      high24h: _num(stats['24h_highPrice']) ?? _num(stats['24h_high']),
+      low24h: _num(stats['24h_lowPrice']) ?? _num(stats['24h_low']),
+      bidPrice: _num(stats['bidPrice']),
+      askPrice: _num(stats['askPrice']),
+      quoteVolume24h: _num(stats['24h_quoteVolume']) ??
+          _num(stats['24h_tmnVolume']),
     );
   }
 
