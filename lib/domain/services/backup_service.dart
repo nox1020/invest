@@ -21,9 +21,9 @@ class BackupService {
   static const fileExtension = 'vplusbak';
   static const mimeType = 'application/octet-stream';
 
-  static Uint8List encode(BackupPayload payload) {
+  static Uint8List encode(BackupPayload payload, {int? iterations}) {
     final json = const JsonEncoder.withIndent('  ').convert(payload.toJson());
-    return BackupCrypto.encryptUtf8(json);
+    return BackupCrypto.encryptUtf8(json, iterations: iterations);
   }
 
   static BackupPayload decode(Uint8List bytes) {

@@ -98,22 +98,28 @@ void main() {
       baseUrl: 'https://vinor.ir',
     );
 
-    final bytes = BackupService.encode(payload);
+    // Production default KDF (180000) is too heavy for unit tests; decrypt
+    // rejects iterations below 10000, so use a valid low-iter path here.
+    final bytes = BackupService.encode(payload, iterations: 12000);
     expect(bytes.length, greaterThan(64));
-    // Default KDF is intentionally heavy; use a lower-iter copy for round-trip.
-    final json = jsonEncode(payload.toJson());
-    final fast = BackupCrypto.encryptUtf8(json, iterations: 8000);
-    final restored = BackupService.decode(fast);
+    final restored = BackupService.decode(bytes);
 
     expect(restored.assets.single.name, 'طلا');
     expect(restored.openTradeCount, 1);
     expect(restored.closedTradeCount, 1);
     expect(restored.withdrawals.single.amount, 500);
-    expect(restored.capitalSnapshots.single['total_value'], 100);
+    // JSON round-trip may yield int or double for numbers.
+    expect(
+      (restored.capitalSnapshots.single['total_value'] as num).toDouble(),
+      100,
+    );
     expect(restored.appLockHash, 'pbkdf2_sha256\$1\$abc\$def');
     expect(restored.biometricUnlockEnabled, isTrue);
     expect(restored.settings.usdtApiEnabled, isFalse);
+    expect(restored.settings.goldApiEnabled, isTrue);
     expect(restored.settings.usdtTmnRate, 100000);
+    expect(restored.userPhone, '0912');
+    expect(restored.baseUrl, 'https://vinor.ir');
   });
 
   test('pbkdf2 is deterministic', () {
