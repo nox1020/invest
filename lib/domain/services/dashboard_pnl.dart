@@ -70,6 +70,33 @@ class DashboardCurrencyPnl {
     if (cost.abs() < 1e-12) return 0;
     return totalPnl / cost * 100;
   }
+
+  /// Percent of total USD PnL vs registered open USD cost (+ closed buy USD).
+  static double? totalUsdPnlPct({
+    required double? totalUsdPnl,
+    required List<Asset> assets,
+    required List<Trade> openTrades,
+    required List<Trade> closedTrades,
+  }) {
+    if (totalUsdPnl == null) return null;
+    final holdings = HoldingMetrics.activeHoldings(
+      assets: assets,
+      openTrades: openTrades,
+    );
+    var costUsd = 0.0;
+    for (final h in holdings) {
+      final c = h.metrics.costBasisUsd;
+      if (c == null) return null;
+      costUsd += c;
+    }
+    for (final t in closedTrades) {
+      final u = t.buyPriceUsd;
+      if (u == null || u <= 0) return null;
+      costUsd += t.quantity * u;
+    }
+    if (costUsd.abs() < 1e-12) return 0;
+    return totalUsdPnl / costUsd * 100;
+  }
 }
 
 double? _closedPnlUsd(Iterable<Trade> trades, double? usdtTmn) {

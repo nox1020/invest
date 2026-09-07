@@ -59,11 +59,16 @@ class DashboardPage extends StatelessWidget {
       yearKey: m.yearKey,
       calendar: state.settings.calendar,
     );
-    // Reconcile % with absolute total PnL (server may still send unrealized-only %).
     final totalPnlPct = DashboardCurrencyPnl.totalPnlPct(
       totalPnl: m.totalPnl,
       assets: state.assets,
       openTrades: state.openTrades,
+    );
+    final totalUsdPct = DashboardCurrencyPnl.totalUsdPnlPct(
+      totalUsdPnl: currencyPnl.totalUsd,
+      assets: state.assets,
+      openTrades: state.openTrades,
+      closedTrades: state.closedTrades,
     );
 
     String tone(num v) => v > 0 ? 'positive' : (v < 0 ? 'negative' : '');
@@ -100,6 +105,7 @@ class DashboardPage extends StatelessWidget {
     final totalUsd = currencyPnl.totalUsd;
     final realizedUsd = currencyPnl.realizedUsd;
     final yearUsd = currencyPnl.yearRealizedUsd;
+    final unrealizedUsd = currencyPnl.unrealizedUsd;
 
     return RefreshIndicator(
       onRefresh: () => state.refreshAll(),
@@ -129,7 +135,7 @@ class DashboardPage extends StatelessWidget {
           ]),
           const SizedBox(height: 18),
           const Text(
-            'خلاصه',
+            'سود و زیان',
             textAlign: TextAlign.right,
             style: TextStyle(
               color: AppTheme.title,
@@ -140,36 +146,50 @@ class DashboardPage extends StatelessWidget {
           const SizedBox(height: 10),
           metricRow([
             MetricCard(
-              title: 'سود / زیان کل',
+              title: 'سود / زیان تومانی',
               value: formatMoney(m.totalPnl, showSign: true),
-              caption: [
-                formatPct(totalPnlPct),
-                if (totalUsd != null) formatUsd(totalUsd, showSign: true),
-              ].join(' · '),
+              caption: formatPct(totalPnlPct),
               tone: tone(m.totalPnl),
             ),
             MetricCard(
-              title: 'تحقق‌یافته',
+              title: 'سود / زیان دلاری',
+              value: totalUsd == null
+                  ? '—'
+                  : formatUsd(totalUsd, showSign: true),
+              caption: totalUsd == null
+                  ? 'بهای دلاری خرید ناقص است'
+                  : (totalUsdPct == null ? null : formatPct(totalUsdPct)),
+              tone: totalUsd == null ? null : tone(totalUsd),
+            ),
+          ], gap: 8),
+          const SizedBox(height: 8),
+          metricRow([
+            MetricCard(
+              title: 'تحقق‌یافته (تومان)',
               value: formatMoney(m.realizedPnl, showSign: true),
               caption: realizedUsd == null
                   ? null
                   : formatUsd(realizedUsd, showSign: true),
               tone: tone(m.realizedPnl),
             ),
+            MetricCard(
+              title: 'تحقق‌نیافته (تومان)',
+              value: formatMoney(m.unrealizedPnl, showSign: true),
+              caption: unrealizedUsd == null
+                  ? null
+                  : formatUsd(unrealizedUsd, showSign: true),
+              tone: tone(m.unrealizedPnl),
+            ),
           ], gap: 8),
           const SizedBox(height: 8),
           metricRow([
             MetricCard(
-              title: 'تحقق‌نیافته',
-              value: formatMoney(m.unrealizedPnl, showSign: true),
-              caption: currencyPnl.unrealizedUsd == null
-                  ? null
-                  : formatUsd(currencyPnl.unrealizedUsd!, showSign: true),
-              tone: tone(m.unrealizedPnl),
+              title: 'معاملات باز',
+              value: '${m.openCount}',
             ),
             MetricCard(
-              title: 'معاملات',
-              value: '${m.openCount} باز · ${m.closedCount} بسته',
+              title: 'معاملات بسته',
+              value: '${m.closedCount}',
             ),
           ], gap: 8),
         ],
