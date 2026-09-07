@@ -74,14 +74,15 @@ class HoldingMetrics {
     final cost = qty * avg;
     final value = qty * price;
     final metaUsd = parseAssetNotes(asset.notes).meta.buyPriceUsd;
-    final hasUsd = metaUsd != null && metaUsd > 0 && qty > _eps;
+    final registeredUsd =
+        (metaUsd != null && metaUsd > 0 && qty > _eps) ? metaUsd : null;
     return HoldingMetrics(
       quantity: qty,
       currentPrice: price,
       avgBuyPrice: avg,
-      avgBuyPriceUsd: hasUsd ? metaUsd : null,
+      avgBuyPriceUsd: registeredUsd,
       costBasis: cost,
-      costBasisUsd: hasUsd ? qty * metaUsd! : null,
+      costBasisUsd: registeredUsd == null ? null : qty * registeredUsd,
       marketValue: value,
       unrealizedPnl: value - cost,
     );
