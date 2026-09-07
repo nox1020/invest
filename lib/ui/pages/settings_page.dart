@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
+import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/app_lock_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -310,6 +311,110 @@ class _SettingsPageState extends State<SettingsPage> {
                         );
                         if (picked == null || !mounted) return;
                         await _persist(state, (d) => d.currency = picked);
+                      },
+                showDivider: false,
+              ),
+            ],
+          ),
+          TgSettingsSection(
+            title: 'اعلان‌ها',
+            children: [
+              TgSettingsSwitchTile(
+                icon: Icons.notifications_rounded,
+                iconColor: const Color(0xFFFF3B30),
+                title: 'اعلان‌های دستگاه',
+                subtitle: s.notificationsEnabled
+                    ? 'نوتیفیکیشن‌های محلی فعال است'
+                    : 'همه اعلان‌ها خاموش',
+                value: s.notificationsEnabled,
+                onChanged: !canEdit
+                    ? null
+                    : (v) async {
+                        if (v) {
+                          final ok = await NotificationService.instance
+                              .requestPermission();
+                          if (!ok) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'اجازه اعلان در تنظیمات سیستم داده نشد',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+                        }
+                        await _persist(
+                          state,
+                          (d) => d.notificationsEnabled = v,
+                        );
+                      },
+              ),
+              TgSettingsSwitchTile(
+                icon: Icons.swap_horiz_rounded,
+                iconColor: const Color(0xFF007AFF),
+                title: 'معاملات',
+                subtitle: 'خرید و فروش',
+                value: s.notifyTrades,
+                onChanged: canEdit && s.notificationsEnabled
+                    ? (v) => _persist(state, (d) => d.notifyTrades = v)
+                    : null,
+              ),
+              TgSettingsSwitchTile(
+                icon: Icons.payments_outlined,
+                iconColor: const Color(0xFF34C759),
+                title: 'برداشت‌ها',
+                subtitle: 'ثبت برداشت جدید',
+                value: s.notifyWithdrawals,
+                onChanged: canEdit && s.notificationsEnabled
+                    ? (v) => _persist(state, (d) => d.notifyWithdrawals = v)
+                    : null,
+              ),
+              TgSettingsSwitchTile(
+                icon: Icons.trending_up_rounded,
+                iconColor: const Color(0xFFFF9500),
+                title: 'تغییر قیمت',
+                subtitle: 'تتر / طلا بیش از ۱٪',
+                value: s.notifyPriceMoves,
+                onChanged: canEdit && s.notificationsEnabled
+                    ? (v) => _persist(state, (d) => d.notifyPriceMoves = v)
+                    : null,
+              ),
+              TgSettingsTile(
+                icon: Icons.notification_add_rounded,
+                iconColor: const Color(0xFF5856D6),
+                title: 'ارسال اعلان آزمایشی',
+                subtitle: s.notificationsEnabled
+                    ? 'برای تست مجوز و کانال اعلان'
+                    : 'ابتدا اعلان‌ها را روشن کنید',
+                onTap: !canEdit || !s.notificationsEnabled
+                    ? null
+                    : () async {
+                        final permitted = await NotificationService.instance
+                            .areNotificationsEnabled();
+                        if (!permitted) {
+                          final ok = await NotificationService.instance
+                              .requestPermission();
+                          if (!ok) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'اجازه اعلان در سیستم فعال نیست',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+                        }
+                        await NotificationService.instance.showTest();
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('اعلان آزمایشی ارسال شد'),
+                          ),
+                        );
                       },
                 showDivider: false,
               ),

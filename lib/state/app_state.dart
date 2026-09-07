@@ -22,9 +22,11 @@ import 'package:invest/domain/services/backup_service.dart';
 import 'package:invest/domain/services/chart_series.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/iran_inflation_service.dart';
+import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/domain/services/portfolio_service.dart';
 import 'package:invest/domain/services/quote_clients.dart';
 import 'package:invest/domain/services/trade_service.dart';
+import 'package:invest/domain/utils/money.dart';
 import 'package:invest/security/app_lock.dart';
 import 'package:invest/security/biometric_auth.dart';
 import 'package:invest/services/refresh_coordinator.dart';
@@ -978,6 +980,34 @@ class AppState extends ChangeNotifier {
     }
     await _persistWithdrawalCache();
     notifyListeners();
+    await emitLocalAlert(
+      kind: NotificationKind.withdrawals,
+      title: 'برداشت ثبت شد',
+      body: formatMoney(amount),
+    );
+  }
+
+  /// Shows a local notification when the matching preference is on.
+  Future<void> emitLocalAlert({
+    required NotificationKind kind,
+    required String title,
+    required String body,
+  }) async {
+    final s = settings;
+    final allowed = switch (kind) {
+      NotificationKind.trades => s.tradesAlertsOn,
+      NotificationKind.withdrawals => s.withdrawalAlertsOn,
+      NotificationKind.prices => s.priceAlertsOn,
+      NotificationKind.general => s.notificationsEnabled,
+    };
+    if (!allowed) return;
+    try {
+      await NotificationService.instance.show(
+        title: title,
+        body: body,
+        kind: kind,
+      );
+    } catch (_) {}
   }
 
   Future<void> _persistWithdrawalCache() async {
@@ -995,6 +1025,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _syncLiveQuotes() async {
+    final prevUsdt = liveUsdt ?? settings.usdtTmnRate;
+    final prevGold = liveGold ?? settings.goldTmnPerGram;
+
     if (useRemote && !offline) {
       final q = await remote!.fetchQuotes();
       if (q.usdt != null) {
@@ -1005,6 +1038,7 @@ class AppState extends ChangeNotifier {
         liveGold = q.gold;
         settings.goldTmnPerGram = q.gold;
       }
+      await _maybeNotifyPriceMoves(prevUsdt: prevUsdt, prevGold: prevGold);
       return;
     }
 
@@ -1035,6 +1069,43 @@ class AppState extends ChangeNotifier {
       goldTmn: gold ?? settings.goldTmnPerGram,
       updateUsdt: settings.usdtApiEnabled,
       updateGold: settings.goldApiEnabled,
+    );
+    await _maybeNotifyPriceMoves(prevUsdt: prevUsdt, prevGold: prevGold);
+  }
+
+  /// Notify when USDT/gold move by at least 1% vs the previous live reading.
+  Future<void> _maybeNotifyPriceMoves({
+    required double? prevUsdt,
+    required double? prevGold,
+  }) async {
+    if (!settings.priceAlertsOn) return;
+    const minPct = 1.0;
+    final parts = <String>[];
+    final nextUsdt = liveUsdt ?? settings.usdtTmnRate;
+    final nextGold = liveGold ?? settings.goldTmnPerGram;
+    if (prevUsdt != null && prevUsdt > 0 && nextUsdt != null) {
+      final pct = ((nextUsdt - prevUsdt) / prevUsdt) * 100;
+      if (pct.abs() >= minPct) {
+        final sign = pct >= 0 ? '+' : '';
+        parts.add(
+          'تتر ${formatCompactToman(nextUsdt)} ($sign${pct.toStringAsFixed(1)}٪)',
+        );
+      }
+    }
+    if (prevGold != null && prevGold > 0 && nextGold != null) {
+      final pct = ((nextGold - prevGold) / prevGold) * 100;
+      if (pct.abs() >= minPct) {
+        final sign = pct >= 0 ? '+' : '';
+        parts.add(
+          'طلا ${formatCompactToman(nextGold)} ($sign${pct.toStringAsFixed(1)}٪)',
+        );
+      }
+    }
+    if (parts.isEmpty) return;
+    await emitLocalAlert(
+      kind: NotificationKind.prices,
+      title: 'تغییر قیمت',
+      body: parts.join(' · '),
     );
   }
 

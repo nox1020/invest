@@ -12,6 +12,10 @@ class AppSettings {
     this.persianToolboxUrl = '',
     this.usdtTmnRate,
     this.goldTmnPerGram,
+    this.notificationsEnabled = true,
+    this.notifyTrades = true,
+    this.notifyWithdrawals = true,
+    this.notifyPriceMoves = true,
   });
 
   String calendar;
@@ -25,7 +29,17 @@ class AppSettings {
   double? usdtTmnRate;
   double? goldTmnPerGram;
 
+  /// Master switch for local notifications.
+  bool notificationsEnabled;
+  bool notifyTrades;
+  bool notifyWithdrawals;
+  bool notifyPriceMoves;
+
   bool get isDark => theme != 'light';
+
+  bool get tradesAlertsOn => notificationsEnabled && notifyTrades;
+  bool get withdrawalAlertsOn => notificationsEnabled && notifyWithdrawals;
+  bool get priceAlertsOn => notificationsEnabled && notifyPriceMoves;
 
   AppSettings copyWith({
     String? calendar,
@@ -38,6 +52,10 @@ class AppSettings {
     String? persianToolboxUrl,
     double? usdtTmnRate,
     double? goldTmnPerGram,
+    bool? notificationsEnabled,
+    bool? notifyTrades,
+    bool? notifyWithdrawals,
+    bool? notifyPriceMoves,
     bool clearUsdtTmnRate = false,
     bool clearGoldTmnPerGram = false,
   }) {
@@ -53,6 +71,10 @@ class AppSettings {
       usdtTmnRate: clearUsdtTmnRate ? null : (usdtTmnRate ?? this.usdtTmnRate),
       goldTmnPerGram:
           clearGoldTmnPerGram ? null : (goldTmnPerGram ?? this.goldTmnPerGram),
+      notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      notifyTrades: notifyTrades ?? this.notifyTrades,
+      notifyWithdrawals: notifyWithdrawals ?? this.notifyWithdrawals,
+      notifyPriceMoves: notifyPriceMoves ?? this.notifyPriceMoves,
     );
   }
 
@@ -68,6 +90,10 @@ class AppSettings {
         'persian_toolbox_url': persianToolboxUrl,
         'usdt_tmn_rate': usdtTmnRate,
         'gold_tmn_per_gram': goldTmnPerGram,
+        'notifications_enabled': notificationsEnabled,
+        'notify_trades': notifyTrades,
+        'notify_withdrawals': notifyWithdrawals,
+        'notify_price_moves': notifyPriceMoves,
       };
 
   /// Local SQLite / settings-table key map.
@@ -83,6 +109,10 @@ class AppSettings {
         if (usdtTmnRate != null) AppConfig.settingUsdtTmn: '$usdtTmnRate',
         if (goldTmnPerGram != null)
           AppConfig.settingGoldTmn: '$goldTmnPerGram',
+        AppConfig.settingNotifications: notificationsEnabled ? '1' : '0',
+        AppConfig.settingNotifyTrades: notifyTrades ? '1' : '0',
+        AppConfig.settingNotifyWithdrawals: notifyWithdrawals ? '1' : '0',
+        AppConfig.settingNotifyPriceMoves: notifyPriceMoves ? '1' : '0',
       };
 
   static bool _on(dynamic v, {bool fallback = true}) {
@@ -116,6 +146,10 @@ class AppSettings {
           AppConfig.defaultPersianToolboxUrl,
       usdtTmnRate: _d(s['usdt_tmn_rate']),
       goldTmnPerGram: _d(s['gold_tmn_per_gram']),
+      notificationsEnabled: _on(s['notifications_enabled']),
+      notifyTrades: _on(s['notify_trades']),
+      notifyWithdrawals: _on(s['notify_withdrawals']),
+      notifyPriceMoves: _on(s['notify_price_moves']),
     );
   }
 
@@ -132,6 +166,10 @@ class AppSettings {
       'persian_toolbox_url': map[AppConfig.settingPersianToolboxUrl],
       'usdt_tmn_rate': map[AppConfig.settingUsdtTmn],
       'gold_tmn_per_gram': map[AppConfig.settingGoldTmn],
+      'notifications_enabled': map[AppConfig.settingNotifications],
+      'notify_trades': map[AppConfig.settingNotifyTrades],
+      'notify_withdrawals': map[AppConfig.settingNotifyWithdrawals],
+      'notify_price_moves': map[AppConfig.settingNotifyPriceMoves],
     });
   }
 }

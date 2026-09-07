@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/buy_usd_suggest.dart';
+import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
@@ -346,6 +347,11 @@ Future<void> showBuyTradeDialog(
       buyDate: buyDate,
     );
     await state.refresh();
+    await state.emitLocalAlert(
+      kind: NotificationKind.trades,
+      title: 'خرید ثبت شد',
+      body: choice!.name,
+    );
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
@@ -422,6 +428,11 @@ Future<void> showSellTradeDialog(BuildContext context, Trade trade) async {
       sellDate: sellDate,
     );
     await state.refresh();
+    await state.emitLocalAlert(
+      kind: NotificationKind.trades,
+      title: 'فروش ثبت شد',
+      body: trade.assetName,
+    );
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));

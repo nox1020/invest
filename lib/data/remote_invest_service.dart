@@ -124,6 +124,10 @@ class RemoteInvestService {
       'live_prices_enabled': s.livePricesEnabled,
       'usdt_api_enabled': s.usdtApiEnabled,
       'gold_api_enabled': s.goldApiEnabled,
+      'notifications_enabled': s.notificationsEnabled,
+      'notify_trades': s.notifyTrades,
+      'notify_withdrawals': s.notifyWithdrawals,
+      'notify_price_moves': s.notifyPriceMoves,
     };
     if (s.wallexUrl.trim().isNotEmpty) {
       body['wallex_markets_url'] = s.wallexUrl.trim();
@@ -448,6 +452,14 @@ class RemoteInvestService {
       usdtTmnRate: rate(s['usdt_tmn_rate'] ?? raw['usdt_tmn_rate']),
       goldTmnPerGram:
           rate(s['gold_tmn_per_gram'] ?? raw['gold_tmn_per_gram']),
+      notificationsEnabled: on(
+        s['notifications_enabled'] ?? raw['notifications_enabled'],
+      ),
+      notifyTrades: on(s['notify_trades'] ?? raw['notify_trades']),
+      notifyWithdrawals:
+          on(s['notify_withdrawals'] ?? raw['notify_withdrawals']),
+      notifyPriceMoves:
+          on(s['notify_price_moves'] ?? raw['notify_price_moves']),
     );
   }
 

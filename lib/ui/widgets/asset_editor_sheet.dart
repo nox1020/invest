@@ -4,6 +4,7 @@ import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/buy_usd_suggest.dart';
+import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -49,6 +50,13 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
         notes: result.notes,
         buyDate: result.buyDate,
       );
+      if (result.quantity > 0) {
+        await state.emitLocalAlert(
+          kind: NotificationKind.trades,
+          title: 'دارایی جدید',
+          body: result.name,
+        );
+      }
     } else {
       edit
         ..name = result.name

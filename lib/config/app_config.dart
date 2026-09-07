@@ -35,6 +35,11 @@ class AppConfig {
   static const settingUsdtTmn = 'usdt_tmn_rate';
   static const settingGoldTmn = 'gold_tmn_per_gram';
 
+  static const settingNotifications = 'notifications_enabled';
+  static const settingNotifyTrades = 'notify_trades';
+  static const settingNotifyWithdrawals = 'notify_withdrawals';
+  static const settingNotifyPriceMoves = 'notify_price_moves';
+
   static const defaultWallexUrl =
       'https://api.wallex.ir/v1/markets';
   static const defaultPersianToolboxUrl =
@@ -50,5 +55,9 @@ class AppConfig {
     settingGoldApi: '1',
     settingWallexUrl: defaultWallexUrl,
     settingPersianToolboxUrl: defaultPersianToolboxUrl,
+    settingNotifications: '1',
+    settingNotifyTrades: '1',
+    settingNotifyWithdrawals: '1',
+    settingNotifyPriceMoves: '1',
   };
 }
