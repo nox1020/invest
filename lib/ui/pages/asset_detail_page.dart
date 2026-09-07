@@ -61,15 +61,20 @@ class AssetDetailPage extends StatelessWidget {
     // Registered USD only — match asset cards (no live USDT conversion).
     final buyUsd = metrics.avgBuyPriceUsd;
     final curToman = metrics.currentPrice;
-    final curUsd = tomanToUsd(curToman, usdt);
+    final curUsd = metrics.currentPriceUsd(usdt);
     final series = _unitPriceSeries(
       asset: asset,
       metrics: metrics,
       lots: lots,
+      usdt: usdt,
     );
 
-    final pnlTone =
+    final tomanTone =
         metrics.unrealizedPnl >= 0 ? AppTheme.positive : AppTheme.negative;
+    final usdPnl = metrics.unrealizedPnlUsd(usdt);
+    final usdTone = usdPnl == null
+        ? tomanTone
+        : (usdPnl >= 0 ? AppTheme.positive : AppTheme.negative);
 
     return Scaffold(
       appBar: AppBar(
@@ -98,7 +103,8 @@ class AssetDetailPage extends StatelessWidget {
           _HeroTotals(
             metrics: metrics,
             usdt: usdt,
-            pnlTone: pnlTone,
+            tomanTone: tomanTone,
+            usdTone: usdTone,
           ),
           const SizedBox(height: 14),
           const _SectionTitle('بهای خرید و قیمت فعلی'),
@@ -146,7 +152,7 @@ class AssetDetailPage extends StatelessWidget {
               points: series,
               calendar: calendar,
               usdtRate: usdt,
-              lineColor: pnlTone,
+              lineColor: tomanTone,
               height: 260,
             ),
           ),
@@ -154,7 +160,7 @@ class AssetDetailPage extends StatelessWidget {
           Text(
             lots.isEmpty
                 ? 'نمودار از میانگین خرید تا قیمت فعلی ساخته شده است.'
-                : 'نقاط خرید لات‌های باز و قیمت فعلی روی یک مقیاس دو‌ارزی.',
+                : 'نقاط خرید: دلار ثبت‌شده (در صورت وجود)؛ نقطه فعلی از نرخ زنده.',
             textAlign: TextAlign.right,
             style: TextStyle(
               color: AppTheme.muted.withValues(alpha: 0.9),
@@ -173,6 +179,7 @@ class AssetDetailPage extends StatelessWidget {
     required Asset asset,
     required HoldingMetrics metrics,
     required List<Trade> lots,
+    double? usdt,
   }) {
     final today = todayIso();
     final points = <SeriesPoint>[];
@@ -181,18 +188,38 @@ class AssetDetailPage extends StatelessWidget {
       if (t.buyPrice <= 0) continue;
       final raw = t.buyDate.trim();
       final day = raw.length >= 10 ? raw.substring(0, 10) : today;
-      points.add(SeriesPoint(date: day, value: t.buyPrice));
+      final u = t.buyPriceUsd;
+      points.add(
+        SeriesPoint(
+          date: day,
+          value: t.buyPrice,
+          usdValue: (u != null && u > 0) ? u : null,
+        ),
+      );
     }
 
     if (points.isEmpty && metrics.avgBuyPrice > 0) {
       final created = asset.createdAt.trim();
       final buyDay = created.length >= 10 ? created.substring(0, 10) : today;
-      points.add(SeriesPoint(date: buyDay, value: metrics.avgBuyPrice));
+      final u = metrics.avgBuyPriceUsd;
+      points.add(
+        SeriesPoint(
+          date: buyDay,
+          value: metrics.avgBuyPrice,
+          usdValue: (u != null && u > 0) ? u : null,
+        ),
+      );
     }
 
     // Always append current price; do not overwrite a same-day buy point.
     if (metrics.currentPrice > 0) {
-      points.add(SeriesPoint(date: today, value: metrics.currentPrice));
+      points.add(
+        SeriesPoint(
+          date: today,
+          value: metrics.currentPrice,
+          usdValue: tomanToUsd(metrics.currentPrice, usdt),
+        ),
+      );
     }
 
     if (points.isEmpty) {
@@ -202,6 +229,12 @@ class AssetDetailPage extends StatelessWidget {
           value: metrics.currentPrice > 0
               ? metrics.currentPrice
               : metrics.avgBuyPrice,
+          usdValue: tomanToUsd(
+            metrics.currentPrice > 0
+                ? metrics.currentPrice
+                : metrics.avgBuyPrice,
+            usdt,
+          ),
         ),
       ];
     }
@@ -231,17 +264,19 @@ class _HeroTotals extends StatelessWidget {
   const _HeroTotals({
     required this.metrics,
     required this.usdt,
-    required this.pnlTone,
+    required this.tomanTone,
+    required this.usdTone,
   });
 
   final HoldingMetrics metrics;
   final double? usdt;
-  final Color pnlTone;
+  final Color tomanTone;
+  final Color usdTone;
 
   @override
   Widget build(BuildContext context) {
-    final valueUsd = tomanToUsd(metrics.marketValue, usdt);
-    final pnlUsd = tomanToUsd(metrics.unrealizedPnl, usdt);
+    final valueUsd = metrics.marketValueUsd(usdt);
+    final pnlUsd = metrics.unrealizedPnlUsd(usdt);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -273,33 +308,70 @@ class _HeroTotals extends StatelessWidget {
               formatMoney(metrics.marketValue),
               style: const TextStyle(color: AppTheme.muted, fontSize: 13),
             ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Text(
-                formatPct(metrics.unrealizedPnlPct),
-                style: TextStyle(
-                  color: pnlTone,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                pnlUsd != null
-                    ? '${formatUsd(pnlUsd, showSign: true)}  ·  ${formatMoney(metrics.unrealizedPnl, showSign: true)}'
-                    : formatMoney(metrics.unrealizedPnl, showSign: true),
-                textAlign: TextAlign.left,
-                style: TextStyle(
-                  color: pnlTone,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
-              ),
-            ],
+          const SizedBox(height: 12),
+          _PnlLine(
+            label: 'سود/ضرر ریالی',
+            amount: formatMoney(metrics.unrealizedPnl, showSign: true),
+            pct: metrics.unrealizedPnlPct,
+            tone: tomanTone,
           ),
+          if (pnlUsd != null) ...[
+            const SizedBox(height: 8),
+            _PnlLine(
+              label: 'سود/ضرر دلاری',
+              amount: formatUsd(pnlUsd, showSign: true),
+              pct: metrics.unrealizedPnlUsdPct(usdt),
+              tone: usdTone,
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+class _PnlLine extends StatelessWidget {
+  const _PnlLine({
+    required this.label,
+    required this.amount,
+    required this.pct,
+    required this.tone,
+  });
+
+  final String label;
+  final String amount;
+  final double pct;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(
+          formatPct(pct),
+          style: TextStyle(
+            color: tone,
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            amount,
+            textAlign: TextAlign.left,
+            style: TextStyle(
+              color: tone,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(color: AppTheme.muted, fontSize: 11),
+        ),
+      ],
     );
   }
 }

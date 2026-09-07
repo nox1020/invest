@@ -1,6 +1,7 @@
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/utils/money.dart';
 
 const _eps = 1e-9;
 
@@ -8,6 +9,9 @@ const _eps = 1e-9;
 ///
 /// Prefers open lots (fee-aware cost) when present so totals match the
 /// «باز» tab; otherwise falls back to the asset row.
+///
+/// USD cost uses **registered** buy prices only. USD PnL is
+/// `marketValueUsd(live) − costBasisUsd`, never a live FX of Toman PnL.
 class HoldingMetrics {
   const HoldingMetrics({
     required this.quantity,
@@ -15,6 +19,7 @@ class HoldingMetrics {
     required this.avgBuyPrice,
     this.avgBuyPriceUsd,
     required this.costBasis,
+    this.costBasisUsd,
     required this.marketValue,
     required this.unrealizedPnl,
   });
@@ -27,6 +32,9 @@ class HoldingMetrics {
   /// (or asset meta for inventory-only holdings).
   final double? avgBuyPriceUsd;
   final double costBasis;
+
+  /// Total registered USD cost (`Σ qty·buyPriceUsd`) when coverage is complete.
+  final double? costBasisUsd;
   final double marketValue;
   final double unrealizedPnl;
 
@@ -35,6 +43,30 @@ class HoldingMetrics {
 
   bool get hasPosition => quantity > _eps;
 
+  /// Live mark of the position in USD.
+  double? marketValueUsd(double? usdtTmn) =>
+      tomanToUsd(marketValue, usdtTmn);
+
+  /// Live unit mark in USD.
+  double? currentPriceUsd(double? usdtTmn) =>
+      tomanToUsd(currentPrice, usdtTmn);
+
+  /// Registered-cost USD PnL vs live mark. Null when USD cost is incomplete
+  /// or the live USDT rate is missing.
+  double? unrealizedPnlUsd(double? usdtTmn) {
+    final cost = costBasisUsd;
+    final value = marketValueUsd(usdtTmn);
+    if (cost == null || value == null) return null;
+    return value - cost;
+  }
+
+  double unrealizedPnlUsdPct(double? usdtTmn) {
+    final cost = costBasisUsd;
+    final pnl = unrealizedPnlUsd(usdtTmn);
+    if (cost == null || pnl == null || cost.abs() < _eps) return 0;
+    return pnl / cost * 100;
+  }
+
   static HoldingMetrics fromAsset(Asset asset) {
     final qty = asset.quantity;
     final price = asset.currentPrice;
@@ -42,13 +74,14 @@ class HoldingMetrics {
     final cost = qty * avg;
     final value = qty * price;
     final metaUsd = parseAssetNotes(asset.notes).meta.buyPriceUsd;
+    final hasUsd = metaUsd != null && metaUsd > 0 && qty > _eps;
     return HoldingMetrics(
       quantity: qty,
       currentPrice: price,
       avgBuyPrice: avg,
-      avgBuyPriceUsd:
-          (metaUsd != null && metaUsd > 0) ? metaUsd : null,
+      avgBuyPriceUsd: hasUsd ? metaUsd : null,
       costBasis: cost,
+      costBasisUsd: hasUsd ? qty * metaUsd! : null,
       marketValue: value,
       unrealizedPnl: value - cost,
     );
@@ -70,6 +103,7 @@ class HoldingMetrics {
     final avg = qty > _eps ? cost / qty : 0.0;
 
     double? avgUsd;
+    double? costUsd;
     var usdQty = 0.0;
     var usdCost = 0.0;
     for (final t in lots) {
@@ -81,6 +115,7 @@ class HoldingMetrics {
     if (usdQty > _eps && (qty - usdQty).abs() <= _eps) {
       // Only when every open lot has a registered USD unit price.
       avgUsd = usdCost / usdQty;
+      costUsd = usdCost;
     }
     // Do not fall back to meta when open lots exist but USD coverage is partial.
 
@@ -90,6 +125,7 @@ class HoldingMetrics {
       avgBuyPrice: avg,
       avgBuyPriceUsd: avgUsd,
       costBasis: cost,
+      costBasisUsd: costUsd,
       marketValue: value,
       unrealizedPnl: value - cost,
     );
@@ -107,5 +143,34 @@ class HoldingMetrics {
     }
     out.sort((a, b) => b.metrics.marketValue.compareTo(a.metrics.marketValue));
     return out;
+  }
+
+  /// Portfolio USD unrealized PnL when every holding has registered USD cost.
+  static double? portfolioUnrealizedPnlUsd(
+    List<({Asset asset, HoldingMetrics metrics})> holdings,
+    double? usdtTmn,
+  ) {
+    if (holdings.isEmpty) return 0;
+    var sum = 0.0;
+    for (final h in holdings) {
+      final p = h.metrics.unrealizedPnlUsd(usdtTmn);
+      if (p == null) return null;
+      sum += p;
+    }
+    return sum;
+  }
+
+  static double? portfolioMarketValueUsd(
+    List<({Asset asset, HoldingMetrics metrics})> holdings,
+    double? usdtTmn,
+  ) {
+    if (usdtTmn == null || usdtTmn <= 0) return null;
+    var sum = 0.0;
+    for (final h in holdings) {
+      final v = h.metrics.marketValueUsd(usdtTmn);
+      if (v == null) return null;
+      sum += v;
+    }
+    return sum;
   }
 }

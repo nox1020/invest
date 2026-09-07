@@ -13,10 +13,20 @@ class GoldFundMetrics {
 }
 
 class SeriesPoint {
-  const SeriesPoint({required this.date, required this.value});
+  const SeriesPoint({
+    required this.date,
+    required this.value,
+    this.usdValue,
+  });
 
   final String date;
+
+  /// Unit / series value in Toman.
   final double value;
+
+  /// Optional USD for this point (registered buy or live mark).
+  /// When null, UI may convert [value] with the live USDT rate.
+  final double? usdValue;
 
   static List<SeriesPoint> fromJsonList(dynamic raw) {
     if (raw is! List) return const [];
@@ -26,17 +36,24 @@ class SeriesPoint {
       final map = Map<String, dynamic>.from(item);
       final date = (map['date'] as String?)?.trim() ?? '';
       if (date.isEmpty) continue;
+      final usd = (map['usd'] as num?)?.toDouble() ??
+          (map['usdValue'] as num?)?.toDouble();
       out.add(
         SeriesPoint(
           date: date.length >= 10 ? date.substring(0, 10) : date,
           value: (map['value'] as num?)?.toDouble() ?? 0,
+          usdValue: (usd != null && usd > 0) ? usd : null,
         ),
       );
     }
     return out;
   }
 
-  Map<String, dynamic> toJson() => {'date': date, 'value': value};
+  Map<String, dynamic> toJson() => {
+        'date': date,
+        'value': value,
+        if (usdValue != null) 'usd': usdValue,
+      };
 }
 
 class DashboardMetrics {

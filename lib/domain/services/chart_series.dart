@@ -29,7 +29,11 @@ List<SeriesPoint> ensureChartSeries(
   }
   final out = List<SeriesPoint>.from(points);
   if (out.last.date == day) {
-    out[out.length - 1] = SeriesPoint(date: day, value: todayValue);
+    out[out.length - 1] = SeriesPoint(
+      date: day,
+      value: todayValue,
+      usdValue: out.last.usdValue,
+    );
   } else {
     out.add(SeriesPoint(date: day, value: todayValue));
   }

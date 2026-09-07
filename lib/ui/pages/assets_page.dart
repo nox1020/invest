@@ -58,6 +58,24 @@ class AssetsPage extends StatelessWidget {
         holdings.fold<double>(0, (s, h) => s + h.metrics.costBasis);
     final pnlPct = totalCost.abs() < 1e-12 ? 0.0 : totalPnl / totalCost * 100;
     final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
+    final totalUsdPnl =
+        HoldingMetrics.portfolioUnrealizedPnlUsd(holdings, usdt);
+    double? totalUsdPnlPct;
+    if (totalUsdPnl != null) {
+      var usdCost = 0.0;
+      var complete = true;
+      for (final h in holdings) {
+        final c = h.metrics.costBasisUsd;
+        if (c == null) {
+          complete = false;
+          break;
+        }
+        usdCost += c;
+      }
+      if (complete && usdCost.abs() >= 1e-12) {
+        totalUsdPnlPct = totalUsdPnl / usdCost * 100;
+      }
+    }
 
     return RefreshIndicator(
       onRefresh: () => state.refreshAll(),
@@ -69,6 +87,8 @@ class AssetsPage extends StatelessWidget {
             totalValue: totalValue,
             totalPnl: totalPnl,
             pnlPct: pnlPct,
+            usdPnl: totalUsdPnl,
+            usdPnlPct: totalUsdPnlPct,
             usdt: usdt,
           ),
           const SizedBox(height: 18),
@@ -95,18 +115,26 @@ class _PortfolioSummaryRow extends StatelessWidget {
     required this.totalPnl,
     required this.pnlPct,
     required this.usdt,
+    this.usdPnl,
+    this.usdPnlPct,
   });
 
   final double totalValue;
   final double totalPnl;
   final double pnlPct;
   final double? usdt;
+  final double? usdPnl;
+  final double? usdPnlPct;
 
   @override
   Widget build(BuildContext context) {
     final usdValue = tomanToUsd(totalValue, usdt);
-    final usdPnl = tomanToUsd(totalPnl, usdt);
-    final pnlPositive = totalPnl >= 0;
+    final tomanPositive = totalPnl >= 0;
+    final usdPositive = usdPnl == null ? tomanPositive : usdPnl! >= 0;
+    final showUsdPnl = usdPnl != null;
+    final pnlTone = showUsdPnl
+        ? (usdPositive ? AppTheme.positive : AppTheme.negative)
+        : (tomanPositive ? AppTheme.positive : AppTheme.negative);
 
     return Row(
       textDirection: TextDirection.ltr,
@@ -125,20 +153,24 @@ class _PortfolioSummaryRow extends StatelessWidget {
         Expanded(
           child: _SummaryCard(
             title: 'سود/ضرر تحقق‌نیافته',
-            primary: usdPnl != null
-                ? formatUsd(usdPnl, showSign: true)
+            primary: showUsdPnl
+                ? formatUsd(usdPnl!, showSign: true)
                 : formatCompactToman(totalPnl, showSign: true),
-            primaryColor: pnlPositive ? AppTheme.positive : AppTheme.negative,
-            badge: formatPct(pnlPct),
+            primaryColor: pnlTone,
+            badge: formatPct(showUsdPnl ? (usdPnlPct ?? 0) : pnlPct),
             leading: Icon(
-              pnlPositive ? Icons.arrow_drop_up : Icons.arrow_drop_down,
-              color: pnlPositive ? AppTheme.positive : AppTheme.negative,
+              (showUsdPnl ? usdPositive : tomanPositive)
+                  ? Icons.arrow_drop_up
+                  : Icons.arrow_drop_down,
+              color: pnlTone,
               size: 22,
             ),
-            secondary: usdPnl != null
+            secondary: showUsdPnl
                 ? formatCompactToman(totalPnl, showSign: true)
                 : null,
-            secondaryColor: pnlPositive ? AppTheme.positive : AppTheme.negative,
+            secondaryColor: tomanPositive
+                ? AppTheme.positive
+                : AppTheme.negative,
           ),
         ),
       ],
@@ -342,9 +374,9 @@ class _AssetCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final usdValue = tomanToUsd(metrics.marketValue, usdt);
-    final usdPnl = tomanToUsd(metrics.unrealizedPnl, usdt);
-    final usdPrice = tomanToUsd(metrics.currentPrice, usdt);
+    final usdValue = metrics.marketValueUsd(usdt);
+    final usdPnl = metrics.unrealizedPnlUsd(usdt);
+    final usdPrice = metrics.currentPriceUsd(usdt);
     // Only the registered USD buy basis — never live USDT conversion.
     final buyUsd = metrics.avgBuyPriceUsd;
     final kind = detectAssetKind(
@@ -368,8 +400,12 @@ class _AssetCard extends StatelessWidget {
       freeNotes: notesParts.freeNotes,
       calendar: context.watch<AppState>().settings.calendar,
     );
-    final pnlTone =
+    final tomanTone =
         metrics.unrealizedPnl >= 0 ? AppTheme.positive : AppTheme.negative;
+    final usdTone = usdPnl == null
+        ? tomanTone
+        : (usdPnl >= 0 ? AppTheme.positive : AppTheme.negative);
+    final showUsdPnl = usdPnl != null;
 
     return Material(
       color: AppTheme.card,
@@ -500,15 +536,21 @@ class _AssetCard extends StatelessWidget {
                 child: Divider(height: 1, color: AppTheme.border),
               ),
               _StatRow(
-                label: 'سود/ضرر',
-                value: usdPnl != null
+                label: 'سود/ضرر دلاری',
+                value: showUsdPnl
                     ? formatUsd(usdPnl, compact: true, showSign: true)
-                    : formatCompactToman(metrics.unrealizedPnl, showSign: true),
-                secondary: usdPnl != null
-                    ? formatCompactToman(metrics.unrealizedPnl, showSign: true)
-                    : null,
+                    : '—',
+                pct: showUsdPnl ? metrics.unrealizedPnlUsdPct(usdt) : null,
+                valueColor: showUsdPnl ? usdTone : AppTheme.muted,
+              ),
+              _StatRow(
+                label: 'سود/ضرر ریالی',
+                value: formatCompactToman(
+                  metrics.unrealizedPnl,
+                  showSign: true,
+                ),
                 pct: metrics.unrealizedPnlPct,
-                valueColor: pnlTone,
+                valueColor: tomanTone,
               ),
               _StatRow(
                 label: kind.isUnitAsset ? 'بهای خرید' : 'میانگین خرید',

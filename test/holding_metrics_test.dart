@@ -93,6 +93,8 @@ void main() {
     ];
     final partial = HoldingMetrics.forAsset(asset, open);
     expect(partial.avgBuyPriceUsd, isNull);
+    expect(partial.costBasisUsd, isNull);
+    expect(partial.unrealizedPnlUsd(60000), isNull);
 
     final full = HoldingMetrics.forAsset(asset, [
       open[0],
@@ -105,5 +107,35 @@ void main() {
       ),
     ]);
     expect(full.avgBuyPriceUsd, closeTo(3, 1e-9));
+    expect(full.costBasisUsd, closeTo(6, 1e-9));
+  });
+
+  test('USD PnL uses registered cost vs live mark, not FX of Toman PnL', () {
+    // Buy 1 @ 1e9 TMN / $20k registered. Now 1.2e9 TMN with USDT 60k → $20k mark.
+    // Toman PnL = +2e8, but USD PnL must be ~0 (not 2e8/60k).
+    final asset = Asset(
+      id: 1,
+      name: 'X',
+      quantity: 1,
+      avgBuyPrice: 1e9,
+      currentPrice: 1.2e9,
+    );
+    final open = [
+      Trade(
+        assetId: 1,
+        status: AppConfig.tradeOpen,
+        quantity: 1,
+        buyPrice: 1e9,
+        buyPriceUsd: 20000,
+        currentPrice: 1.2e9,
+      ),
+    ];
+    final m = HoldingMetrics.forAsset(asset, open);
+    const usdt = 60000.0;
+    expect(m.unrealizedPnl, closeTo(2e8, 1));
+    expect(m.costBasisUsd, 20000);
+    expect(m.marketValueUsd(usdt), closeTo(20000, 1e-6));
+    expect(m.unrealizedPnlUsd(usdt), closeTo(0, 1e-6));
+    expect(m.unrealizedPnlUsd(usdt)! == 2e8 / usdt, isFalse);
   });
 }

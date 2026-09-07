@@ -69,7 +69,7 @@ class _DualCurrencyChartState extends State<DualCurrencyChart> {
     }
 
     final point = series[_index];
-    final usd = tomanToUsd(point.value, widget.usdtRate);
+    final usd = point.usdValue ?? tomanToUsd(point.value, widget.usdtRate);
     final first = series.first.value;
     final delta = point.value - first;
     final pct = first.abs() < 1e-9 ? 0.0 : delta / first.abs() * 100;
