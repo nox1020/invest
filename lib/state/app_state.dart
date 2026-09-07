@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/app_lock_store.dart';
@@ -84,6 +86,10 @@ class AppState extends ChangeNotifier {
 
   final RefreshCoordinator _refreshCoordinator = RefreshCoordinator();
   final ResumeRefreshDebouncer _resumeDebouncer = ResumeRefreshDebouncer();
+  Timer? _indexRefreshTimer;
+  bool _indexRefreshInFlight = false;
+
+  static const Duration indexRefreshInterval = Duration(minutes: 1);
 
   bool get canMutate => authenticated && !readOnlyOffline;
 
@@ -148,9 +154,11 @@ class AppState extends ChangeNotifier {
           authenticated = true;
           try {
             await _loadRemoteData();
+            _startIndexRefreshTimer();
           } on InvestApiException catch (e) {
             if (e.errorCode == 'network_error' || e.statusCode == null) {
               await _bootOfflineWithSession();
+              _startIndexRefreshTimer();
             } else {
               rethrow;
             }
@@ -203,6 +211,7 @@ class AppState extends ChangeNotifier {
     authenticated = true;
     await _loadLocalSettings();
     await refresh();
+    _startIndexRefreshTimer();
   }
 
   Future<void> _bootOfflineWithSession() async {
@@ -213,6 +222,7 @@ class AppState extends ChangeNotifier {
     if (loaded) {
       useRemote = true;
       readOnlyOffline = true;
+      _startIndexRefreshTimer();
       return;
     }
     // No remote cache — open writable local SQLite workspace.
@@ -226,6 +236,7 @@ class AppState extends ChangeNotifier {
     authenticated = true;
     readOnlyOffline = true;
     useRemote = true;
+    _startIndexRefreshTimer();
     return true;
   }
 
@@ -287,6 +298,7 @@ class AppState extends ChangeNotifier {
     }
     await refresh();
     await _loadCommodityCacheQuietly();
+    _startIndexRefreshTimer();
   }
 
   /// Try reconnect to Vinor after offline boot.
@@ -306,6 +318,7 @@ class AppState extends ChangeNotifier {
         fetchSettings: true,
         checkApiVersion: true,
       );
+      _startIndexRefreshTimer();
       return true;
     } catch (_) {
       return false;
@@ -338,6 +351,7 @@ class AppState extends ChangeNotifier {
         fetchSettings: true,
         checkApiVersion: true,
       );
+      await refreshCommodityIndex(force: true);
     });
   }
 
@@ -359,6 +373,7 @@ class AppState extends ChangeNotifier {
       readOnlyOffline = false;
       useRemote = true;
       await _loadRemoteData();
+      _startIndexRefreshTimer();
     } finally {
       loading = false;
       notifyListeners();
@@ -366,6 +381,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    _stopIndexRefreshTimer();
     await _api?.logout();
     authenticated = false;
     offline = false;
@@ -480,81 +496,163 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> refreshCommodityIndex() async {
+  Future<void> refreshCommodityIndex({bool force = false}) async {
     if (commodityIndexService == null) return;
+    if (_indexRefreshInFlight && !force) return;
+    _indexRefreshInFlight = true;
     commodityIndexLoading = true;
     commodityIndexError = null;
     notifyListeners();
     try {
+      // Prefer Vinor shared store (server refresh + persistence).
+      if (useRemote && !offline && remote != null && authenticated) {
+        try {
+          final remoteBundle =
+              await remote!.fetchMarketIndex(force: force);
+          if (remoteBundle != null && remoteBundle.hasAnyPrice) {
+            await _applyIndexBundle(
+              essentials: remoteBundle.essentials,
+              wallex: remoteBundle.wallexMarkets,
+              inflation: remoteBundle.inflation,
+              updatedAt: remoteBundle.updatedAt ?? DateTime.now(),
+              error: remoteBundle.error ?? remoteBundle.warning,
+            );
+            return;
+          }
+        } catch (_) {
+          // Fall through to direct external fetch + push.
+        }
+      }
+
       final bundle = await commodityIndexService!.fetchAll(
         wallexUrl: settings.wallexUrl.isEmpty
             ? AppConfig.defaultWallexUrl
             : settings.wallexUrl,
       );
       if (bundle.hasAnyPrice) {
-        commodityIndex = bundle.essentials;
-        wallexMarkets = bundle.wallexMarkets;
-        commodityIndexUpdatedAt = DateTime.now();
-        await OfflineCacheStore.saveCommodities(
-          bundle.essentials,
-          wallexMarkets: bundle.wallexMarkets,
+        IranInflationSnapshot? inflation = iranInflation;
+        try {
+          iranInflationService ??= IranInflationService();
+          if (force ||
+              inflation == null ||
+              DateTime.now().difference(inflation.fetchedAt) >
+                  const Duration(hours: 6)) {
+            inflation = await iranInflationService!.fetchLatest();
+          }
+        } catch (_) {}
+
+        await _applyIndexBundle(
+          essentials: bundle.essentials,
+          wallex: bundle.wallexMarkets,
+          inflation: inflation,
+          updatedAt: DateTime.now(),
         );
-        commodityIndexError = null;
-      } else {
-        final cached = await OfflineCacheStore.loadCommodities();
-        if (cached != null) {
-          commodityIndex = cached.quotes;
-          wallexMarkets = cached.wallexMarkets;
-          commodityIndexUpdatedAt = cached.savedAt;
-          commodityIndexError = 'آفلاین — قیمت‌های ذخیره‌شده نمایش داده می‌شود';
-        } else {
-          commodityIndexError = 'دریافت قیمت‌ها ممکن نشد';
+
+        if (useRemote && !offline && remote != null && authenticated) {
+          try {
+            await remote!.pushMarketIndex(
+              essentials: bundle.essentials,
+              wallexMarkets: bundle.wallexMarkets,
+              inflation: inflation,
+            );
+          } catch (_) {}
         }
+      } else {
+        await _loadIndexFromCache(
+          message: 'آفلاین — قیمت‌های ذخیره‌شده نمایش داده می‌شود',
+        );
       }
     } catch (e) {
-      final cached = await OfflineCacheStore.loadCommodities();
-      if (cached != null) {
-        commodityIndex = cached.quotes;
-        wallexMarkets = cached.wallexMarkets;
-        commodityIndexUpdatedAt = cached.savedAt;
-        commodityIndexError = 'آفلاین — قیمت‌های ذخیره‌شده نمایش داده می‌شود';
-      } else {
-        commodityIndexError = e.toString();
-      }
+      await _loadIndexFromCache(
+        message: 'آفلاین — قیمت‌های ذخیره‌شده نمایش داده می‌شود',
+        fallbackError: e.toString(),
+      );
     } finally {
       commodityIndexLoading = false;
+      _indexRefreshInFlight = false;
       notifyListeners();
     }
   }
 
+  Future<void> _applyIndexBundle({
+    required List<CommodityQuote> essentials,
+    required List<CommodityQuote> wallex,
+    IranInflationSnapshot? inflation,
+    required DateTime updatedAt,
+    String? error,
+  }) async {
+    commodityIndex = essentials;
+    wallexMarkets = wallex;
+    commodityIndexUpdatedAt = updatedAt;
+    commodityIndexError = error;
+    await OfflineCacheStore.saveCommodities(
+      essentials,
+      wallexMarkets: wallex,
+    );
+    if (inflation != null) {
+      iranInflation = inflation;
+      iranInflationError = null;
+      await OfflineCacheStore.saveIranInflation(inflation);
+    }
+    for (final q in essentials) {
+      if (q.id == 'usdt' && q.price != null && q.price! > 0) {
+        liveUsdt = q.price;
+      }
+      if (q.id == 'gold' && q.price != null && q.price! > 0) {
+        liveGold = q.price;
+      }
+    }
+  }
+
+  Future<void> _loadIndexFromCache({
+    required String message,
+    String? fallbackError,
+  }) async {
+    final cached = await OfflineCacheStore.loadCommodities();
+    if (cached != null) {
+      commodityIndex = cached.quotes;
+      wallexMarkets = cached.wallexMarkets;
+      commodityIndexUpdatedAt = cached.savedAt;
+      commodityIndexError = message;
+    } else {
+      commodityIndexError = fallbackError ?? 'دریافت قیمت‌ها ممکن نشد';
+    }
+    final inf = await OfflineCacheStore.loadIranInflation();
+    if (inf != null) {
+      iranInflation = inf;
+    }
+  }
+
+  void _startIndexRefreshTimer() {
+    _indexRefreshTimer?.cancel();
+    if (!authenticated) return;
+    _indexRefreshTimer = Timer.periodic(indexRefreshInterval, (_) {
+      if (!authenticated || loading) return;
+      unawaited(refreshCommodityIndex());
+    });
+    unawaited(refreshCommodityIndex(force: true));
+  }
+
+  void _stopIndexRefreshTimer() {
+    _indexRefreshTimer?.cancel();
+    _indexRefreshTimer = null;
+  }
+
+  @override
+  void dispose() {
+    _stopIndexRefreshTimer();
+    _resumeDebouncer.dispose();
+    super.dispose();
+  }
+
   Future<void> refreshIranInflation({bool force = true}) async {
-    iranInflationService ??= IranInflationService();
     if (!force &&
         iranInflation != null &&
         DateTime.now().difference(iranInflation!.fetchedAt) <
             const Duration(hours: 6)) {
       return;
     }
-    iranInflationLoading = true;
-    iranInflationError = null;
-    notifyListeners();
-    try {
-      final snap = await iranInflationService!.fetchLatest();
-      iranInflation = snap;
-      await OfflineCacheStore.saveIranInflation(snap);
-      iranInflationError = null;
-    } catch (e) {
-      final cached = await OfflineCacheStore.loadIranInflation();
-      if (cached != null) {
-        iranInflation = cached;
-        iranInflationError = 'آفلاین — آخرین داده تورم ذخیره‌شده';
-      } else {
-        iranInflationError = e.toString();
-      }
-    } finally {
-      iranInflationLoading = false;
-      notifyListeners();
-    }
+    await refreshCommodityIndex(force: force);
   }
 
   Future<void> _loadRemoteData() async {

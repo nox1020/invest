@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:invest/domain/models/app_settings.dart';
@@ -135,18 +134,7 @@ class OfflineCacheStore {
 
   static Map<String, dynamic> _quotesPayload(List<CommodityQuote> quotes) => {
         'saved_at': DateTime.now().toIso8601String(),
-        'items': quotes
-            .map((q) => {
-                  'id': q.id,
-                  'name': q.name,
-                  'symbol': q.symbol,
-                  'unit': q.unit,
-                  'price': q.price,
-                  'change24h': q.change24h,
-                  'quote_volume_24h': q.quoteVolume24h,
-                  'market_symbol': q.marketSymbol,
-                })
-            .toList(),
+        'items': quotes.map((q) => q.toJson()).toList(),
       };
 
   static Future<void> saveIranInflation(IranInflationSnapshot snap) async {
@@ -183,20 +171,9 @@ class OfflineCacheStore {
     if (raw == null || raw.isEmpty) return null;
     try {
       final map = jsonDecode(raw) as Map<String, dynamic>;
-      final items = ((map['items'] as List?) ?? const []).map((e) {
-        final m = Map<String, dynamic>.from(e as Map);
-        return CommodityQuote(
-          id: (m['id'] as String?) ?? '',
-          name: (m['name'] as String?) ?? '',
-          symbol: (m['symbol'] as String?) ?? '',
-          unit: (m['unit'] as String?) ?? 'toman',
-          price: (m['price'] as num?)?.toDouble(),
-          change24h: (m['change24h'] as num?)?.toDouble(),
-          quoteVolume24h: (m['quote_volume_24h'] as num?)?.toDouble(),
-          marketSymbol: m['market_symbol'] as String?,
-          icon: Icons.currency_exchange_rounded,
-        );
-      }).toList();
+      final items = ((map['items'] as List?) ?? const [])
+          .map((e) => CommodityQuote.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
       if (items.isEmpty) return null;
       return OfflineCommoditySnapshot(
         savedAt: DateTime.tryParse(map['saved_at'] as String? ?? ''),

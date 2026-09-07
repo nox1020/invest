@@ -3,6 +3,8 @@ import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_meta.dart';
+import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/domain/models/iran_inflation.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
@@ -149,6 +151,66 @@ class RemoteInvestService {
       usdt: _numOrNull(data['usdt_tmn']),
       gold: _numOrNull(data['gold_tmn_per_gram']),
     );
+  }
+
+  /// Full شاخص bundle from Vinor (server fetch + persisted store).
+  Future<MarketIndexRemoteBundle?> fetchMarketIndex({bool force = false}) async {
+    try {
+      final data = await _api.get(
+        '/invest/api/v1/markets/index',
+        query: force ? {'force': '1'} : null,
+      );
+      final essentials = ((data['essentials'] as List?) ?? const [])
+          .map((e) => CommodityQuote.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      final wallex = ((data['wallex_markets'] as List?) ?? const [])
+          .map((e) => CommodityQuote.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      IranInflationSnapshot? inflation;
+      final rawInf = data['inflation'];
+      if (rawInf is Map) {
+        inflation = IranInflationSnapshot.fromJson(
+          Map<String, dynamic>.from(rawInf),
+        );
+      }
+      final updated = DateTime.tryParse('${data['updated_at'] ?? ''}');
+      final hasPrice = essentials.any((q) => q.price != null) ||
+          wallex.any((q) => q.price != null);
+      if (!hasPrice && inflation == null) return null;
+      return MarketIndexRemoteBundle(
+        essentials: essentials,
+        wallexMarkets: wallex,
+        inflation: inflation,
+        updatedAt: updated,
+        stale: data['stale'] == true,
+        error: data['error'] as String?,
+        warning: data['warning'] as String?,
+      );
+    } on InvestApiException catch (e) {
+      // Older servers without /markets/index → fall back to client fetch.
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  Future<void> pushMarketIndex({
+    required List<CommodityQuote> essentials,
+    required List<CommodityQuote> wallexMarkets,
+    IranInflationSnapshot? inflation,
+  }) async {
+    final body = <String, dynamic>{
+      'essentials': essentials.map((e) => e.toJson()).toList(),
+      'wallex_markets': wallexMarkets.map((e) => e.toJson()).toList(),
+    };
+    if (inflation != null) {
+      body['inflation'] = inflation.toJson();
+    }
+    try {
+      await _api.post('/invest/api/v1/markets/index', body: body);
+    } on InvestApiException catch (e) {
+      if (e.statusCode == 404) return;
+      rethrow;
+    }
   }
 
   Future<Asset> createAsset({
@@ -391,4 +453,28 @@ class RemoteInvestService {
   static double _num(dynamic v) => (v as num?)?.toDouble() ?? 0;
 
   static double? _numOrNull(dynamic v) => (v as num?)?.toDouble();
+}
+
+class MarketIndexRemoteBundle {
+  const MarketIndexRemoteBundle({
+    required this.essentials,
+    required this.wallexMarkets,
+    this.inflation,
+    this.updatedAt,
+    this.stale = false,
+    this.error,
+    this.warning,
+  });
+
+  final List<CommodityQuote> essentials;
+  final List<CommodityQuote> wallexMarkets;
+  final IranInflationSnapshot? inflation;
+  final DateTime? updatedAt;
+  final bool stale;
+  final String? error;
+  final String? warning;
+
+  bool get hasAnyPrice =>
+      essentials.any((q) => q.price != null) ||
+      wallexMarkets.any((q) => q.price != null);
 }

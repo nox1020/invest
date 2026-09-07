@@ -45,4 +45,52 @@ class CommodityQuote {
       _ => null,
     };
   }
+
+  static IconData iconForId(String id) => switch (id) {
+        'usdt' => Icons.currency_bitcoin_rounded,
+        'usd' => Icons.attach_money_rounded,
+        'eur' => Icons.euro_rounded,
+        'gbp' => Icons.currency_pound_rounded,
+        'aed' || 'try' => Icons.currency_exchange_rounded,
+        'gold' || 'coin' => Icons.workspace_premium_rounded,
+        'btc' || 'eth' => Icons.currency_bitcoin_rounded,
+        _ => Icons.show_chart_rounded,
+      };
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'symbol': symbol,
+        'unit': unit,
+        'price': price,
+        'change24h': change24h,
+        'quote_volume_24h': quoteVolume24h,
+        'market_symbol': marketSymbol,
+        'high24h': high24h,
+        'low24h': low24h,
+        'bid_price': bidPrice,
+        'ask_price': askPrice,
+      };
+
+  factory CommodityQuote.fromJson(Map<String, dynamic> m) {
+    final id = (m['id'] as String?) ?? '';
+    return CommodityQuote(
+      id: id,
+      name: (m['name'] as String?) ?? '',
+      symbol: (m['symbol'] as String?) ?? '',
+      unit: (m['unit'] as String?) ?? 'toman',
+      price: (m['price'] as num?)?.toDouble(),
+      change24h: (m['change24h'] as num?)?.toDouble() ??
+          (m['change_24h'] as num?)?.toDouble(),
+      quoteVolume24h: (m['quote_volume_24h'] as num?)?.toDouble(),
+      marketSymbol: m['market_symbol'] as String?,
+      high24h: (m['high24h'] as num?)?.toDouble(),
+      low24h: (m['low24h'] as num?)?.toDouble(),
+      bidPrice: (m['bid_price'] as num?)?.toDouble() ??
+          (m['bidPrice'] as num?)?.toDouble(),
+      askPrice: (m['ask_price'] as num?)?.toDouble() ??
+          (m['askPrice'] as num?)?.toDouble(),
+      icon: iconForId(id),
+    );
+  }
 }
