@@ -26,10 +26,11 @@ def hasReleaseKeystore = keystorePropertiesFile.exists() &&
 android {
     namespace = "com.nox1020.invest"
     compileSdk = flutter.compileSdkVersion
-    // Match common plugin requirements (path_provider/sqflite) on current Flutter stable.
-    ndkVersion = "27.0.12077973"
+    // flutter_local_notifications / jni need NDK 28+.
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
+        coreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -55,6 +56,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = resolvedVersionCode
         versionName = flutter.versionName
+        multiDexEnabled = true
     }
 
     buildTypes {
@@ -77,5 +79,6 @@ flutter {
 }
 
 dependencies {
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.1.4"
     implementation "androidx.appcompat:appcompat:1.7.0"
 }
