@@ -52,9 +52,13 @@ class InvestApiClient {
     _sessionCookie = _session.sessionCookie;
   }
 
-  Future<Map<String, dynamic>> get(String path, {Map<String, String>? query}) {
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, String>? query,
+    Duration? timeout,
+  }) {
     final uri = _uri(path, query: query);
-    return _request('GET', uri);
+    return _request('GET', uri, timeout: timeout);
   }
 
   Future<Map<String, dynamic>> post(String path, {Map<String, dynamic>? body}) {
@@ -83,6 +87,7 @@ class InvestApiClient {
     String method,
     Uri uri, {
     Map<String, dynamic>? body,
+    Duration? timeout,
   }) async {
     final headers = <String, String>{
       'Accept': 'application/json',
@@ -90,12 +95,13 @@ class InvestApiClient {
       if (_sessionCookie != null && _sessionCookie!.isNotEmpty)
         'Cookie': _sessionCookie!,
     };
+    final wait = timeout ?? this.timeout;
 
     try {
       late http.Response response;
       switch (method) {
         case 'GET':
-          response = await _client.get(uri, headers: headers).timeout(timeout);
+          response = await _client.get(uri, headers: headers).timeout(wait);
         case 'POST':
           response = await _client
               .post(
@@ -103,7 +109,7 @@ class InvestApiClient {
                 headers: headers,
                 body: body == null ? null : jsonEncode(body),
               )
-              .timeout(timeout);
+              .timeout(wait);
         case 'PUT':
           response = await _client
               .put(
@@ -111,7 +117,7 @@ class InvestApiClient {
                 headers: headers,
                 body: body == null ? null : jsonEncode(body),
               )
-              .timeout(timeout);
+              .timeout(wait);
         case 'PATCH':
           response = await _client
               .patch(
@@ -119,10 +125,10 @@ class InvestApiClient {
                 headers: headers,
                 body: body == null ? null : jsonEncode(body),
               )
-              .timeout(timeout);
+              .timeout(wait);
         case 'DELETE':
           response =
-              await _client.delete(uri, headers: headers).timeout(timeout);
+              await _client.delete(uri, headers: headers).timeout(wait);
         default:
           throw InvestApiException('متد HTTP پشتیبانی نمی‌شود: $method');
       }

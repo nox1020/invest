@@ -26,4 +26,16 @@ void main() {
     expect(again.askPrice, 12.1);
     expect(again.resolvedMarketSymbol, 'BTCTMN');
   });
+
+  test('fromJson normalizes gold unit and symbol', () {
+    final gold = CommodityQuote.fromJson({
+      'id': 'gold',
+      'name': 'طلا',
+      'symbol': 'XAU',
+      'unit': 'toman',
+      'price': 1000,
+    });
+    expect(gold.unit, 'toman_per_gram');
+    expect(gold.symbol, 'GOLD');
+  });
 }

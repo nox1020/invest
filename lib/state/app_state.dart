@@ -87,7 +87,8 @@ class AppState extends ChangeNotifier {
   final RefreshCoordinator _refreshCoordinator = RefreshCoordinator();
   final ResumeRefreshDebouncer _resumeDebouncer = ResumeRefreshDebouncer();
   Timer? _indexRefreshTimer;
-  bool _indexRefreshInFlight = false;
+  Future<void>? _indexRefreshFuture;
+  bool _indexRefreshWantForce = false;
 
   static const Duration indexRefreshInterval = Duration(minutes: 1);
 
@@ -498,25 +499,63 @@ class AppState extends ChangeNotifier {
 
   Future<void> refreshCommodityIndex({bool force = false}) async {
     if (commodityIndexService == null) return;
-    if (_indexRefreshInFlight && !force) return;
-    _indexRefreshInFlight = true;
+    if (_indexRefreshFuture != null) {
+      if (force) _indexRefreshWantForce = true;
+      return _indexRefreshFuture!;
+    }
+    _indexRefreshWantForce = force;
+    final run = _runCommodityIndexRefresh();
+    _indexRefreshFuture = run;
+    try {
+      await run;
+    } finally {
+      _indexRefreshFuture = null;
+      if (_indexRefreshWantForce) {
+        _indexRefreshWantForce = false;
+        // A force request arrived while we were busy — follow up once.
+        unawaited(refreshCommodityIndex(force: true));
+      }
+    }
+  }
+
+  Future<void> _runCommodityIndexRefresh() async {
+    final force = _indexRefreshWantForce;
+    _indexRefreshWantForce = false;
     commodityIndexLoading = true;
     commodityIndexError = null;
     notifyListeners();
     try {
+      IranInflationSnapshot? appliedInflation;
+
       // Prefer Vinor shared store (server refresh + persistence).
       if (useRemote && !offline && remote != null && authenticated) {
         try {
           final remoteBundle =
               await remote!.fetchMarketIndex(force: force);
-          if (remoteBundle != null && remoteBundle.hasAnyPrice) {
-            await _applyIndexBundle(
-              essentials: remoteBundle.essentials,
-              wallex: remoteBundle.wallexMarkets,
-              inflation: remoteBundle.inflation,
-              updatedAt: remoteBundle.updatedAt ?? DateTime.now(),
-              error: remoteBundle.error ?? remoteBundle.warning,
-            );
+          if (remoteBundle != null &&
+              (remoteBundle.hasAnyPrice || remoteBundle.inflation != null)) {
+            if (remoteBundle.hasAnyPrice) {
+              await _applyIndexBundle(
+                essentials: remoteBundle.essentials,
+                wallex: remoteBundle.wallexMarkets,
+                inflation: remoteBundle.inflation,
+                updatedAt: remoteBundle.updatedAt ?? DateTime.now(),
+                error: remoteBundle.error ?? remoteBundle.warning,
+              );
+              appliedInflation = remoteBundle.inflation ?? iranInflation;
+            } else if (remoteBundle.inflation != null) {
+              iranInflation = remoteBundle.inflation;
+              iranInflationError = null;
+              await OfflineCacheStore.saveIranInflation(remoteBundle.inflation!);
+              appliedInflation = remoteBundle.inflation;
+            }
+            // Markets ok but inflation missing → fill from Hugging Face.
+            if (appliedInflation == null ||
+                force ||
+                DateTime.now().difference(appliedInflation.fetchedAt) >
+                    const Duration(hours: 6)) {
+              await _ensureIranInflation(force: force || appliedInflation == null);
+            }
             return;
           }
         } catch (_) {
@@ -532,13 +571,10 @@ class AppState extends ChangeNotifier {
       if (bundle.hasAnyPrice) {
         IranInflationSnapshot? inflation = iranInflation;
         try {
-          iranInflationService ??= IranInflationService();
-          if (force ||
-              inflation == null ||
-              DateTime.now().difference(inflation.fetchedAt) >
-                  const Duration(hours: 6)) {
-            inflation = await iranInflationService!.fetchLatest();
-          }
+          inflation = await _fetchIranInflationIfNeeded(
+            force: force,
+            current: inflation,
+          );
         } catch (_) {}
 
         await _applyIndexBundle(
@@ -561,6 +597,7 @@ class AppState extends ChangeNotifier {
         await _loadIndexFromCache(
           message: 'آفلاین — قیمت‌های ذخیره‌شده نمایش داده می‌شود',
         );
+        await _ensureIranInflation(force: false);
       }
     } catch (e) {
       await _loadIndexFromCache(
@@ -569,8 +606,53 @@ class AppState extends ChangeNotifier {
       );
     } finally {
       commodityIndexLoading = false;
-      _indexRefreshInFlight = false;
       notifyListeners();
+    }
+  }
+
+  Future<IranInflationSnapshot?> _fetchIranInflationIfNeeded({
+    required bool force,
+    IranInflationSnapshot? current,
+  }) async {
+    if (!force &&
+        current != null &&
+        DateTime.now().difference(current.fetchedAt) <
+            const Duration(hours: 6)) {
+      return current;
+    }
+    iranInflationService ??= IranInflationService();
+    return iranInflationService!.fetchLatest();
+  }
+
+  Future<void> _ensureIranInflation({required bool force}) async {
+    try {
+      final next = await _fetchIranInflationIfNeeded(
+        force: force,
+        current: iranInflation,
+      );
+      if (next == null) return;
+      iranInflation = next;
+      iranInflationError = null;
+      await OfflineCacheStore.saveIranInflation(next);
+      if (useRemote && !offline && remote != null && authenticated) {
+        try {
+          await remote!.pushMarketIndex(
+            essentials: commodityIndex,
+            wallexMarkets: wallexMarkets,
+            inflation: next,
+          );
+        } catch (_) {}
+      }
+    } catch (e) {
+      if (iranInflation == null) {
+        final cached = await OfflineCacheStore.loadIranInflation();
+        if (cached != null) {
+          iranInflation = cached;
+          iranInflationError = 'آفلاین — آخرین داده تورم ذخیره‌شده';
+        } else {
+          iranInflationError = e.toString();
+        }
+      }
     }
   }
 
@@ -655,7 +737,12 @@ class AppState extends ChangeNotifier {
     iranInflationLoading = true;
     notifyListeners();
     try {
-      await refreshCommodityIndex(force: force);
+      // Prefer lightweight inflation fill; markets refresh only when forced.
+      if (force) {
+        await refreshCommodityIndex(force: true);
+      } else {
+        await _ensureIranInflation(force: false);
+      }
     } finally {
       iranInflationLoading = false;
       notifyListeners();

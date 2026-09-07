@@ -102,13 +102,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         );
       }
       if (index == 3) {
-        await state.refreshCommodityIndex();
+        await state.refreshCommodityIndex(force: true);
       }
       return;
     }
     await state.refreshAll();
     if (index == 3) {
-      await state.refreshCommodityIndex();
+      await state.refreshCommodityIndex(force: true);
     }
   }
 
@@ -212,7 +212,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: index,
-        onTap: (i) => setState(() => index = i),
+        onTap: (i) {
+          setState(() => index = i);
+          if (i == 3) {
+            context.read<AppState>().refreshCommodityIndex(force: false);
+          }
+        },
         type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(

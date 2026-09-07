@@ -124,12 +124,10 @@ class OfflineCacheStore {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyCommodities, jsonEncode(_quotesPayload(quotes)));
-    if (wallexMarkets.isNotEmpty) {
-      await prefs.setString(
-        _keyWallex,
-        jsonEncode(_quotesPayload(wallexMarkets)),
-      );
-    }
+    await prefs.setString(
+      _keyWallex,
+      jsonEncode(_quotesPayload(wallexMarkets)),
+    );
   }
 
   static Map<String, dynamic> _quotesPayload(List<CommodityQuote> quotes) => {

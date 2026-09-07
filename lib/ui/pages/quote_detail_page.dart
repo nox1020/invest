@@ -32,7 +32,15 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
   String? _error;
   int _days = 60;
 
-  CommodityQuote get q => widget.quote;
+  CommodityQuote _resolveQuote(AppState state) {
+    for (final q in state.commodityIndex) {
+      if (q.id == widget.quote.id) return q;
+    }
+    for (final q in state.wallexMarkets) {
+      if (q.id == widget.quote.id) return q;
+    }
+    return widget.quote;
+  }
 
   @override
   void initState() {
@@ -41,7 +49,7 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
   }
 
   Future<void> _load() async {
-    final symbol = q.resolvedMarketSymbol;
+    final symbol = _resolveQuote(context.read<AppState>()).resolvedMarketSymbol;
     setState(() {
       _loading = true;
       _error = null;
@@ -77,7 +85,7 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
     }
   }
 
-  String _formatPrice(double v) {
+  String _formatPrice(double v, CommodityQuote q) {
     switch (q.unit) {
       case 'usd':
         return '\$${formatNumber(v, decimals: v >= 1000 ? 0 : 2)}';
@@ -92,7 +100,9 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final calendar = context.watch<AppState>().settings.calendar;
+    final state = context.watch<AppState>();
+    final q = _resolveQuote(state);
+    final calendar = state.settings.calendar;
     final change = q.change24h;
     final changeColor = change == null
         ? AppTheme.muted
@@ -160,7 +170,7 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  q.price == null ? '—' : _formatPrice(q.price!),
+                  q.price == null ? '—' : _formatPrice(q.price!, q),
                   textDirection: TextDirection.ltr,
                   style: const TextStyle(
                     color: AppTheme.title,
@@ -187,19 +197,19 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
             children: [
               _StatChip(
                 label: 'بالاترین ۲۴س',
-                value: q.high24h == null ? '—' : _formatPrice(q.high24h!),
+                value: q.high24h == null ? '—' : _formatPrice(q.high24h!, q),
               ),
               _StatChip(
                 label: 'پایین‌ترین ۲۴س',
-                value: q.low24h == null ? '—' : _formatPrice(q.low24h!),
+                value: q.low24h == null ? '—' : _formatPrice(q.low24h!, q),
               ),
               _StatChip(
                 label: 'خرید',
-                value: q.bidPrice == null ? '—' : _formatPrice(q.bidPrice!),
+                value: q.bidPrice == null ? '—' : _formatPrice(q.bidPrice!, q),
               ),
               _StatChip(
                 label: 'فروش',
-                value: q.askPrice == null ? '—' : _formatPrice(q.askPrice!),
+                value: q.askPrice == null ? '—' : _formatPrice(q.askPrice!, q),
               ),
               if ((q.quoteVolume24h ?? 0) > 0)
                 _StatChip(
@@ -255,19 +265,29 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
                   )
                 : _points.isEmpty
                     ? SizedBox(
-                        height: 180,
-                        child: Center(
-                          child: Text(
-                            _error ?? 'نمودار در دسترس نیست',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: AppTheme.muted),
-                          ),
+                        height: 200,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _error ?? 'نمودار در دسترس نیست',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: AppTheme.muted),
+                            ),
+                            if (q.resolvedMarketSymbol != null) ...[
+                              const SizedBox(height: 12),
+                              OutlinedButton(
+                                onPressed: _load,
+                                child: const Text('تلاش مجدد'),
+                              ),
+                            ],
+                          ],
                         ),
                       )
                     : ValueLineChart(
                         points: _points,
                         calendar: calendar,
-                        formatValue: _formatPrice,
+                        formatValue: (v) => _formatPrice(v, q),
                         valueTitle: 'قیمت پایانی روز',
                         lineColor: changeColor == AppTheme.muted
                             ? AppTheme.positive

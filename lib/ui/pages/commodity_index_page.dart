@@ -30,7 +30,7 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
       if (state.commodityIndex.isEmpty &&
           state.wallexMarkets.isEmpty &&
           !state.commodityIndexLoading) {
-        state.refreshCommodityIndex();
+        state.refreshCommodityIndex(force: true);
       }
     });
   }
@@ -89,9 +89,6 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
                 duration: const Duration(milliseconds: 280),
                 curve: Curves.easeOutCubic,
               );
-              if (i == 2) {
-                context.read<AppState>().refreshIranInflation(force: false);
-              }
             },
           ),
         ),
@@ -133,17 +130,16 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
             controller: _pageController,
             onPageChanged: (i) {
               setState(() => _page = i);
-              if (i == 2) {
-                context.read<AppState>().refreshIranInflation(force: false);
-              }
             },
             children: [
               _QuoteListPane(
                 loading: state.commodityIndexLoading &&
                     state.commodityIndex.isEmpty,
                 emptyMessage: state.commodityIndexError ?? 'داده‌ای دریافت نشد',
-                onRetry: state.refreshCommodityIndex,
-                onRefresh: state.refreshCommodityIndex,
+                onRetry: () =>
+                    context.read<AppState>().refreshCommodityIndex(force: true),
+                onRefresh: () =>
+                    context.read<AppState>().refreshCommodityIndex(force: true),
                 quotes: state.commodityIndex,
                 emptyIcon: Icons.insights_outlined,
               ),
@@ -154,11 +150,23 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
                     ? (state.commodityIndexError ??
                         'بازار والکس در دسترس نیست')
                     : 'نتیجه‌ای برای «$_query» پیدا نشد',
-                onRetry: state.refreshCommodityIndex,
-                onRefresh: state.refreshCommodityIndex,
+                onRetry: state.wallexMarkets.isEmpty
+                    ? () => context
+                        .read<AppState>()
+                        .refreshCommodityIndex(force: true)
+                    : () async {
+                        _searchCtrl.clear();
+                        setState(() => _query = '');
+                      },
+                onRefresh: () =>
+                    context.read<AppState>().refreshCommodityIndex(force: true),
                 quotes: wallex,
                 emptyIcon: Icons.currency_exchange_rounded,
                 showVolume: true,
+                retryLabel:
+                    state.wallexMarkets.isEmpty || _query.isEmpty
+                        ? 'تلاش مجدد'
+                        : 'پاک کردن جستجو',
               ),
               const IranInflationPane(),
             ],
@@ -281,7 +289,9 @@ class _IndexHeader extends StatelessWidget {
             2 => inflationPeriod == null
                 ? 'انواع تورم رسمی مرکز آمار ایران'
                 : 'انواع تورم رسمی · $inflationPeriod',
-            _ => '۱۰ کالای پرکاربرد — سوایپ کنید برای والکس و تورم',
+            _ => essentialsCount > 0
+                ? '$essentialsCount کالای پرکاربرد — سوایپ کنید برای والکس و تورم'
+                : 'کالاهای پرکاربرد — سوایپ کنید برای والکس و تورم',
           };
 
     return Container(
@@ -408,6 +418,7 @@ class _QuoteListPane extends StatelessWidget {
     required this.quotes,
     required this.emptyIcon,
     this.showVolume = false,
+    this.retryLabel = 'تلاش مجدد',
   });
 
   final bool loading;
@@ -417,6 +428,7 @@ class _QuoteListPane extends StatelessWidget {
   final List<CommodityQuote> quotes;
   final IconData emptyIcon;
   final bool showVolume;
+  final String retryLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -443,7 +455,7 @@ class _QuoteListPane extends StatelessWidget {
                 Center(
                   child: OutlinedButton(
                     onPressed: onRetry,
-                    child: const Text('تلاش مجدد'),
+                    child: Text(retryLabel),
                   ),
                 ),
               ],

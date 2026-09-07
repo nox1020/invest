@@ -51,10 +51,15 @@ class CommodityQuote {
         'usd' => Icons.attach_money_rounded,
         'eur' => Icons.euro_rounded,
         'gbp' => Icons.currency_pound_rounded,
-        'aed' || 'try' => Icons.currency_exchange_rounded,
-        'gold' || 'coin' => Icons.workspace_premium_rounded,
-        'btc' || 'eth' => Icons.currency_bitcoin_rounded,
-        _ => Icons.show_chart_rounded,
+        'aed' => Icons.flag_rounded,
+        'try' => Icons.currency_lira_rounded,
+        'gold' => Icons.diamond_outlined,
+        'coin' => Icons.monetization_on_outlined,
+        'btc' => Icons.currency_bitcoin_rounded,
+        'eth' => Icons.token_outlined,
+        _ => id.startsWith('wallex_')
+            ? Icons.currency_exchange_rounded
+            : Icons.show_chart_rounded,
       };
 
   Map<String, dynamic> toJson() => {
@@ -73,12 +78,19 @@ class CommodityQuote {
       };
 
   factory CommodityQuote.fromJson(Map<String, dynamic> m) {
-    final id = (m['id'] as String?) ?? '';
+    var id = (m['id'] as String?) ?? '';
+    var unit = (m['unit'] as String?) ?? 'toman';
+    var symbol = (m['symbol'] as String?) ?? '';
+    // Normalize legacy/server gold payload to local essentials shape.
+    if (id == 'gold') {
+      unit = 'toman_per_gram';
+      if (symbol.isEmpty || symbol == 'XAU') symbol = 'GOLD';
+    }
     return CommodityQuote(
       id: id,
       name: (m['name'] as String?) ?? '',
-      symbol: (m['symbol'] as String?) ?? '',
-      unit: (m['unit'] as String?) ?? 'toman',
+      symbol: symbol,
+      unit: unit,
       price: (m['price'] as num?)?.toDouble(),
       change24h: (m['change24h'] as num?)?.toDouble() ??
           (m['change_24h'] as num?)?.toDouble(),

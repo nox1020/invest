@@ -159,6 +159,7 @@ class RemoteInvestService {
       final data = await _api.get(
         '/invest/api/v1/markets/index',
         query: force ? {'force': '1'} : null,
+        timeout: const Duration(seconds: 45),
       );
       final essentials = ((data['essentials'] as List?) ?? const [])
           .map((e) => CommodityQuote.fromJson(Map<String, dynamic>.from(e as Map)))
