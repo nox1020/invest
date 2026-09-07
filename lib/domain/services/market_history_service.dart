@@ -53,6 +53,59 @@ class MarketHistoryService {
     return out;
   }
 
+  /// Daily close on [isoDate] or the nearest earlier trading day.
+  Future<double?> fetchCloseOnOrBefore({
+    required String marketSymbol,
+    required String isoDate,
+  }) async {
+    final day = tryNormalizeToIso(isoDate) ??
+        (isoDate.trim().length >= 10 ? isoDate.trim().substring(0, 10) : '');
+    if (day.isEmpty) return null;
+
+    final target = parseIsoDate(day);
+    final span = DateTime.now().difference(target).inDays;
+    final days = (span + 21).clamp(7, 4000);
+    final series = await fetchDailyCloses(
+      marketSymbol: marketSymbol,
+      days: days,
+    );
+    return closeOnOrBefore(series, day);
+  }
+
+  /// USDT/TMN rate for a buy date (Wallex `USDTTMN`), with optional live fallback.
+  Future<double?> fetchUsdtTmnOnDate(
+    String isoDate, {
+    double? fallback,
+  }) async {
+    try {
+      final v = await fetchCloseOnOrBefore(
+        marketSymbol: 'USDTTMN',
+        isoDate: isoDate,
+      );
+      if (v != null && v > 0) return v;
+    } catch (_) {}
+    if (fallback != null && fallback > 0) return fallback;
+    return null;
+  }
+
+  /// Pick the latest point on or before [isoDay] (`YYYY-MM-DD`).
+  static double? closeOnOrBefore(List<SeriesPoint> series, String isoDay) {
+    final day = isoDay.length >= 10 ? isoDay.substring(0, 10) : isoDay;
+    SeriesPoint? best;
+    for (final p in series) {
+      final d = p.date.length >= 10 ? p.date.substring(0, 10) : p.date;
+      if (d.compareTo(day) > 0) continue;
+      if (best == null ||
+          d.compareTo(
+                best.date.length >= 10 ? best.date.substring(0, 10) : best.date,
+              ) >
+              0) {
+        best = p;
+      }
+    }
+    return best?.value;
+  }
+
   static double? _num(dynamic v) {
     if (v == null) return null;
     if (v is num) return v.toDouble();

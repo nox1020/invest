@@ -3,6 +3,7 @@ import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/services/buy_usd_suggest.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -46,6 +47,7 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
         avgBuyPrice: result.buyPrice,
         currentPrice: result.currentPrice,
         notes: result.notes,
+        buyDate: result.buyDate,
       );
     } else {
       edit
@@ -65,7 +67,8 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
       if (primaryLot != null &&
           (result.updateBuyPrice ||
               result.updateQuantity ||
-              result.updateBuyPriceUsd)) {
+              result.updateBuyPriceUsd ||
+              result.updateBuyDate)) {
         final usd = parseAssetNotes(result.notes).meta.buyPriceUsd;
         await svc.updateOpenTrade(
           tradeId: primaryLot.id!,
@@ -76,7 +79,7 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
           buyPriceUsd:
               result.updateBuyPriceUsd ? usd : primaryLot.buyPriceUsd,
           buyFee: primaryLot.buyFee,
-          buyDate: primaryLot.buyDate,
+          buyDate: result.updateBuyDate ? result.buyDate : primaryLot.buyDate,
           buyNote: primaryLot.buyNoteDisplay,
         );
       }
@@ -97,9 +100,11 @@ class _AssetEditorResult {
     required this.buyPrice,
     required this.currentPrice,
     required this.notes,
+    required this.buyDate,
     this.updateBuyPrice = false,
     this.updateQuantity = false,
     this.updateBuyPriceUsd = false,
+    this.updateBuyDate = false,
   });
 
   final String name;
@@ -108,9 +113,11 @@ class _AssetEditorResult {
   final double buyPrice;
   final double currentPrice;
   final String notes;
+  final String buyDate;
   final bool updateBuyPrice;
   final bool updateQuantity;
   final bool updateBuyPriceUsd;
+  final bool updateBuyDate;
 }
 
 class _AssetEditorSheet extends StatefulWidget {
@@ -156,6 +163,13 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
 
   // Optional USD buy unit price (all kinds)
   late final TextEditingController _buyUsdCtrl;
+
+  /// Buy date for non-property/vehicle kinds (and seed for purchase date).
+  late String _buyDate;
+
+  bool _buyUsdManual = false;
+  int _usdSuggestGen = 0;
+  bool _usdSuggesting = false;
 
   String? _error;
 
@@ -232,7 +246,11 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     );
     _deedCtrl = TextEditingController(text: meta.deedNotes ?? '');
     final rawPurchase = meta.purchaseDate ?? '';
-    _purchaseDate = tryNormalizeToIso(rawPurchase) ?? rawPurchase;
+    _buyDate = tryNormalizeToIso(lot?.buyDate) ??
+        tryNormalizeToIso(rawPurchase) ??
+        todayIso();
+    _purchaseDate = tryNormalizeToIso(rawPurchase) ??
+        (rawPurchase.trim().isEmpty ? _buyDate : rawPurchase);
     _usage = meta.usage;
 
     _brandCtrl = TextEditingController(text: meta.brandModel ?? '');
@@ -246,6 +264,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     _buyUsdCtrl = TextEditingController(
       text: seedUsd == null || seedUsd <= 0 ? '' : _formatQty(seedUsd),
     );
+    _buyUsdManual = seedUsd != null && seedUsd > 0;
   }
 
   @override
@@ -272,6 +291,68 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
   String _formatQty(double v) {
     if ((v - v.roundToDouble()).abs() < 1e-9) return '${v.round()}';
     return '$v';
+  }
+
+  bool get _usesPurchaseDate =>
+      _kind == AssetKind.property || _kind == AssetKind.vehicle;
+
+  String get _resolvedBuyDate {
+    if (_usesPurchaseDate) {
+      final n = tryNormalizeToIso(_purchaseDate);
+      if (n != null) return n;
+      final t = _purchaseDate.trim();
+      if (t.length >= 10) return t.substring(0, 10);
+    }
+    return _buyDate;
+  }
+
+  Future<void> _maybeSuggestBuyUsd() async {
+    if (_buyUsdManual || !_showBuyField) return;
+    final buy = double.tryParse(_buyCtrl.text.replaceAll(',', ''));
+    if (buy == null || buy <= 0) return;
+    final date = _resolvedBuyDate;
+    if (date.isEmpty) return;
+
+    final gen = ++_usdSuggestGen;
+    final state = context.read<AppState>();
+    final fallback = state.liveUsdt ?? state.settings.usdtTmnRate;
+    if (mounted) setState(() => _usdSuggesting = true);
+    try {
+      final usd = await suggestBuyPriceUsd(
+        buyPriceToman: buy,
+        buyDateIso: date,
+        liveUsdtFallback: fallback,
+      );
+      if (!mounted || gen != _usdSuggestGen || _buyUsdManual) return;
+      if (usd != null && usd > 0) {
+        _buyUsdCtrl.text = formatBuyUsdField(usd);
+      }
+    } finally {
+      if (mounted && gen == _usdSuggestGen) {
+        setState(() => _usdSuggesting = false);
+      }
+    }
+  }
+
+  void _onBuyTomanChanged(String _) {
+    _buyUsdManual = false;
+    _maybeSuggestBuyUsd();
+  }
+
+  void _onBuyUsdChanged(String _) {
+    _buyUsdManual = true;
+  }
+
+  void _onBuyDateChanged(String iso) {
+    setState(() {
+      if (_usesPurchaseDate) {
+        _purchaseDate = iso;
+      } else {
+        _buyDate = iso;
+      }
+    });
+    _buyUsdManual = false;
+    _maybeSuggestBuyUsd();
   }
 
   void _onKindChanged(AssetKind kind) {
@@ -375,9 +456,11 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
         buyPrice: buy,
         currentPrice: current > 0 ? current : buy,
         notes: notes,
+        buyDate: _resolvedBuyDate,
         updateBuyPrice: _isEdit && _showBuyField && buy > 0,
         updateQuantity: _isEdit && _showQtyField && qty > 0,
         updateBuyPriceUsd: _isEdit && _showBuyField,
+        updateBuyDate: _isEdit && _showBuyField,
       ),
     );
   }
@@ -393,6 +476,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     String? hint,
     TextInputType? keyboardType,
     int maxLines = 1,
+    ValueChanged<String>? onChanged,
   }) =>
       Padding(
         padding: const EdgeInsets.only(top: 10),
@@ -402,6 +486,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
           maxLines: maxLines,
           keyboardType: keyboardType,
           decoration: _dec(label, hint: hint),
+          onChanged: onChanged,
         ),
       );
 
@@ -482,18 +567,23 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
                     const TextInputType.numberWithOptions(decimal: true),
               ),
             if (_showBuyField) ...[
+              if (!_usesPurchaseDate) _buyDateField(context),
               _field(
                 _buyCtrl,
                 label: _kind.buyPriceLabel,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
+                onChanged: _onBuyTomanChanged,
               ),
               _field(
                 _buyUsdCtrl,
                 label: 'بهای دلاری خرید',
-                hint: 'اختیاری — دلار به ازای هر واحد',
+                hint: _usdSuggesting
+                    ? 'در حال محاسبه از نرخ همان تاریخ…'
+                    : 'خودکار از نرخ USDT تاریخ خرید — قابل ویرایش',
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
+                onChanged: _onBuyUsdChanged,
               ),
             ] else if (_isEdit) ...[
               const SizedBox(height: 8),
@@ -630,9 +720,22 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
       padding: const EdgeInsets.only(top: 4),
       child: AppDateTile(
         label: 'تاریخ خرید',
-        isoDate: _purchaseDate,
+        isoDate: _purchaseDate.isEmpty ? _buyDate : _purchaseDate,
         calendar: calendar,
-        onChanged: (v) => setState(() => _purchaseDate = v),
+        onChanged: _onBuyDateChanged,
+      ),
+    );
+  }
+
+  Widget _buyDateField(BuildContext context) {
+    final calendar = context.watch<AppState>().settings.calendar;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: AppDateTile(
+        label: 'تاریخ خرید',
+        isoDate: _buyDate,
+        calendar: calendar,
+        onChanged: _onBuyDateChanged,
       ),
     );
   }

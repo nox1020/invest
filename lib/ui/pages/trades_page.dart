@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/services/buy_usd_suggest.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
@@ -42,11 +43,7 @@ class TradesPage extends StatelessWidget {
   }
 }
 
-String _formatUsdField(double usd) {
-  if ((usd - usd.roundToDouble()).abs() < 1e-12) return '${usd.round()}';
-  if (usd >= 1) return usd.toStringAsFixed(2);
-  return usd.toStringAsFixed(4);
-}
+String _formatUsdField(double usd) => formatBuyUsdField(usd);
 
 double? _parseOptionalPositive(String raw) {
   final t = raw.trim().replaceAll(',', '');
@@ -71,89 +68,131 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
   );
   final feeCtrl = TextEditingController(text: '0');
   final usdCtrl = TextEditingController();
-  void suggestUsdFromPrice() {
+  var buyDate = todayIso();
+  var usdManual = false;
+  var suggestGen = 0;
+  var suggesting = false;
+  var kickedOff = false;
+  final calendar = state.settings.calendar;
+
+  Future<void> suggestUsdFromPrice(void Function(VoidCallback) setLocal) async {
+    if (usdManual) return;
     final p = double.tryParse(priceCtrl.text.replaceAll(',', ''));
-    final u = tomanToUsd(p ?? 0, state.settings.usdtTmnRate);
-    if (u != null && u > 0) {
-      usdCtrl.text = _formatUsdField(u);
+    if (p == null || p <= 0) return;
+    final gen = ++suggestGen;
+    setLocal(() => suggesting = true);
+    try {
+      final u = await suggestBuyPriceUsd(
+        buyPriceToman: p,
+        buyDateIso: buyDate,
+        liveUsdtFallback: state.liveUsdt ?? state.settings.usdtTmnRate,
+      );
+      if (gen != suggestGen || usdManual) return;
+      if (u != null && u > 0) {
+        usdCtrl.text = _formatUsdField(u);
+      }
+    } finally {
+      if (gen == suggestGen) setLocal(() => suggesting = false);
     }
   }
-
-  suggestUsdFromPrice();
-  var buyDate = todayIso();
-  final calendar = state.settings.calendar;
 
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setLocal) => AlertDialog(
-        title: const Text('ثبت خرید'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<int>(
-                key: ValueKey(choice!.id),
-                initialValue: choice!.id,
-                items: state.assets
-                    .map((a) => DropdownMenuItem(
-                          value: a.id,
-                          child: Text(a.name),
-                        ))
-                    .toList(),
-                onChanged: (v) {
-                  final a = state.assets.firstWhere((e) => e.id == v);
-                  setLocal(() {
-                    choice = AssetChoice(a.id!, a.name);
-                    priceCtrl.text = '${a.currentPrice}';
-                    suggestUsdFromPrice();
-                  });
-                },
-                decoration: const InputDecoration(labelText: 'دارایی'),
-              ),
-              TextField(
-                controller: qtyCtrl,
-                decoration: const InputDecoration(labelText: 'مقدار'),
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.right,
-              ),
-              TextField(
-                controller: priceCtrl,
-                decoration: const InputDecoration(labelText: 'قیمت خرید (تومان)'),
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.right,
-                onChanged: (_) => setLocal(suggestUsdFromPrice),
-              ),
-              TextField(
-                controller: usdCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'بهای دلاری خرید',
-                  hintText: 'اختیاری — دلار به ازای هر واحد',
+      builder: (ctx, setLocal) {
+        if (!kickedOff && !usdManual) {
+          kickedOff = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            suggestUsdFromPrice(setLocal);
+          });
+        }
+        return AlertDialog(
+          title: const Text('ثبت خرید'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<int>(
+                  key: ValueKey(choice!.id),
+                  initialValue: choice!.id,
+                  items: state.assets
+                      .map((a) => DropdownMenuItem(
+                            value: a.id,
+                            child: Text(a.name),
+                          ))
+                      .toList(),
+                  onChanged: (v) {
+                    final a = state.assets.firstWhere((e) => e.id == v);
+                    setLocal(() {
+                      choice = AssetChoice(a.id!, a.name);
+                      priceCtrl.text = '${a.currentPrice}';
+                      usdManual = false;
+                    });
+                    suggestUsdFromPrice(setLocal);
+                  },
+                  decoration: const InputDecoration(labelText: 'دارایی'),
                 ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                textAlign: TextAlign.right,
-              ),
-              TextField(
-                controller: feeCtrl,
-                decoration: const InputDecoration(labelText: 'کارمزد'),
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.right,
-              ),
-              AppDateTile(
-                label: 'تاریخ خرید',
-                isoDate: buyDate,
-                calendar: calendar,
-                onChanged: (v) => setLocal(() => buyDate = v),
-              ),
-            ],
+                TextField(
+                  controller: qtyCtrl,
+                  decoration: const InputDecoration(labelText: 'مقدار'),
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.right,
+                ),
+                TextField(
+                  controller: priceCtrl,
+                  decoration:
+                      const InputDecoration(labelText: 'قیمت خرید (تومان)'),
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.right,
+                  onChanged: (_) {
+                    usdManual = false;
+                    suggestUsdFromPrice(setLocal);
+                  },
+                ),
+                TextField(
+                  controller: usdCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'بهای دلاری خرید',
+                    hintText: suggesting
+                        ? 'در حال محاسبه از نرخ همان تاریخ…'
+                        : 'خودکار از نرخ USDT تاریخ خرید — قابل ویرایش',
+                  ),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  textAlign: TextAlign.right,
+                  onChanged: (_) => usdManual = true,
+                ),
+                TextField(
+                  controller: feeCtrl,
+                  decoration: const InputDecoration(labelText: 'کارمزد'),
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.right,
+                ),
+                AppDateTile(
+                  label: 'تاریخ خرید',
+                  isoDate: buyDate,
+                  calendar: calendar,
+                  onChanged: (v) {
+                    setLocal(() => buyDate = v);
+                    usdManual = false;
+                    suggestUsdFromPrice(setLocal);
+                  },
+                ),
+              ],
+            ),
           ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('انصراف')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('ثبت')),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('انصراف'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('ثبت'),
+            ),
+          ],
+        );
+      },
     ),
   );
   if (ok != true || !context.mounted) return;
@@ -255,76 +294,120 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
   final qtyCtrl = TextEditingController(text: '${trade.quantity}');
   final priceCtrl = TextEditingController(text: '${trade.buyPrice}');
   final feeCtrl = TextEditingController(text: '${trade.buyFee}');
+  final hasSeedUsd = trade.buyPriceUsd != null && trade.buyPriceUsd! > 0;
   final usdCtrl = TextEditingController(
-    text: trade.buyPriceUsd != null && trade.buyPriceUsd! > 0
-        ? _formatUsdField(trade.buyPriceUsd!)
-        : '',
+    text: hasSeedUsd ? _formatUsdField(trade.buyPriceUsd!) : '',
   );
   final noteCtrl = TextEditingController(text: trade.buyNoteDisplay);
   var buyDate = trade.buyDate.isEmpty ? todayIso() : trade.buyDate;
+  var usdManual = hasSeedUsd;
+  var suggestGen = 0;
+  var suggesting = false;
+  var kickedOff = false;
+
+  Future<void> suggestUsdFromPrice(void Function(VoidCallback) setLocal) async {
+    if (usdManual) return;
+    final p = double.tryParse(priceCtrl.text.replaceAll(',', ''));
+    if (p == null || p <= 0) return;
+    final gen = ++suggestGen;
+    setLocal(() => suggesting = true);
+    try {
+      final u = await suggestBuyPriceUsd(
+        buyPriceToman: p,
+        buyDateIso: buyDate,
+        liveUsdtFallback: state.liveUsdt ?? state.settings.usdtTmnRate,
+      );
+      if (gen != suggestGen || usdManual) return;
+      if (u != null && u > 0) {
+        usdCtrl.text = _formatUsdField(u);
+      }
+    } finally {
+      if (gen == suggestGen) setLocal(() => suggesting = false);
+    }
+  }
 
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setLocal) => AlertDialog(
-        title: Text('ویرایش ${trade.assetName}'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: qtyCtrl,
-                decoration: const InputDecoration(labelText: 'مقدار'),
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.right,
-              ),
-              TextField(
-                controller: priceCtrl,
-                decoration: const InputDecoration(labelText: 'قیمت خرید (تومان)'),
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.right,
-              ),
-              TextField(
-                controller: usdCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'بهای دلاری خرید',
-                  hintText: 'اختیاری — دلار به ازای هر واحد',
+      builder: (ctx, setLocal) {
+        if (!hasSeedUsd && !kickedOff && !usdManual) {
+          kickedOff = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            suggestUsdFromPrice(setLocal);
+          });
+        }
+        return AlertDialog(
+          title: Text('ویرایش ${trade.assetName}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: qtyCtrl,
+                  decoration: const InputDecoration(labelText: 'مقدار'),
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.right,
                 ),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                textAlign: TextAlign.right,
-              ),
-              TextField(
-                controller: feeCtrl,
-                decoration: const InputDecoration(labelText: 'کارمزد'),
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.right,
-              ),
-              AppDateTile(
-                label: 'تاریخ خرید',
-                isoDate: buyDate,
-                calendar: state.settings.calendar,
-                onChanged: (v) => setLocal(() => buyDate = v),
-              ),
-              TextField(
-                controller: noteCtrl,
-                decoration: const InputDecoration(labelText: 'یادداشت'),
-                textAlign: TextAlign.right,
-              ),
-            ],
+                TextField(
+                  controller: priceCtrl,
+                  decoration:
+                      const InputDecoration(labelText: 'قیمت خرید (تومان)'),
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.right,
+                  onChanged: (_) {
+                    usdManual = false;
+                    suggestUsdFromPrice(setLocal);
+                  },
+                ),
+                TextField(
+                  controller: usdCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'بهای دلاری خرید',
+                    hintText: suggesting
+                        ? 'در حال محاسبه از نرخ همان تاریخ…'
+                        : 'خودکار از نرخ USDT تاریخ خرید — قابل ویرایش',
+                  ),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  textAlign: TextAlign.right,
+                  onChanged: (_) => usdManual = true,
+                ),
+                TextField(
+                  controller: feeCtrl,
+                  decoration: const InputDecoration(labelText: 'کارمزد'),
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.right,
+                ),
+                AppDateTile(
+                  label: 'تاریخ خرید',
+                  isoDate: buyDate,
+                  calendar: state.settings.calendar,
+                  onChanged: (v) {
+                    setLocal(() => buyDate = v);
+                    usdManual = false;
+                    suggestUsdFromPrice(setLocal);
+                  },
+                ),
+                TextField(
+                  controller: noteCtrl,
+                  decoration: const InputDecoration(labelText: 'یادداشت'),
+                  textAlign: TextAlign.right,
+                ),
+              ],
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('انصراف'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('ذخیره'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('انصراف'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('ذخیره'),
+            ),
+          ],
+        );
+      },
     ),
   );
   if (ok != true || !context.mounted) return;

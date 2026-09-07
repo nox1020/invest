@@ -68,6 +68,7 @@ class TradeService {
     double avgBuyPrice = 0,
     double currentPrice = 0,
     String notes = '',
+    String? buyDate,
   }) async {
     if (name.trim().isEmpty) throw ArgumentError('نام دارایی الزامی است.');
     if (quantity < 0) throw ArgumentError('مقدار نمی‌تواند منفی باشد.');
@@ -91,13 +92,16 @@ class TradeService {
     asset = await assets.create(asset);
     if (quantity > _eps) {
       final usd = parseAssetNotes(notes).meta.buyPriceUsd;
+      final date = (buyDate != null && buyDate.trim().isNotEmpty)
+          ? buyDate.trim()
+          : todayIso();
       await trades.create(Trade(
         assetId: asset.id!,
         status: AppConfig.tradeOpen,
         quantity: quantity,
         buyPrice: avgBuyPrice,
         buyPriceUsd: (usd != null && usd > 0) ? usd : null,
-        buyDate: todayIso(),
+        buyDate: date,
         buyNote: 'موجودی اولیه',
       ));
       asset = await _syncInventory(asset.id!);
