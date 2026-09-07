@@ -10,25 +10,70 @@ import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:provider/provider.dart';
 
 class TradesPage extends StatelessWidget {
-  const TradesPage({super.key, required this.open});
+  const TradesPage({
+    super.key,
+    required this.open,
+    this.assetId,
+    this.shrinkWrap = false,
+    this.hideAssetIdentity = false,
+  });
 
   final bool open;
+  final int? assetId;
+  final bool shrinkWrap;
+  final bool hideAssetIdentity;
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final list = open ? state.openTrades : state.closedTrades;
-    if (list.isEmpty) {
-      return Center(child: Text(open ? 'معامله بازی نیست' : 'معامله بسته‌ای نیست'));
+    final raw = open ? state.openTrades : state.closedTrades;
+    final list = assetId == null
+        ? List<Trade>.from(raw)
+        : raw
+            .where((t) =>
+                t.assetId == assetId &&
+                (!open || t.quantity > 1e-9))
+            .toList();
+    if (open) {
+      list.sort((a, b) => a.buyDate.compareTo(b.buyDate));
+    } else {
+      list.sort((a, b) {
+        final sa = a.sellDate ?? '';
+        final sb = b.sellDate ?? '';
+        final c = sb.compareTo(sa);
+        return c != 0 ? c : b.buyDate.compareTo(a.buyDate);
+      });
     }
+    if (list.isEmpty) {
+      final empty = Text(
+        open ? 'معامله بازی نیست' : 'معامله بسته‌ای نیست',
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: AppTheme.muted),
+      );
+      if (shrinkWrap) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: empty,
+        );
+      }
+      return Center(child: empty);
+    }
+
+    final pad = shrinkWrap
+        ? EdgeInsets.zero
+        : shellPagePadding(extraForFab: open);
     return ListView.separated(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: shellPagePadding(extraForFab: open),
+      shrinkWrap: shrinkWrap,
+      physics: shrinkWrap
+          ? const NeverScrollableScrollPhysics()
+          : const AlwaysScrollableScrollPhysics(),
+      padding: pad,
       itemCount: list.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (context, i) => _TradeTile(
         trade: list[i],
         open: open,
+        showAssetIdentity: !hideAssetIdentity,
         onSell: open && state.canMutate
             ? () => showSellTradeDialog(context, list[i])
             : null,
@@ -43,6 +88,72 @@ class TradesPage extends StatelessWidget {
   }
 }
 
+/// Open/closed trade lists for a single asset (embedded in detail page).
+class AssetTradesSection extends StatefulWidget {
+  const AssetTradesSection({super.key, required this.assetId});
+
+  final int assetId;
+
+  @override
+  State<AssetTradesSection> createState() => _AssetTradesSectionState();
+}
+
+class _AssetTradesSectionState extends State<AssetTradesSection> {
+  int _segment = 0; // 0 open, 1 closed
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'معاملات',
+          textAlign: TextAlign.right,
+          style: TextStyle(
+            color: AppTheme.title,
+            fontWeight: FontWeight.w800,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SegmentedButton<int>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(value: 0, label: Text('باز')),
+            ButtonSegment(value: 1, label: Text('بسته')),
+          ],
+          selected: {_segment},
+          onSelectionChanged: (value) {
+            setState(() => _segment = value.first);
+          },
+          style: ButtonStyle(
+            visualDensity: VisualDensity.compact,
+            backgroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) {
+                return AppTheme.accent;
+              }
+              return AppTheme.card;
+            }),
+            foregroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) {
+                return Colors.white;
+              }
+              return AppTheme.muted;
+            }),
+          ),
+        ),
+        const SizedBox(height: 10),
+        TradesPage(
+          open: _segment == 0,
+          assetId: widget.assetId,
+          shrinkWrap: true,
+          hideAssetIdentity: true,
+        ),
+      ],
+    );
+  }
+}
+
 String _formatUsdField(double usd) => formatBuyUsdField(usd);
 
 double? _parseOptionalPositive(String raw) {
@@ -53,7 +164,10 @@ double? _parseOptionalPositive(String raw) {
   return v;
 }
 
-Future<void> showBuyTradeDialog(BuildContext context) async {
+Future<void> showBuyTradeDialog(
+  BuildContext context, {
+  int? assetId,
+}) async {
   final state = context.read<AppState>();
   if (state.assets.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -61,10 +175,28 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
     );
     return;
   }
-  AssetChoice? choice = AssetChoice(state.assets.first.id!, state.assets.first.name);
+
+  final locked = assetId == null
+      ? null
+      : () {
+          for (final a in state.assets) {
+            if (a.id == assetId) return a;
+          }
+          return null;
+        }();
+
+  if (assetId != null && locked == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('دارایی یافت نشد')),
+    );
+    return;
+  }
+
+  final seed = locked ?? state.assets.first;
+  AssetChoice? choice = AssetChoice(seed.id!, seed.name);
   final qtyCtrl = TextEditingController(text: '1');
   final priceCtrl = TextEditingController(
-    text: '${state.assets.first.currentPrice}',
+    text: '${seed.currentPrice}',
   );
   final feeCtrl = TextEditingController(text: '0');
   final usdCtrl = TextEditingController();
@@ -74,6 +206,7 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
   var suggesting = false;
   var kickedOff = false;
   final calendar = state.settings.calendar;
+  final lockAsset = locked != null;
 
   Future<void> suggestUsdFromPrice(void Function(VoidCallback) setLocal) async {
     if (usdManual) return;
@@ -112,26 +245,33 @@ Future<void> showBuyTradeDialog(BuildContext context) async {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                DropdownButtonFormField<int>(
-                  key: ValueKey(choice!.id),
-                  initialValue: choice!.id,
-                  items: state.assets
-                      .map((a) => DropdownMenuItem(
-                            value: a.id,
-                            child: Text(a.name),
-                          ))
-                      .toList(),
-                  onChanged: (v) {
-                    final a = state.assets.firstWhere((e) => e.id == v);
-                    setLocal(() {
-                      choice = AssetChoice(a.id!, a.name);
-                      priceCtrl.text = '${a.currentPrice}';
-                      usdManual = false;
-                    });
-                    suggestUsdFromPrice(setLocal);
-                  },
-                  decoration: const InputDecoration(labelText: 'دارایی'),
-                ),
+                if (lockAsset)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('دارایی'),
+                    subtitle: Text(choice!.name),
+                  )
+                else
+                  DropdownButtonFormField<int>(
+                    key: ValueKey(choice!.id),
+                    initialValue: choice!.id,
+                    items: state.assets
+                        .map((a) => DropdownMenuItem(
+                              value: a.id,
+                              child: Text(a.name),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      final a = state.assets.firstWhere((e) => e.id == v);
+                      setLocal(() {
+                        choice = AssetChoice(a.id!, a.name);
+                        priceCtrl.text = '${a.currentPrice}';
+                        usdManual = false;
+                      });
+                      suggestUsdFromPrice(setLocal);
+                    },
+                    decoration: const InputDecoration(labelText: 'دارایی'),
+                  ),
                 TextField(
                   controller: qtyCtrl,
                   decoration: const InputDecoration(labelText: 'مقدار'),
@@ -496,12 +636,14 @@ class _TradeTile extends StatelessWidget {
   const _TradeTile({
     required this.trade,
     required this.open,
+    this.showAssetIdentity = true,
     this.onSell,
     this.onEdit,
     this.onDelete,
   });
   final Trade trade;
   final bool open;
+  final bool showAssetIdentity;
   final VoidCallback? onSell;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
@@ -525,25 +667,27 @@ class _TradeTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            trade.assetName,
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: AppTheme.title,
-              fontWeight: FontWeight.w800,
-              fontSize: 15,
-            ),
-          ),
-          if (trade.assetSymbol.trim().isNotEmpty)
+          if (showAssetIdentity) ...[
             Text(
-              trade.assetSymbol,
+              trade.assetName,
               textAlign: TextAlign.right,
-              style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+              style: const TextStyle(
+                color: AppTheme.title,
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+              ),
             ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10),
-            child: Divider(height: 1, color: AppTheme.border),
-          ),
+            if (trade.assetSymbol.trim().isNotEmpty)
+              Text(
+                trade.assetSymbol,
+                textAlign: TextAlign.right,
+                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+              ),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Divider(height: 1, color: AppTheme.border),
+            ),
+          ],
           _TradeDetailRow(label: 'مقدار', value: qtyText),
           _TradeDetailRow(
             label: 'قیمت خرید',

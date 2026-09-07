@@ -6,6 +6,7 @@ import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/asset_editor_sheet.dart';
 import 'package:invest/ui/widgets/dual_currency_chart.dart';
@@ -83,8 +84,16 @@ class AssetDetailPage extends StatelessWidget {
             ),
         ],
       ),
+      floatingActionButton: state.canMutate
+          ? FloatingActionButton.extended(
+              onPressed: () => showBuyTradeDialog(context, assetId: asset.id),
+              icon: const Icon(Icons.add_shopping_cart),
+              label: const Text('خرید'),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
         children: [
           _HeroTotals(
             metrics: metrics,
@@ -153,15 +162,8 @@ class AssetDetailPage extends StatelessWidget {
               height: 1.4,
             ),
           ),
-          if (lots.isNotEmpty) ...[
-            const SizedBox(height: 18),
-            const _SectionTitle('لات‌های باز'),
-            const SizedBox(height: 8),
-            for (final t in lots) ...[
-              _LotTile(trade: t, calendar: calendar),
-              const SizedBox(height: 8),
-            ],
-          ],
+          const SizedBox(height: 18),
+          AssetTradesSection(assetId: asset.id!),
         ],
       ),
     );
@@ -502,71 +504,6 @@ class _BarRow extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _LotTile extends StatelessWidget {
-  const _LotTile({
-    required this.trade,
-    required this.calendar,
-  });
-
-  final Trade trade;
-  final String calendar;
-
-  @override
-  Widget build(BuildContext context) {
-    final usd = trade.buyPriceUsd;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppTheme.card,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  formatDisplayDate(trade.buyDate, calendar),
-                  style: const TextStyle(color: AppTheme.muted, fontSize: 11),
-                ),
-                Text(
-                  'مقدار ${formatNumber(trade.quantity, decimals: 4)}',
-                  style: const TextStyle(color: AppTheme.text, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                formatMoney(trade.buyPrice),
-                style: const TextStyle(
-                  color: AppTheme.title,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
-              ),
-              Text(
-                usd != null && usd > 0 ? formatUsd(usd) : '—',
-                textDirection: TextDirection.ltr,
-                style: const TextStyle(
-                  color: Color(0xFFE8C547),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }

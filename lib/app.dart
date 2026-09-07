@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/state/app_state.dart';
-import 'package:invest/ui/pages/assets_page.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
 import 'package:invest/ui/pages/app_lock_page.dart';
 import 'package:invest/ui/pages/login_page.dart';
@@ -10,8 +9,8 @@ import 'package:invest/ui/pages/commodity_index_page.dart';
 import 'package:invest/ui/pages/trades_hub_page.dart';
 import 'package:invest/ui/pages/withdrawals_page.dart';
 import 'package:invest/ui/pages/settings_page.dart';
-import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/asset_editor_sheet.dart';
 import 'package:invest/ui/widgets/connection_status_title.dart';
 import 'package:invest/ui/widgets/offline_banner.dart';
 import 'package:provider/provider.dart';
@@ -62,7 +61,6 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int index = 0;
-  int _tradesSegment = 0;
 
   static const titles = [
     'داشبورد',
@@ -123,21 +121,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           label: const Text('ثبت برداشت'),
         );
       case 2:
-        if (_tradesSegment == 0) {
-          return FloatingActionButton.extended(
-            onPressed: () => showAssetEditor(context),
-            icon: const Icon(Icons.add),
-            label: const Text('دارایی جدید'),
-          );
-        }
-        if (_tradesSegment == 1) {
-          return FloatingActionButton.extended(
-            onPressed: () => showBuyTradeDialog(context),
-            icon: const Icon(Icons.add_shopping_cart),
-            label: const Text('خرید'),
-          );
-        }
-        return null;
+        return FloatingActionButton.extended(
+          onPressed: () => showAssetEditor(context),
+          icon: const Icon(Icons.add),
+          label: const Text('دارایی جدید'),
+        );
       default:
         return null;
     }
@@ -149,9 +137,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final pages = [
       const DashboardPage(),
       const WithdrawalsPage(),
-      TradesHubPage(
-        onSegmentChanged: (s) => setState(() => _tradesSegment = s),
-      ),
+      const TradesHubPage(),
       const CommodityIndexPage(),
       const SettingsPage(),
     ];
