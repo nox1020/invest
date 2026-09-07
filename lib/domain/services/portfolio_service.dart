@@ -26,8 +26,9 @@ class PortfolioService {
     final stats = await trades.closedStats();
     final realized = stats['total_pnl'] ?? 0;
     final totalPnl = unrealized + realized;
+    // Match absolute total PnL (includes realized), not unrealized-only %.
     final totalPnlPct =
-        totalCost > 0 ? (totalValue - totalCost) / totalCost * 100 : 0.0;
+        totalCost > 0 ? totalPnl / totalCost * 100 : 0.0;
 
     final yearKey = yearPeriodKey(todayIso(), calendar);
     var yearRealized = 0.0;

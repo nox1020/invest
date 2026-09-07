@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:invest/domain/services/dashboard_pnl.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
@@ -49,7 +50,22 @@ class DashboardPage extends StatelessWidget {
     final narrow = MediaQuery.sizeOf(context).width < 520;
     final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
     final usdValue = tomanToUsd(m.totalValue, usdt);
-    final usdYear = tomanToUsd(m.yearRealizedPnl, usdt);
+
+    final currencyPnl = DashboardCurrencyPnl.compute(
+      assets: state.assets,
+      openTrades: state.openTrades,
+      closedTrades: state.closedTrades,
+      usdtTmn: usdt,
+      yearKey: m.yearKey,
+      calendar: state.settings.calendar,
+    );
+    // Reconcile % with absolute total PnL (server may still send unrealized-only %).
+    final totalPnlPct = DashboardCurrencyPnl.totalPnlPct(
+      totalPnl: m.totalPnl,
+      assets: state.assets,
+      openTrades: state.openTrades,
+    );
+
     String tone(num v) => v > 0 ? 'positive' : (v < 0 ? 'negative' : '');
 
     void openCharts() {
@@ -81,6 +97,10 @@ class DashboardPage extends StatelessWidget {
       );
     }
 
+    final totalUsd = currencyPnl.totalUsd;
+    final realizedUsd = currencyPnl.realizedUsd;
+    final yearUsd = currencyPnl.yearRealizedUsd;
+
     return RefreshIndicator(
       onRefresh: () => state.refreshAll(),
       child: ListView(
@@ -100,7 +120,7 @@ class DashboardPage extends StatelessWidget {
               value: formatMoney(m.yearRealizedPnl, showSign: true),
               caption: [
                 if (m.yearKey.isNotEmpty) m.yearKey,
-                if (usdYear != null) formatUsd(usdYear, showSign: true),
+                if (yearUsd != null) formatUsd(yearUsd, showSign: true),
               ].join(' · '),
               tone: tone(m.yearRealizedPnl),
               hero: true,
@@ -123,30 +143,33 @@ class DashboardPage extends StatelessWidget {
               title: 'سود / زیان کل',
               value: formatMoney(m.totalPnl, showSign: true),
               caption: [
-                formatPct(m.totalPnlPct),
-                if (tomanToUsd(m.totalPnl, usdt) != null)
-                  formatUsd(tomanToUsd(m.totalPnl, usdt)!, showSign: true),
+                formatPct(totalPnlPct),
+                if (totalUsd != null) formatUsd(totalUsd, showSign: true),
               ].join(' · '),
               tone: tone(m.totalPnl),
             ),
             MetricCard(
               title: 'تحقق‌یافته',
               value: formatMoney(m.realizedPnl, showSign: true),
-              caption: tomanToUsd(m.realizedPnl, usdt) == null
+              caption: realizedUsd == null
                   ? null
-                  : formatUsd(tomanToUsd(m.realizedPnl, usdt)!, showSign: true),
+                  : formatUsd(realizedUsd, showSign: true),
               tone: tone(m.realizedPnl),
             ),
           ], gap: 8),
           const SizedBox(height: 8),
           metricRow([
             MetricCard(
-              title: 'معاملات باز',
-              value: '${m.openCount}',
+              title: 'تحقق‌نیافته',
+              value: formatMoney(m.unrealizedPnl, showSign: true),
+              caption: currencyPnl.unrealizedUsd == null
+                  ? null
+                  : formatUsd(currencyPnl.unrealizedUsd!, showSign: true),
+              tone: tone(m.unrealizedPnl),
             ),
             MetricCard(
-              title: 'معاملات بسته',
-              value: '${m.closedCount}',
+              title: 'معاملات',
+              value: '${m.openCount} باز · ${m.closedCount} بسته',
             ),
           ], gap: 8),
         ],
