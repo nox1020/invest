@@ -652,7 +652,14 @@ class AppState extends ChangeNotifier {
             const Duration(hours: 6)) {
       return;
     }
-    await refreshCommodityIndex(force: force);
+    iranInflationLoading = true;
+    notifyListeners();
+    try {
+      await refreshCommodityIndex(force: force);
+    } finally {
+      iranInflationLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> _loadRemoteData() async {
