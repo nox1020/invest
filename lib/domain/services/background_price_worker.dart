@@ -6,10 +6,12 @@ import 'package:flutter/widgets.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/price_alert.dart';
+import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/domain/services/price_alert_engine.dart';
 import 'package:invest/domain/services/price_alert_prefs.dart';
+import 'package:invest/domain/services/profit_alert_engine.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:workmanager/workmanager.dart';
 
@@ -50,9 +52,12 @@ class BackgroundPriceWorker {
     if (kIsWeb || !Platform.isAndroid) return;
     await initialize();
     if (!_initialized) return;
-    final armed = settings.priceAlertsOn &&
-        settings.notifyBackground &&
+    final armedPrices = settings.priceAlertsOn &&
         settings.priceAlerts.any((e) => e.isArmed);
+    final armedProfit = settings.tradesAlertsOn &&
+        settings.profitAlerts.any((e) => e.isArmed);
+    final armed =
+        settings.notifyBackground && (armedPrices || armedProfit);
     try {
       if (!armed) {
         await Workmanager().cancelByUniqueName(priceAlertPeriodicUniqueName);
@@ -86,25 +91,96 @@ class BackgroundPriceMonitor {
   static Future<void> runOnce() async {
     final snap = await PriceAlertPrefs.loadSnapshot();
     if (snap == null) return;
-    if (!snap.notificationsEnabled || !snap.notifyPriceMoves) return;
-    if (!snap.notifyBackground) return;
-    final alerts = snap.alerts.where((e) => e.isArmed).toList();
-    if (alerts.isEmpty) return;
+    if (!snap.notificationsEnabled || !snap.notifyBackground) return;
+
+    final wantPrices =
+        snap.notifyPriceMoves && snap.alerts.any((e) => e.isArmed);
+    final wantProfit =
+        snap.notifyTrades && snap.profitAlerts.any((e) => e.isArmed);
+    if (!wantPrices && !wantProfit) return;
 
     final bundle = await CommodityIndexService().fetchAll(
       wallexUrl: snap.wallexUrl.trim().isEmpty
           ? AppConfig.defaultWallexUrl
           : snap.wallexUrl,
     );
-    if (!bundle.hasAnyPrice) return;
-
     final prices = PriceAlertEngine.pricesFrom(
       quotes: [...bundle.essentials, ...bundle.wallexMarkets],
     );
-    await dispatchHits(
+    if (wantPrices && bundle.hasAnyPrice) {
+      await dispatchHits(alerts: snap.alerts, prices: prices);
+    }
+    if (wantProfit) {
+      var positions = await PriceAlertPrefs.loadPositions();
+      if (bundle.hasAnyPrice) {
+        positions = [
+          for (final p in positions)
+            _revaluePosition(p, prices) ?? p,
+        ];
+        await PriceAlertPrefs.savePositions(positions);
+      }
+      await dispatchProfitHits(
+        alerts: snap.profitAlerts,
+        positions: {for (final p in positions) p.id: p},
+      );
+    }
+  }
+
+  static ProfitPosition? _revaluePosition(
+    ProfitPosition p,
+    Map<String, double> prices,
+  ) {
+    final live = _livePriceForSymbol(p.symbol, prices);
+    if (live == null || live <= 0) return null;
+    return p.revalued(live);
+  }
+
+  static double? _livePriceForSymbol(String symbol, Map<String, double> prices) {
+    final s = symbol.trim().toUpperCase();
+    if (s.isEmpty) return null;
+    final id = switch (s) {
+      'USDT' || 'TETHER' => 'usdt',
+      'USD' || 'DOLLAR' => 'usd',
+      'EUR' => 'eur',
+      'GBP' => 'gbp',
+      'AED' => 'aed',
+      'TRY' => 'try',
+      'GOLD' || 'XAU' => 'gold',
+      'BTC' || 'BITCOIN' => 'btc',
+      'ETH' || 'ETHEREUM' => 'eth',
+      _ => s.toLowerCase(),
+    };
+    return prices[id] ?? prices[s.toLowerCase()];
+  }
+
+  static Future<List<ProfitAlertHit>> dispatchProfitHits({
+    required List<ProfitAlert> alerts,
+    required Map<String, ProfitPosition> positions,
+  }) async {
+    final latches = await PriceAlertPrefs.loadProfitLatches();
+    final hits = ProfitAlertEngine.evaluate(
       alerts: alerts,
-      prices: prices,
+      positions: positions,
+      latches: latches,
     );
+    await PriceAlertPrefs.saveProfitLatches(latches);
+    if (hits.isEmpty) return hits;
+    await NotificationService.instance.init();
+    for (final hit in hits) {
+      try {
+        final profit = hit.side == PriceAlertSide.above;
+        await NotificationService.instance.show(
+          title: profit
+              ? 'سود ${hit.alert.displayName} به آستانه رسید'
+              : 'زیان ${hit.alert.displayName} به آستانه رسید',
+          body:
+              '${formatMoney(hit.position.pnl, showSign: true)} (${formatPct(hit.position.pnlPct)})',
+          kind: NotificationKind.trades,
+          id: NotificationService.profitAlertId(hit.alert.id, hit.side.name),
+        );
+      } catch (_) {}
+    }
+    return hits;
   }
 
   static Future<List<PriceAlertHit>> dispatchHits({

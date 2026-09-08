@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/price_alert.dart';
+import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/config/app_config.dart';
 
 void main() {
@@ -26,6 +27,23 @@ void main() {
     expect(again.priceAlerts, hasLength(1));
     expect(again.priceAlerts.single.above, 120000);
     expect(again.priceAlerts.single.below, 90000);
+
+    final withProfit = AppSettings(
+      profitAlerts: [
+        ProfitAlert(id: 'asset:1', name: 'BTC', profitPct: 8),
+      ],
+    );
+    expect(
+      AppSettings.fromJson(withProfit.toJson()).profitAlerts.single.profitPct,
+      8,
+    );
+    expect(
+      AppSettings.fromStorageMap(withProfit.toStorageMap())
+          .profitAlerts
+          .single
+          .id,
+      'asset:1',
+    );
 
     final stored = AppSettings.fromStorageMap(s.toStorageMap());
     expect(stored.notificationsEnabled, isFalse);

@@ -95,6 +95,11 @@ class NotificationService {
     return 40000 + (key.hashCode.abs() % 20000);
   }
 
+  static int profitAlertId(String id, String side) {
+    final key = '$id|$side';
+    return 60000 + (key.hashCode.abs() % 20000);
+  }
+
   Future<void> show({
     required String title,
     required String body,

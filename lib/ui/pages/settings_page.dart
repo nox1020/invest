@@ -356,7 +356,9 @@ class _SettingsPageState extends State<SettingsPage> {
                 icon: Icons.swap_horiz_rounded,
                 iconColor: const Color(0xFF007AFF),
                 title: 'معاملات',
-                subtitle: 'خرید و فروش',
+                subtitle: s.armedProfitAlertCount > 0
+                    ? '${s.armedProfitAlertCount} آستانه سود · خرید و فروش'
+                    : 'خرید، فروش و آستانه سود',
                 value: s.notifyTrades,
                 onChanged: canEdit && s.notificationsEnabled
                     ? (v) => _persist(state, (d) => d.notifyTrades = v)
@@ -389,12 +391,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 iconColor: const Color(0xFF30B0C7),
                 title: 'اجرا در پس‌زمینه',
                 subtitle: s.notifyBackground
-                    ? 'پایش قیمت حتی وقتی برنامه بسته است'
+                    ? 'پایش قیمت و سود حتی وقتی برنامه بسته است'
                     : 'فقط وقتی برنامه باز است',
                 value: s.notifyBackground,
                 onChanged: canEdit &&
                         s.notificationsEnabled &&
-                        s.notifyPriceMoves
+                        (s.notifyPriceMoves || s.notifyTrades)
                     ? (v) => _persist(state, (d) => d.notifyBackground = v)
                     : null,
               ),

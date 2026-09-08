@@ -132,6 +132,9 @@ class BackupPayload {
       if (settings.priceAlerts.isEmpty && fromRaw.priceAlerts.isNotEmpty) {
         settings.priceAlerts = fromRaw.priceAlerts;
       }
+      if (settings.profitAlerts.isEmpty && fromRaw.profitAlerts.isNotEmpty) {
+        settings.profitAlerts = fromRaw.profitAlerts;
+      }
       if (!settingsMap.containsKey('notify_background') &&
           raw.containsKey(AppConfig.settingNotifyBackground)) {
         settings.notifyBackground = fromRaw.notifyBackground;

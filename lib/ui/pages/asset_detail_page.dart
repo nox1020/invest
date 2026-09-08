@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/metrics.dart';
+import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/utils/dates.dart';
@@ -10,6 +11,7 @@ import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/asset_editor_sheet.dart';
 import 'package:invest/ui/widgets/dual_currency_chart.dart';
+import 'package:invest/ui/widgets/profit_alert_sheet.dart';
 import 'package:provider/provider.dart';
 
 Future<void> openAssetDetail(
@@ -81,6 +83,14 @@ class AssetDetailPage extends StatelessWidget {
         title: Text(asset.name),
         centerTitle: true,
         actions: [
+          ProfitAlertBell(
+            id: ProfitAlert.forAsset(asset.id!),
+            name: asset.name,
+            symbol: asset.symbol,
+            currentPnl: metrics.unrealizedPnl,
+            currentPnlPct: metrics.unrealizedPnlPct,
+            color: Colors.white,
+          ),
           if (state.canMutate)
             IconButton(
               tooltip: 'ویرایش',

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
@@ -10,6 +11,7 @@ import 'package:invest/ui/pages/asset_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/allocation_donut.dart';
 import 'package:invest/ui/widgets/asset_editor_sheet.dart';
+import 'package:invest/ui/widgets/profit_alert_sheet.dart';
 import 'package:provider/provider.dart';
 
 export 'package:invest/ui/widgets/asset_editor_sheet.dart' show showAssetEditor;
@@ -510,6 +512,14 @@ class _AssetCard extends StatelessWidget {
                         ),
                     ],
                   ),
+                  if (asset.id != null)
+                    ProfitAlertBell(
+                      id: ProfitAlert.forAsset(asset.id!),
+                      name: asset.name,
+                      symbol: asset.symbol,
+                      currentPnl: metrics.unrealizedPnl,
+                      currentPnlPct: metrics.unrealizedPnlPct,
+                    ),
                   if (canMutate)
                     PopupMenuButton<String>(
                       padding: EdgeInsets.zero,

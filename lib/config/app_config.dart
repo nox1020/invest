@@ -41,6 +41,7 @@ class AppConfig {
   static const settingNotifyPriceMoves = 'notify_price_moves';
   static const settingNotifyBackground = 'notify_background';
   static const settingPriceAlerts = 'price_alerts';
+  static const settingProfitAlerts = 'profit_alerts';
 
   static const defaultWallexUrl =
       'https://api.wallex.ir/v1/markets';

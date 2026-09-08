@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/services/buy_usd_suggest.dart';
 import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/domain/utils/dates.dart';
@@ -8,6 +9,7 @@ import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
+import 'package:invest/ui/widgets/profit_alert_sheet.dart';
 import 'package:provider/provider.dart';
 
 class TradesPage extends StatelessWidget {
@@ -678,27 +680,51 @@ class _TradeTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (showAssetIdentity) ...[
-            Text(
-              trade.assetName,
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                color: AppTheme.title,
-                fontWeight: FontWeight.w800,
-                fontSize: 15,
-              ),
+          if ((open && trade.id != null) || showAssetIdentity)
+            Row(
+              children: [
+                if (open && trade.id != null)
+                  ProfitAlertBell(
+                    id: ProfitAlert.forTrade(trade.id!),
+                    name: trade.assetName,
+                    symbol: trade.assetSymbol,
+                    currentPnl: openPnl,
+                    currentPnlPct: trade.unrealizedPnlPct,
+                  ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (showAssetIdentity) ...[
+                        Text(
+                          trade.assetName,
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            color: AppTheme.title,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                          ),
+                        ),
+                        if (trade.assetSymbol.trim().isNotEmpty)
+                          Text(
+                            trade.assetSymbol,
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                              color: AppTheme.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
             ),
-            if (trade.assetSymbol.trim().isNotEmpty)
-              Text(
-                trade.assetSymbol,
-                textAlign: TextAlign.right,
-                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
-              ),
+          if (showAssetIdentity)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 10),
               child: Divider(height: 1, color: AppTheme.border),
             ),
-          ],
           _TradeDetailRow(label: 'مقدار', value: qtyText),
           _TradeDetailRow(
             label: 'قیمت خرید',

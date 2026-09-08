@@ -1,5 +1,6 @@
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/price_alert.dart';
+import 'package:invest/domain/models/profit_alert.dart';
 
 class AppSettings {
   AppSettings({
@@ -19,7 +20,9 @@ class AppSettings {
     this.notifyPriceMoves = true,
     this.notifyBackground = true,
     List<PriceAlert>? priceAlerts,
-  }) : priceAlerts = priceAlerts ?? [];
+    List<ProfitAlert>? profitAlerts,
+  })  : priceAlerts = priceAlerts ?? [],
+        profitAlerts = profitAlerts ?? [];
 
   String calendar;
   String currency;
@@ -41,6 +44,7 @@ class AppSettings {
   /// Keep checking prices via WorkManager when the app is closed.
   bool notifyBackground;
   List<PriceAlert> priceAlerts;
+  List<ProfitAlert> profitAlerts;
 
   bool get isDark => theme != 'light';
 
@@ -50,6 +54,9 @@ class AppSettings {
 
   int get armedPriceAlertCount =>
       priceAlerts.where((e) => e.isArmed).length;
+
+  int get armedProfitAlertCount =>
+      profitAlerts.where((e) => e.isArmed).length;
 
   PriceAlert alertFor(
     String id, {
@@ -79,6 +86,27 @@ class AppSettings {
     }
   }
 
+  ProfitAlert profitAlertFor(
+    String id, {
+    String name = '',
+    String symbol = '',
+  }) {
+    for (final a in profitAlerts) {
+      if (a.id == id) return a.copy();
+    }
+    return ProfitAlert(id: id, name: name, symbol: symbol);
+  }
+
+  void upsertProfitAlert(ProfitAlert alert) {
+    final next = alert.copy();
+    final i = profitAlerts.indexWhere((e) => e.id == next.id);
+    if (i >= 0) {
+      profitAlerts[i] = next;
+    } else {
+      profitAlerts.add(next);
+    }
+  }
+
   AppSettings copyWith({
     String? calendar,
     String? currency,
@@ -96,6 +124,7 @@ class AppSettings {
     bool? notifyPriceMoves,
     bool? notifyBackground,
     List<PriceAlert>? priceAlerts,
+    List<ProfitAlert>? profitAlerts,
     bool clearUsdtTmnRate = false,
     bool clearGoldTmnPerGram = false,
   }) {
@@ -117,6 +146,8 @@ class AppSettings {
       notifyPriceMoves: notifyPriceMoves ?? this.notifyPriceMoves,
       notifyBackground: notifyBackground ?? this.notifyBackground,
       priceAlerts: (priceAlerts ?? this.priceAlerts).map((e) => e.copy()).toList(),
+      profitAlerts:
+          (profitAlerts ?? this.profitAlerts).map((e) => e.copy()).toList(),
     );
   }
 
@@ -138,6 +169,7 @@ class AppSettings {
         'notify_price_moves': notifyPriceMoves,
         'notify_background': notifyBackground,
         'price_alerts': priceAlerts.map((e) => e.toJson()).toList(),
+        'profit_alerts': profitAlerts.map((e) => e.toJson()).toList(),
       };
 
   /// Local SQLite / settings-table key map.
@@ -159,6 +191,7 @@ class AppSettings {
         AppConfig.settingNotifyPriceMoves: notifyPriceMoves ? '1' : '0',
         AppConfig.settingNotifyBackground: notifyBackground ? '1' : '0',
         AppConfig.settingPriceAlerts: PriceAlertList.encode(priceAlerts),
+        AppConfig.settingProfitAlerts: ProfitAlertList.encode(profitAlerts),
       };
 
   static bool _on(dynamic v, {bool fallback = true}) {
@@ -200,6 +233,9 @@ class AppSettings {
       priceAlerts: PriceAlertList.parse(
         s['price_alerts'] ?? s[AppConfig.settingPriceAlerts],
       ),
+      profitAlerts: ProfitAlertList.parse(
+        s['profit_alerts'] ?? s[AppConfig.settingProfitAlerts],
+      ),
     );
   }
 
@@ -222,6 +258,7 @@ class AppSettings {
       'notify_price_moves': map[AppConfig.settingNotifyPriceMoves],
       'notify_background': map[AppConfig.settingNotifyBackground],
       'price_alerts': map[AppConfig.settingPriceAlerts],
+      'profit_alerts': map[AppConfig.settingProfitAlerts],
     });
   }
 }

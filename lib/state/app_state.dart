@@ -17,6 +17,8 @@ import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/iran_inflation.dart';
+import 'package:invest/domain/services/holding_metrics.dart';
+import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/services/backup_payload.dart';
 import 'package:invest/domain/services/backup_service.dart';
 import 'package:invest/domain/services/chart_series.dart';
@@ -26,6 +28,7 @@ import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/domain/services/portfolio_service.dart';
 import 'package:invest/domain/services/price_alert_engine.dart';
 import 'package:invest/domain/services/price_alert_prefs.dart';
+import 'package:invest/domain/services/profit_alert_engine.dart';
 import 'package:invest/domain/services/background_price_worker.dart';
 import 'package:invest/domain/services/quote_clients.dart';
 import 'package:invest/domain/services/trade_service.dart';
@@ -801,6 +804,7 @@ class AppState extends ChangeNotifier {
       ..wallexUrl = prevWallex
       ..persianToolboxUrl = prevPersian;
     final keepAlerts = s.priceAlerts.map((e) => e.copy()).toList();
+    final keepProfit = s.profitAlerts.map((e) => e.copy()).toList();
     final keepBg = s.notifyBackground;
     notifyListeners();
 
@@ -810,6 +814,7 @@ class AppState extends ChangeNotifier {
         ..usdtTmnRate = prevUsdt
         ..goldTmnPerGram = prevGold
         ..priceAlerts = keepAlerts
+        ..profitAlerts = keepProfit
         ..notifyBackground = keepBg;
       if (settings.wallexUrl.trim().isEmpty) {
         settings.wallexUrl = prevWallex;
@@ -891,6 +896,7 @@ class AppState extends ChangeNotifier {
         lastSyncedAt = DateTime.now();
       }
       error = null;
+      await _dispatchProfitAlerts();
     } on InvestApiException catch (e) {
       if (e.statusCode == 401) {
         await logout();
@@ -1108,6 +1114,58 @@ class AppState extends ChangeNotifier {
     await BackgroundPriceMonitor.dispatchHits(
       alerts: settings.priceAlerts,
       prices: prices,
+    );
+    await _dispatchProfitAlerts();
+  }
+
+  List<ProfitPosition> _profitPositions() {
+    final out = <ProfitPosition>[];
+    for (final asset in assets) {
+      final id = asset.id;
+      if (id == null) continue;
+      final m = HoldingMetrics.forAsset(asset, openTrades);
+      if (!m.hasPosition) continue;
+      out.add(
+        ProfitPosition(
+          id: ProfitAlert.forAsset(id),
+          name: asset.name,
+          symbol: asset.symbol,
+          pnl: m.unrealizedPnl,
+          pnlPct: m.unrealizedPnlPct,
+          qty: m.quantity,
+          cost: m.costBasis,
+          price: m.currentPrice,
+        ),
+      );
+    }
+    for (final t in openTrades) {
+      final id = t.id;
+      if (id == null || t.quantity <= 1e-9) continue;
+      out.add(
+        ProfitPosition(
+          id: ProfitAlert.forTrade(id),
+          name: t.assetName,
+          symbol: t.assetSymbol,
+          pnl: t.unrealizedPnl,
+          pnlPct: t.unrealizedPnlPct,
+          qty: t.quantity,
+          cost: t.buyCost,
+          price: t.currentPrice,
+        ),
+      );
+    }
+    return out;
+  }
+
+  Future<void> _dispatchProfitAlerts() async {
+    final positions = _profitPositions();
+    try {
+      await PriceAlertPrefs.savePositions(positions);
+    } catch (_) {}
+    if (!settings.tradesAlertsOn) return;
+    await BackgroundPriceMonitor.dispatchProfitHits(
+      alerts: settings.profitAlerts,
+      positions: {for (final p in positions) p.id: p},
     );
   }
 
