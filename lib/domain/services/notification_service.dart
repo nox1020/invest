@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-/// Local (device) notifications for trades, withdrawals, and price moves.
+/// Local (device) notifications for trades, withdrawals, and price alerts.
 class NotificationService {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
@@ -16,7 +16,7 @@ class NotificationService {
 
   static const _channelTrades = 'vplus_trades';
   static const _channelWithdrawals = 'vplus_withdrawals';
-  static const _channelPrices = 'vplus_prices';
+  static const _channelPrices = 'vplus_price_alerts';
   static const _channelGeneral = 'vplus_general';
 
   Future<void> init() async {
@@ -51,9 +51,9 @@ class NotificationService {
     await android.createNotificationChannel(
       const AndroidNotificationChannel(
         _channelPrices,
-        'قیمت‌ها',
-        description: 'تغییر محسوس نرخ تتر یا طلا',
-        importance: Importance.defaultImportance,
+        'هشدار قیمت',
+        description: 'عبور قیمت ارز از آستانه تنظیم‌شده',
+        importance: Importance.high,
       ),
     );
     await android.createNotificationChannel(
@@ -73,8 +73,12 @@ class NotificationService {
     if (!Platform.isAndroid) return true;
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
-    final granted = await android?.requestNotificationsPermission();
-    return granted ?? false;
+    if (android == null) return true;
+    final already = await android.areNotificationsEnabled();
+    if (already == true) return true;
+    final granted = await android.requestNotificationsPermission();
+    if (granted == true) return true;
+    return await android.areNotificationsEnabled() ?? false;
   }
 
   Future<bool> areNotificationsEnabled() async {
@@ -83,13 +87,19 @@ class NotificationService {
     if (!Platform.isAndroid) return true;
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
-    return await android?.areNotificationsEnabled() ?? false;
+    return await android?.areNotificationsEnabled() ?? true;
+  }
+
+  static int priceAlertId(String quoteId, String side) {
+    final key = '$quoteId|$side';
+    return 40000 + (key.hashCode.abs() % 20000);
   }
 
   Future<void> show({
     required String title,
     required String body,
     NotificationKind kind = NotificationKind.general,
+    int? id,
   }) async {
     await init();
     final channel = switch (kind) {
@@ -101,12 +111,12 @@ class NotificationService {
     final channelName = switch (kind) {
       NotificationKind.trades => 'معاملات',
       NotificationKind.withdrawals => 'برداشت‌ها',
-      NotificationKind.prices => 'قیمت‌ها',
+      NotificationKind.prices => 'هشدار قیمت',
       NotificationKind.general => 'عمومی',
     };
-    final id = (++_seq) % 100000;
+    final nid = id ?? (++_seq) % 100000;
     await _plugin.show(
-      id,
+      nid,
       title,
       body,
       NotificationDetails(

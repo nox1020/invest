@@ -129,6 +129,13 @@ class BackupPayload {
       }
       settings.usdtTmnRate ??= fromRaw.usdtTmnRate;
       settings.goldTmnPerGram ??= fromRaw.goldTmnPerGram;
+      if (settings.priceAlerts.isEmpty && fromRaw.priceAlerts.isNotEmpty) {
+        settings.priceAlerts = fromRaw.priceAlerts;
+      }
+      if (!settingsMap.containsKey('notify_background') &&
+          raw.containsKey(AppConfig.settingNotifyBackground)) {
+        settings.notifyBackground = fromRaw.notifyBackground;
+      }
     }
 
     return BackupPayload(

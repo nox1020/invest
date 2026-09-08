@@ -39,6 +39,8 @@ class AppConfig {
   static const settingNotifyTrades = 'notify_trades';
   static const settingNotifyWithdrawals = 'notify_withdrawals';
   static const settingNotifyPriceMoves = 'notify_price_moves';
+  static const settingNotifyBackground = 'notify_background';
+  static const settingPriceAlerts = 'price_alerts';
 
   static const defaultWallexUrl =
       'https://api.wallex.ir/v1/markets';
@@ -59,5 +61,6 @@ class AppConfig {
     settingNotifyTrades: '1',
     settingNotifyWithdrawals: '1',
     settingNotifyPriceMoves: '1',
+    settingNotifyBackground: '1',
   };
 }

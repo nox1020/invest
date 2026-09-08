@@ -4,6 +4,7 @@ import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/app_lock_page.dart';
+import 'package:invest/ui/pages/price_alerts_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/backup_actions.dart';
 import 'package:invest/ui/widgets/settings_ui.dart';
@@ -374,12 +375,45 @@ class _SettingsPageState extends State<SettingsPage> {
               TgSettingsSwitchTile(
                 icon: Icons.trending_up_rounded,
                 iconColor: const Color(0xFFFF9500),
-                title: 'تغییر قیمت',
-                subtitle: 'تتر / طلا بیش از ۱٪',
+                title: 'هشدار قیمت',
+                subtitle: s.armedPriceAlertCount > 0
+                    ? '${s.armedPriceAlertCount} ارز با آستانه'
+                    : 'سقف و کف قیمت هر ارز',
                 value: s.notifyPriceMoves,
                 onChanged: canEdit && s.notificationsEnabled
                     ? (v) => _persist(state, (d) => d.notifyPriceMoves = v)
                     : null,
+              ),
+              TgSettingsSwitchTile(
+                icon: Icons.sync_rounded,
+                iconColor: const Color(0xFF30B0C7),
+                title: 'اجرا در پس‌زمینه',
+                subtitle: s.notifyBackground
+                    ? 'پایش قیمت حتی وقتی برنامه بسته است'
+                    : 'فقط وقتی برنامه باز است',
+                value: s.notifyBackground,
+                onChanged: canEdit &&
+                        s.notificationsEnabled &&
+                        s.notifyPriceMoves
+                    ? (v) => _persist(state, (d) => d.notifyBackground = v)
+                    : null,
+              ),
+              TgSettingsTile(
+                icon: Icons.tune_rounded,
+                iconColor: const Color(0xFFFF9500),
+                title: 'آستانه قیمت ارزها',
+                subtitle: s.armedPriceAlertCount > 0
+                    ? 'بالاتر / پایین‌تر از مقدار دلخواه'
+                    : 'برای هر ارز سقف و کف تنظیم کنید',
+                onTap: !canEdit || !s.notificationsEnabled
+                    ? null
+                    : () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const PriceAlertsPage(),
+                          ),
+                        );
+                      },
               ),
               TgSettingsTile(
                 icon: Icons.notification_add_rounded,

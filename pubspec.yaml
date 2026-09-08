@@ -23,6 +23,7 @@ dependencies:
   local_auth: ^2.3.0
   local_auth_android: ^1.0.47
   flutter_local_notifications: ^18.0.1
+  workmanager: ^0.10.0
   intl: any
   shamsi_date: ^1.0.2
   provider: ^6.1.2

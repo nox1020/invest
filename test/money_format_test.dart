@@ -33,4 +33,11 @@ void main() {
     );
     expect(asset.unrealizedPnlPct, closeTo(-15.3, 0.05));
   });
+
+  test('parseFlexibleNumber accepts persian digits and commas', () {
+    expect(parseFlexibleNumber('120,000'), 120000);
+    expect(parseFlexibleNumber('۱۲۰۰۰۰'), 120000);
+    expect(parseFlexibleNumber('12.5'), 12.5);
+    expect(parseFlexibleNumber(''), isNull);
+  });
 }

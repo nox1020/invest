@@ -126,3 +126,39 @@ String formatPct(num value) {
   final sign = value > 0 ? '+' : '';
   return '$sign${formatNumber(value, decimals: 2)}٪';
 }
+
+/// Parses a user-entered amount (Latin/Persian/Arabic digits, commas).
+double? parseFlexibleNumber(String? raw) {
+  if (raw == null) return null;
+  final buf = StringBuffer();
+  for (final rune in raw.trim().runes) {
+    final ch = String.fromCharCode(rune);
+    const persian = '۰۱۲۳۴۵۶۷۸۹';
+    const arabic = '٠١٢٣٤٥٦٧٨٩';
+    final pi = persian.indexOf(ch);
+    if (pi >= 0) {
+      buf.write(pi);
+      continue;
+    }
+    final ai = arabic.indexOf(ch);
+    if (ai >= 0) {
+      buf.write(ai);
+      continue;
+    }
+    if (ch == ',' ||
+        ch == '٬' ||
+        ch == ' ' ||
+        ch == '\u200f' ||
+        ch == '\u200e') {
+      continue;
+    }
+    if (ch == '٫') {
+      buf.write('.');
+      continue;
+    }
+    buf.write(ch);
+  }
+  final t = buf.toString().trim();
+  if (t.isEmpty) return null;
+  return double.tryParse(t);
+}

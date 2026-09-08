@@ -5,6 +5,7 @@ import 'package:invest/domain/services/market_history_service.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/price_alert_sheet.dart';
 import 'package:invest/ui/widgets/value_line_chart.dart';
 import 'package:provider/provider.dart';
 
@@ -114,6 +115,26 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
       appBar: AppBar(
         title: Text(q.name),
         centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: 'اعلان قیمت',
+            onPressed: !state.canMutate
+                ? null
+                : () => showPriceAlertEditor(
+                      context,
+                      id: q.id,
+                      name: q.name,
+                      symbol: q.symbol,
+                      unit: q.unit,
+                      currentPrice: q.price,
+                    ),
+            icon: Icon(
+              state.settings.alertFor(q.id).isArmed
+                  ? Icons.notifications_active_rounded
+                  : Icons.notifications_outlined,
+            ),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),

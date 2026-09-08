@@ -24,6 +24,9 @@ import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/iran_inflation_service.dart';
 import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/domain/services/portfolio_service.dart';
+import 'package:invest/domain/services/price_alert_engine.dart';
+import 'package:invest/domain/services/price_alert_prefs.dart';
+import 'package:invest/domain/services/background_price_worker.dart';
 import 'package:invest/domain/services/quote_clients.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/domain/utils/money.dart';
@@ -183,6 +186,7 @@ class AppState extends ChangeNotifier {
       }
     } finally {
       loading = false;
+      await _loadPriceAlertRuntime();
       notifyListeners();
     }
   }
@@ -213,6 +217,7 @@ class AppState extends ChangeNotifier {
     iranInflationService = IranInflationService();
     authenticated = true;
     await _loadLocalSettings();
+    await _loadPriceAlertRuntime();
     await refresh();
     _startIndexRefreshTimer();
   }
@@ -262,6 +267,7 @@ class AppState extends ChangeNotifier {
     liveGold = snap.liveGold ?? settings.goldTmnPerGram;
     lastSyncedAt = snap.savedAt;
     await _loadCommodityCacheQuietly();
+    await _loadPriceAlertRuntime();
     return true;
   }
 
@@ -292,6 +298,7 @@ class AppState extends ChangeNotifier {
     iranInflationService ??= IranInflationService();
     authenticated = true;
     await _loadLocalSettings();
+    await _loadPriceAlertRuntime();
     // Prefer remote cache settings/theme if local DB is empty-ish.
     final cache = await OfflineCacheStore.loadPortfolio();
     if (cache != null && assets.isEmpty) {
@@ -686,6 +693,7 @@ class AppState extends ChangeNotifier {
         liveGold = q.price;
       }
     }
+    await _dispatchPriceAlerts();
   }
 
   Future<void> _loadIndexFromCache({
@@ -764,6 +772,7 @@ class AppState extends ChangeNotifier {
     await _session!.setApiVersion(server);
     if (stored != null && stored != server) {
       settings = await remote!.fetchSettings();
+      await PriceAlertPrefs.overlayOnto(settings);
     }
   }
 
@@ -791,13 +800,17 @@ class AppState extends ChangeNotifier {
       ..goldTmnPerGram = prevGold
       ..wallexUrl = prevWallex
       ..persianToolboxUrl = prevPersian;
+    final keepAlerts = s.priceAlerts.map((e) => e.copy()).toList();
+    final keepBg = s.notifyBackground;
     notifyListeners();
 
     if (useRemote && !offline) {
       final saved = await remote!.saveSettings(settings);
       settings = saved
         ..usdtTmnRate = prevUsdt
-        ..goldTmnPerGram = prevGold;
+        ..goldTmnPerGram = prevGold
+        ..priceAlerts = keepAlerts
+        ..notifyBackground = keepBg;
       if (settings.wallexUrl.trim().isEmpty) {
         settings.wallexUrl = prevWallex;
       }
@@ -806,6 +819,8 @@ class AppState extends ChangeNotifier {
       }
     }
     await _persistSettingsLocal(settings);
+    await PriceAlertPrefs.saveFrom(settings);
+    await BackgroundPriceWorker.sync(settings);
     notifyListeners();
     await refreshAll(
       includeQuotes: false,
@@ -912,6 +927,7 @@ class AppState extends ChangeNotifier {
     }
     if (fetchSettings) {
       settings = await remote!.fetchSettings();
+      await PriceAlertPrefs.overlayOnto(settings);
     }
     final svc = remote!;
     metrics = await svc.fetchDashboard(settings.calendar);
@@ -1025,9 +1041,6 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _syncLiveQuotes() async {
-    final prevUsdt = liveUsdt ?? settings.usdtTmnRate;
-    final prevGold = liveGold ?? settings.goldTmnPerGram;
-
     if (useRemote && !offline) {
       final q = await remote!.fetchQuotes();
       if (q.usdt != null) {
@@ -1038,7 +1051,7 @@ class AppState extends ChangeNotifier {
         liveGold = q.gold;
         settings.goldTmnPerGram = q.gold;
       }
-      await _maybeNotifyPriceMoves(prevUsdt: prevUsdt, prevGold: prevGold);
+      await _dispatchPriceAlerts();
       return;
     }
 
@@ -1070,42 +1083,31 @@ class AppState extends ChangeNotifier {
       updateUsdt: settings.usdtApiEnabled,
       updateGold: settings.goldApiEnabled,
     );
-    await _maybeNotifyPriceMoves(prevUsdt: prevUsdt, prevGold: prevGold);
+    await _dispatchPriceAlerts();
   }
 
-  /// Notify when USDT/gold move by at least 1% vs the previous live reading.
-  Future<void> _maybeNotifyPriceMoves({
-    required double? prevUsdt,
-    required double? prevGold,
-  }) async {
+  Future<void> _loadPriceAlertRuntime() async {
+    try {
+      final snap = await PriceAlertPrefs.loadSnapshot();
+      if (snap != null) {
+        await PriceAlertPrefs.overlayOnto(settings);
+      } else {
+        await PriceAlertPrefs.saveFrom(settings);
+      }
+      await BackgroundPriceWorker.sync(settings);
+    } catch (_) {}
+  }
+
+  Future<void> _dispatchPriceAlerts() async {
     if (!settings.priceAlertsOn) return;
-    const minPct = 1.0;
-    final parts = <String>[];
-    final nextUsdt = liveUsdt ?? settings.usdtTmnRate;
-    final nextGold = liveGold ?? settings.goldTmnPerGram;
-    if (prevUsdt != null && prevUsdt > 0 && nextUsdt != null) {
-      final pct = ((nextUsdt - prevUsdt) / prevUsdt) * 100;
-      if (pct.abs() >= minPct) {
-        final sign = pct >= 0 ? '+' : '';
-        parts.add(
-          'تتر ${formatCompactToman(nextUsdt)} ($sign${pct.toStringAsFixed(1)}٪)',
-        );
-      }
-    }
-    if (prevGold != null && prevGold > 0 && nextGold != null) {
-      final pct = ((nextGold - prevGold) / prevGold) * 100;
-      if (pct.abs() >= minPct) {
-        final sign = pct >= 0 ? '+' : '';
-        parts.add(
-          'طلا ${formatCompactToman(nextGold)} ($sign${pct.toStringAsFixed(1)}٪)',
-        );
-      }
-    }
-    if (parts.isEmpty) return;
-    await emitLocalAlert(
-      kind: NotificationKind.prices,
-      title: 'تغییر قیمت',
-      body: parts.join(' · '),
+    final prices = PriceAlertEngine.pricesFrom(
+      quotes: [...commodityIndex, ...wallexMarkets],
+      usdt: liveUsdt ?? settings.usdtTmnRate,
+      gold: liveGold ?? settings.goldTmnPerGram,
+    );
+    await BackgroundPriceMonitor.dispatchHits(
+      alerts: settings.priceAlerts,
+      prices: prices,
     );
   }
 
@@ -1238,6 +1240,8 @@ class AppState extends ChangeNotifier {
           : payload.settings.persianToolboxUrl,
     );
     await _persistSettingsLocal(settings);
+    await PriceAlertPrefs.saveFrom(settings);
+    await BackgroundPriceWorker.sync(settings);
     liveUsdt = settings.usdtTmnRate ?? liveUsdt;
     liveGold = settings.goldTmnPerGram ?? liveGold;
     notifyListeners();
