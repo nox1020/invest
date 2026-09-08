@@ -6,6 +6,7 @@ import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/iran_inflation_pane.dart';
 import 'package:invest/ui/pages/quote_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/price_alert_sheet.dart';
 import 'package:provider/provider.dart';
 
 class CommodityIndexPage extends StatefulWidget {
@@ -512,6 +513,7 @@ class _CommodityCard extends StatelessWidget {
           ),
           child: Row(
             children: [
+              QuoteAlertBell(quote: quote),
               const Icon(Icons.chevron_left_rounded,
                   color: AppTheme.muted, size: 20),
               if (changeText != null) ...[

@@ -116,24 +116,7 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
         title: Text(q.name),
         centerTitle: true,
         actions: [
-          IconButton(
-            tooltip: 'اعلان قیمت',
-            onPressed: !state.canMutate
-                ? null
-                : () => showPriceAlertEditor(
-                      context,
-                      id: q.id,
-                      name: q.name,
-                      symbol: q.symbol,
-                      unit: q.unit,
-                      currentPrice: q.price,
-                    ),
-            icon: Icon(
-              state.settings.alertFor(q.id).isArmed
-                  ? Icons.notifications_active_rounded
-                  : Icons.notifications_outlined,
-            ),
-          ),
+          QuoteAlertBell(quote: q, color: Colors.white),
         ],
       ),
       body: ListView(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/price_alert.dart';
 import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/domain/utils/money.dart';
@@ -70,6 +71,47 @@ Future<void> showPriceAlertEditor(
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('ذخیره ناموفق: $e')),
+    );
+  }
+}
+
+/// Compact bell that opens the high/low threshold editor for a quote.
+class QuoteAlertBell extends StatelessWidget {
+  const QuoteAlertBell({
+    super.key,
+    required this.quote,
+    this.iconSize = 20,
+    this.color,
+  });
+
+  final CommodityQuote quote;
+  final double iconSize;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final armed = state.settings.alertFor(quote.id).isArmed;
+    return IconButton(
+      tooltip: armed ? 'ویرایش آستانه قیمت' : 'تنظیم آستانه قیمت',
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      onPressed: () => showPriceAlertEditor(
+        context,
+        id: quote.id,
+        name: quote.name,
+        symbol: quote.symbol,
+        unit: quote.unit,
+        currentPrice: quote.price,
+      ),
+      icon: Icon(
+        armed
+            ? Icons.notifications_active_rounded
+            : Icons.notifications_outlined,
+        size: iconSize,
+        color: color ?? (armed ? const Color(0xFFFF9500) : AppTheme.muted),
+      ),
     );
   }
 }
