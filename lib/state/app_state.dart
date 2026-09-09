@@ -103,10 +103,18 @@ class AppState extends ChangeNotifier {
 
   bool get canMutate => authenticated && !readOnlyOffline;
 
-  List<SeriesPoint> get capitalGrowthSeries => ensureChartSeries(
-        metrics?.growthSeries ?? const [],
-        todayValue: metrics?.totalValue ?? 0,
-      );
+  List<SeriesPoint> get capitalGrowthSeries {
+    final holdings = HoldingMetrics.activeHoldings(
+      assets: assets,
+      openTrades: openTrades,
+    );
+    final liveValue =
+        holdings.fold<double>(0, (s, h) => s + h.metrics.marketValue);
+    return ensureChartSeries(
+      metrics?.growthSeries ?? const [],
+      todayValue: liveValue,
+    );
+  }
 
   List<SeriesPoint> get yearRealizedChartSeries {
     final m = metrics;

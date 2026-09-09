@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
 import 'package:invest/ui/pages/app_lock_page.dart';
 import 'package:invest/ui/pages/login_page.dart';
@@ -99,13 +100,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           ),
         );
       }
-      if (index == 3) {
+      if (index == HomeTabs.index) {
         await state.refreshCommodityIndex(force: true);
       }
       return;
     }
     await state.refreshAll();
-    if (index == 3) {
+    if (index == HomeTabs.index) {
       await state.refreshCommodityIndex(force: true);
     }
   }
@@ -114,17 +115,18 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final state = context.read<AppState>();
     if (!state.canMutate) return null;
     switch (index) {
-      case 1:
-        return FloatingActionButton.extended(
-          onPressed: () => showRecordWithdrawalDialog(context),
-          icon: const Icon(Icons.south_west_rounded),
-          label: const Text('ثبت برداشت'),
-        );
-      case 2:
+      case HomeTabs.dashboard:
+      case HomeTabs.trades:
         return FloatingActionButton.extended(
           onPressed: () => showAssetEditor(context),
           icon: const Icon(Icons.add),
           label: const Text('دارایی جدید'),
+        );
+      case HomeTabs.withdrawals:
+        return FloatingActionButton.extended(
+          onPressed: () => showRecordWithdrawalDialog(context),
+          icon: const Icon(Icons.south_west_rounded),
+          label: const Text('ثبت برداشت'),
         );
       default:
         return null;
@@ -144,7 +146,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
     final initialLoad = state.loading && state.metrics == null;
     final updating =
-        state.refreshing || (index == 3 && state.commodityIndexLoading);
+        state.refreshing || (index == HomeTabs.index && state.commodityIndexLoading);
     final connectionStatus = AppConnectionStatus.resolve(
       offline: state.offline,
       updating: updating,
@@ -182,17 +184,26 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ),
       body: initialLoad
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                if (state.readOnlyOffline) const OfflineReadOnlyNotice(),
-                Expanded(
-                  child: IndexedStack(
-                    index: index,
-                    sizing: StackFit.expand,
-                    children: pages,
+          : NotificationListener<OpenHomeTabNotification>(
+              onNotification: (n) {
+                setState(() => index = n.index);
+                if (n.index == HomeTabs.index) {
+                  context.read<AppState>().refreshCommodityIndex(force: false);
+                }
+                return true;
+              },
+              child: Column(
+                children: [
+                  if (state.readOnlyOffline) const OfflineReadOnlyNotice(),
+                  Expanded(
+                    child: IndexedStack(
+                      index: index,
+                      sizing: StackFit.expand,
+                      children: pages,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
       floatingActionButton: initialLoad ? null : _floatingActionButton(context),
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
@@ -200,7 +211,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         currentIndex: index,
         onTap: (i) {
           setState(() => index = i);
-          if (i == 3) {
+          if (i == HomeTabs.index) {
             context.read<AppState>().refreshCommodityIndex(force: false);
           }
         },
