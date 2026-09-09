@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/services/buy_usd_suggest.dart';
 import 'package:invest/domain/services/notification_service.dart';
+import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
@@ -159,12 +162,40 @@ class _AssetTradesSectionState extends State<AssetTradesSection> {
 
 String _formatUsdField(double usd) => formatBuyUsdField(usd);
 
+String _formatFxField(double fx) => formatBuyFxField(fx);
+
 double? _parseOptionalPositive(String raw) {
   final t = raw.trim().replaceAll(',', '');
   if (t.isEmpty) return null;
   final v = double.tryParse(t);
   if (v == null || v <= 0) return null;
   return v;
+}
+
+bool _assetIsCrypto(Asset asset) =>
+    detectAssetKind(
+      name: asset.name,
+      symbol: asset.symbol,
+      notes: asset.notes,
+    ) ==
+    AssetKind.crypto;
+
+Asset? _assetById(List<Asset> assets, int? id) {
+  if (id == null) return null;
+  for (final a in assets) {
+    if (a.id == id) return a;
+  }
+  return null;
+}
+
+bool _tradeIsCrypto(Trade trade, List<Asset> assets) {
+  final a = _assetById(assets, trade.assetId);
+  if (a != null) return _assetIsCrypto(a);
+  return detectAssetKind(
+        name: trade.assetName,
+        symbol: trade.assetSymbol,
+      ) ==
+      AssetKind.crypto;
 }
 
 Future<void> showBuyTradeDialog(
@@ -203,15 +234,62 @@ Future<void> showBuyTradeDialog(
   );
   final feeCtrl = TextEditingController(text: '0');
   final usdCtrl = TextEditingController();
+  final fxCtrl = TextEditingController();
   var buyDate = todayIso();
   var usdManual = false;
+  var fxManual = false;
   var suggestGen = 0;
   var suggesting = false;
   var kickedOff = false;
   final calendar = state.settings.calendar;
   final lockAsset = locked != null;
 
+  bool isCrypto() {
+    final a = _assetById(state.assets, choice?.id);
+    return a != null && _assetIsCrypto(a);
+  }
+
+  void fillUsdFromFx() {
+    if (usdManual) return;
+    final p = _parseOptionalPositive(priceCtrl.text);
+    final fx = _parseOptionalPositive(fxCtrl.text);
+    if (p == null || fx == null) return;
+    final u = tomanToUsd(p, fx);
+    if (u != null && u > 0) usdCtrl.text = _formatUsdField(u);
+  }
+
+  void fillFxFromUsd() {
+    if (fxManual) return;
+    final p = _parseOptionalPositive(priceCtrl.text);
+    final u = _parseOptionalPositive(usdCtrl.text);
+    final fx = impliedBuyUsdTmn(buyToman: p ?? 0, buyUsd: u);
+    if (fx != null && fx > 0) fxCtrl.text = _formatFxField(fx);
+  }
+
   Future<void> suggestUsdFromPrice(void Function(VoidCallback) setLocal) async {
+    final crypto = isCrypto();
+    if (crypto) {
+      if (fxManual && usdManual) return;
+      final gen = ++suggestGen;
+      setLocal(() => suggesting = true);
+      try {
+        if (!fxManual) {
+          final fx = await suggestBuyUsdTmn(
+            buyDateIso: buyDate,
+            liveUsdtFallback: state.liveUsdt ?? state.settings.usdtTmnRate,
+          );
+          if (gen != suggestGen || fxManual) return;
+          if (fx != null && fx > 0) {
+            fxCtrl.text = _formatFxField(fx);
+          }
+        }
+        if (gen != suggestGen) return;
+        fillUsdFromFx();
+      } finally {
+        if (gen == suggestGen) setLocal(() => suggesting = false);
+      }
+      return;
+    }
     if (usdManual) return;
     final p = double.tryParse(priceCtrl.text.replaceAll(',', ''));
     if (p == null || p <= 0) return;
@@ -236,12 +314,13 @@ Future<void> showBuyTradeDialog(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setLocal) {
-        if (!kickedOff && !usdManual) {
+        if (!kickedOff) {
           kickedOff = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             suggestUsdFromPrice(setLocal);
           });
         }
+        final crypto = isCrypto();
         return AlertDialog(
           title: const Text('ثبت خرید'),
           content: SingleChildScrollView(
@@ -270,6 +349,7 @@ Future<void> showBuyTradeDialog(
                         choice = AssetChoice(a.id!, a.name);
                         priceCtrl.text = '${a.currentPrice}';
                         usdManual = false;
+                        fxManual = false;
                       });
                       suggestUsdFromPrice(setLocal);
                     },
@@ -289,21 +369,49 @@ Future<void> showBuyTradeDialog(
                   textAlign: TextAlign.right,
                   onChanged: (_) {
                     usdManual = false;
+                    if (isCrypto() && fxManual) {
+                      fillUsdFromFx();
+                      setLocal(() {});
+                      return;
+                    }
                     suggestUsdFromPrice(setLocal);
                   },
                 ),
+                if (crypto)
+                  TextField(
+                    controller: fxCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'قیمت دلار در زمان خرید',
+                      hintText: suggesting
+                          ? 'در حال خواندن نرخ تتر همان تاریخ…'
+                          : 'تومان به‌ازای ۱ دلار — خودکار از تاریخ خرید',
+                    ),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    textAlign: TextAlign.right,
+                    onChanged: (_) {
+                      fxManual = true;
+                      fillUsdFromFx();
+                      setLocal(() {});
+                    },
+                  ),
                 TextField(
                   controller: usdCtrl,
                   decoration: InputDecoration(
                     labelText: 'بهای دلاری خرید',
                     hintText: suggesting
                         ? 'در حال محاسبه از نرخ همان تاریخ…'
-                        : 'خودکار از نرخ USDT تاریخ خرید — قابل ویرایش',
+                        : crypto
+                            ? 'قیمت خرید ÷ قیمت دلار آن روز — قابل ویرایش'
+                            : 'خودکار از نرخ USDT تاریخ خرید — قابل ویرایش',
                   ),
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   textAlign: TextAlign.right,
-                  onChanged: (_) => usdManual = true,
+                  onChanged: (_) {
+                    usdManual = true;
+                    if (crypto) fillFxFromUsd();
+                  },
                 ),
                 TextField(
                   controller: feeCtrl,
@@ -318,6 +426,7 @@ Future<void> showBuyTradeDialog(
                   onChanged: (v) {
                     setLocal(() => buyDate = v);
                     usdManual = false;
+                    fxManual = false;
                     suggestUsdFromPrice(setLocal);
                   },
                 ),
@@ -345,6 +454,7 @@ Future<void> showBuyTradeDialog(
       quantity: double.parse(qtyCtrl.text),
       buyPrice: double.parse(priceCtrl.text),
       buyPriceUsd: _parseOptionalPositive(usdCtrl.text),
+      buyUsdTmn: isCrypto() ? _parseOptionalPositive(fxCtrl.text) : null,
       buyFee: double.tryParse(feeCtrl.text) ?? 0,
       buyDate: buyDate,
     );
@@ -452,14 +562,63 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
   final usdCtrl = TextEditingController(
     text: hasSeedUsd ? _formatUsdField(trade.buyPriceUsd!) : '',
   );
+  final seedFx = trade.resolvedBuyUsdTmn;
+  final hasSeedFx = seedFx != null && seedFx > 0;
+  final fxCtrl = TextEditingController(
+    text: hasSeedFx ? _formatFxField(seedFx) : '',
+  );
   final noteCtrl = TextEditingController(text: trade.buyNoteDisplay);
   var buyDate = trade.buyDate.isEmpty ? todayIso() : trade.buyDate;
   var usdManual = hasSeedUsd;
+  var fxManual = hasSeedFx;
   var suggestGen = 0;
   var suggesting = false;
   var kickedOff = false;
+  final crypto = () {
+    final a = _assetById(state.assets, trade.assetId);
+    return a != null && _assetIsCrypto(a);
+  }();
+
+  void fillUsdFromFx() {
+    if (usdManual) return;
+    final p = _parseOptionalPositive(priceCtrl.text);
+    final fx = _parseOptionalPositive(fxCtrl.text);
+    if (p == null || fx == null) return;
+    final u = tomanToUsd(p, fx);
+    if (u != null && u > 0) usdCtrl.text = _formatUsdField(u);
+  }
+
+  void fillFxFromUsd() {
+    if (fxManual) return;
+    final p = _parseOptionalPositive(priceCtrl.text);
+    final u = _parseOptionalPositive(usdCtrl.text);
+    final fx = impliedBuyUsdTmn(buyToman: p ?? 0, buyUsd: u);
+    if (fx != null && fx > 0) fxCtrl.text = _formatFxField(fx);
+  }
 
   Future<void> suggestUsdFromPrice(void Function(VoidCallback) setLocal) async {
+    if (crypto) {
+      if (fxManual && usdManual) return;
+      final gen = ++suggestGen;
+      setLocal(() => suggesting = true);
+      try {
+        if (!fxManual) {
+          final fx = await suggestBuyUsdTmn(
+            buyDateIso: buyDate,
+            liveUsdtFallback: state.liveUsdt ?? state.settings.usdtTmnRate,
+          );
+          if (gen != suggestGen || fxManual) return;
+          if (fx != null && fx > 0) {
+            fxCtrl.text = _formatFxField(fx);
+          }
+        }
+        if (gen != suggestGen) return;
+        fillUsdFromFx();
+      } finally {
+        if (gen == suggestGen) setLocal(() => suggesting = false);
+      }
+      return;
+    }
     if (usdManual) return;
     final p = double.tryParse(priceCtrl.text.replaceAll(',', ''));
     if (p == null || p <= 0) return;
@@ -484,7 +643,7 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setLocal) {
-        if (!hasSeedUsd && !kickedOff && !usdManual) {
+        if (!kickedOff && (!hasSeedUsd || (crypto && !hasSeedFx))) {
           kickedOff = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             suggestUsdFromPrice(setLocal);
@@ -510,21 +669,49 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
                   textAlign: TextAlign.right,
                   onChanged: (_) {
                     usdManual = false;
+                    if (crypto && fxManual) {
+                      fillUsdFromFx();
+                      setLocal(() {});
+                      return;
+                    }
                     suggestUsdFromPrice(setLocal);
                   },
                 ),
+                if (crypto)
+                  TextField(
+                    controller: fxCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'قیمت دلار در زمان خرید',
+                      hintText: suggesting
+                          ? 'در حال خواندن نرخ تتر همان تاریخ…'
+                          : 'تومان به‌ازای ۱ دلار — خودکار از تاریخ خرید',
+                    ),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    textAlign: TextAlign.right,
+                    onChanged: (_) {
+                      fxManual = true;
+                      fillUsdFromFx();
+                      setLocal(() {});
+                    },
+                  ),
                 TextField(
                   controller: usdCtrl,
                   decoration: InputDecoration(
                     labelText: 'بهای دلاری خرید',
                     hintText: suggesting
                         ? 'در حال محاسبه از نرخ همان تاریخ…'
-                        : 'خودکار از نرخ USDT تاریخ خرید — قابل ویرایش',
+                        : crypto
+                            ? 'قیمت خرید ÷ قیمت دلار آن روز — قابل ویرایش'
+                            : 'خودکار از نرخ USDT تاریخ خرید — قابل ویرایش',
                   ),
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   textAlign: TextAlign.right,
-                  onChanged: (_) => usdManual = true,
+                  onChanged: (_) {
+                    usdManual = true;
+                    if (crypto) fillFxFromUsd();
+                  },
                 ),
                 TextField(
                   controller: feeCtrl,
@@ -539,6 +726,7 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
                   onChanged: (v) {
                     setLocal(() => buyDate = v);
                     usdManual = false;
+                    fxManual = false;
                     suggestUsdFromPrice(setLocal);
                   },
                 ),
@@ -579,6 +767,7 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
       quantity: qty,
       buyPrice: price,
       buyPriceUsd: _parseOptionalPositive(usdCtrl.text),
+      buyUsdTmn: crypto ? _parseOptionalPositive(fxCtrl.text) : null,
       buyFee: double.tryParse(feeCtrl.text) ?? 0,
       buyDate: buyDate,
       buyNote: noteCtrl.text,
@@ -736,6 +925,12 @@ class _TradeTile extends StatelessWidget {
                 ? formatUsd(trade.buyPriceUsd!)
                 : null,
           ),
+          if (trade.resolvedBuyUsdTmn != null &&
+              _tradeIsCrypto(trade, state.assets))
+            _TradeDetailRow(
+              label: 'قیمت دلار زمان خرید',
+              value: formatTomanPrice(trade.resolvedBuyUsdTmn!),
+            ),
           if (trade.buyFee > 0)
             _TradeDetailRow(
               label: 'کارمزد خرید',

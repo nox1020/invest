@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/models/trade.dart';
@@ -71,8 +72,15 @@ class AssetDetailPage extends StatelessWidget {
     final buyToman = metrics.avgBuyPrice;
     // Registered USD only — match asset cards (no live USDT conversion).
     final buyUsd = metrics.avgBuyPriceUsd;
+    final buyFx = metrics.avgBuyUsdTmn;
     final curToman = metrics.currentPrice;
     final curUsd = metrics.currentPriceUsd(usdt);
+    final isCrypto = detectAssetKind(
+          name: asset.name,
+          symbol: asset.symbol,
+          notes: asset.notes,
+        ) ==
+        AssetKind.crypto;
     final series = _unitPriceSeries(
       asset: asset,
       metrics: metrics,
@@ -140,6 +148,7 @@ class AssetDetailPage extends StatelessWidget {
                   usd: buyUsd,
                   accent: AppTheme.muted,
                   usdHint: buyUsd != null ? 'دلار ثبت‌شده' : 'دلار خرید ثبت نشده',
+                  fxTmn: isCrypto ? buyFx : null,
                 ),
               ),
               const SizedBox(width: 10),
@@ -407,6 +416,7 @@ class _PriceCard extends StatelessWidget {
     required this.usd,
     required this.accent,
     this.usdHint,
+    this.fxTmn,
   });
 
   final String title;
@@ -414,6 +424,7 @@ class _PriceCard extends StatelessWidget {
   final double? usd;
   final Color accent;
   final String? usdHint;
+  final double? fxTmn;
 
   @override
   Widget build(BuildContext context) {
@@ -460,6 +471,23 @@ class _PriceCard extends StatelessWidget {
             Text(
               usdHint!,
               style: const TextStyle(color: AppTheme.muted, fontSize: 10),
+            ),
+          ],
+          if (fxTmn != null && fxTmn! > 0) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'قیمت دلار زمان خرید',
+              style: TextStyle(color: AppTheme.muted, fontSize: 10),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              formatTomanPrice(fxTmn!),
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: AppTheme.title,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
             ),
           ],
         ],

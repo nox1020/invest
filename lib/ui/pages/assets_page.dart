@@ -574,6 +574,13 @@ class _AssetCard extends StatelessWidget {
                         ? '— دلار ثبت‌نشده'
                         : null),
               ),
+              if (kind == AssetKind.crypto &&
+                  metrics.avgBuyUsdTmn != null &&
+                  metrics.avgBuyUsdTmn! > 0)
+                _StatRow(
+                  label: 'قیمت دلار زمان خرید',
+                  value: formatTomanPrice(metrics.avgBuyUsdTmn!),
+                ),
               _StatRow(
                 label: kind.isUnitAsset ? 'ارزش فعلی واحد' : 'قیمت لحظه‌ای',
                 value: formatTomanPrice(metrics.currentPrice),

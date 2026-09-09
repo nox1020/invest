@@ -6,6 +6,7 @@ import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/buy_usd_suggest.dart';
 import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/services/notification_service.dart';
+import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
@@ -79,7 +80,7 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
               result.updateQuantity ||
               result.updateBuyPriceUsd ||
               result.updateBuyDate)) {
-        final usd = parseAssetNotes(result.notes).meta.buyPriceUsd;
+        final meta = parseAssetNotes(result.notes).meta;
         await svc.updateOpenTrade(
           tradeId: primaryLot.id!,
           quantity:
@@ -87,7 +88,9 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
           buyPrice:
               result.updateBuyPrice ? result.buyPrice : primaryLot.buyPrice,
           buyPriceUsd:
-              result.updateBuyPriceUsd ? usd : primaryLot.buyPriceUsd,
+              result.updateBuyPriceUsd ? meta.buyPriceUsd : primaryLot.buyPriceUsd,
+          buyUsdTmn:
+              result.updateBuyPriceUsd ? meta.buyUsdTmn : primaryLot.buyUsdTmn,
           buyFee: primaryLot.buyFee,
           buyDate: result.updateBuyDate ? result.buyDate : primaryLot.buyDate,
           buyNote: primaryLot.buyNoteDisplay,
@@ -173,11 +176,13 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
 
   // Optional USD buy unit price (all kinds)
   late final TextEditingController _buyUsdCtrl;
+  late final TextEditingController _buyFxCtrl;
 
   /// Buy date for non-property/vehicle kinds (and seed for purchase date).
   late String _buyDate;
 
   bool _buyUsdManual = false;
+  bool _buyFxManual = false;
   int _usdSuggestGen = 0;
   bool _usdSuggesting = false;
 
@@ -226,6 +231,14 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     final lotUsd = lot?.buyPriceUsd;
     final seedUsd =
         (lotUsd != null && lotUsd > 0) ? lotUsd : meta.buyPriceUsd;
+    final lotFx = lot?.resolvedBuyUsdTmn;
+    final seedFx = (lotFx != null && lotFx > 0)
+        ? lotFx
+        : resolveBuyUsdTmn(
+            storedFx: meta.buyUsdTmn,
+            buyToman: seedBuy ?? 0,
+            buyUsd: seedUsd,
+          );
 
     _nameCtrl = TextEditingController(text: edit?.name ?? '');
     _symbolCtrl = TextEditingController(text: edit?.symbol ?? '');
@@ -269,6 +282,14 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
       text: seedUsd == null || seedUsd <= 0 ? '' : _formatQty(seedUsd),
     );
     _buyUsdManual = seedUsd != null && seedUsd > 0;
+    _buyFxCtrl = TextEditingController(
+      text: seedFx == null || seedFx <= 0 ? '' : formatBuyFxField(seedFx),
+    );
+    _buyFxManual = seedFx != null && seedFx > 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_kind == AssetKind.crypto) _maybeSuggestBuyUsd();
+    });
   }
 
   @override
@@ -278,6 +299,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     _qtyCtrl.dispose();
     _buyCtrl.dispose();
     _buyUsdCtrl.dispose();
+    _buyFxCtrl.dispose();
     _currentCtrl.dispose();
     _notesCtrl.dispose();
     _addressCtrl.dispose();
@@ -311,7 +333,12 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
   }
 
   Future<void> _maybeSuggestBuyUsd() async {
-    if (_buyUsdManual || !_showBuyField) return;
+    if (!_showBuyField) return;
+    if (_kind == AssetKind.crypto) {
+      await _maybeSuggestCryptoFxAndUsd();
+      return;
+    }
+    if (_buyUsdManual) return;
     final buy = double.tryParse(_buyCtrl.text.replaceAll(',', ''));
     if (buy == null || buy <= 0) return;
     final date = _resolvedBuyDate;
@@ -338,13 +365,73 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     }
   }
 
+  Future<void> _maybeSuggestCryptoFxAndUsd() async {
+    final date = _resolvedBuyDate;
+    if (date.isEmpty) return;
+    if (_buyFxManual && _buyUsdManual) return;
+
+    final gen = ++_usdSuggestGen;
+    final state = context.read<AppState>();
+    final fallback = state.liveUsdt ?? state.settings.usdtTmnRate;
+    if (mounted) setState(() => _usdSuggesting = true);
+    try {
+      if (!_buyFxManual) {
+        final fx = await suggestBuyUsdTmn(
+          buyDateIso: date,
+          liveUsdtFallback: fallback,
+        );
+        if (!mounted || gen != _usdSuggestGen || _buyFxManual) return;
+        if (fx != null && fx > 0) {
+          _buyFxCtrl.text = formatBuyFxField(fx);
+        }
+      }
+      if (!mounted || gen != _usdSuggestGen) return;
+      _fillUsdFromFxIfAuto();
+    } finally {
+      if (mounted && gen == _usdSuggestGen) {
+        setState(() => _usdSuggesting = false);
+      }
+    }
+  }
+
+  void _fillUsdFromFxIfAuto() {
+    if (_buyUsdManual) return;
+    final buy = double.tryParse(_buyCtrl.text.replaceAll(',', ''));
+    final fx = double.tryParse(_buyFxCtrl.text.replaceAll(',', ''));
+    if (buy == null || buy <= 0 || fx == null || fx <= 0) return;
+    final usd = tomanToUsd(buy, fx);
+    if (usd != null && usd > 0) {
+      _buyUsdCtrl.text = formatBuyUsdField(usd);
+    }
+  }
+
+  void _fillFxFromUsdIfAuto() {
+    if (_buyFxManual) return;
+    final buy = double.tryParse(_buyCtrl.text.replaceAll(',', ''));
+    final usd = double.tryParse(_buyUsdCtrl.text.replaceAll(',', ''));
+    final fx = impliedBuyUsdTmn(buyToman: buy ?? 0, buyUsd: usd);
+    if (fx != null && fx > 0) {
+      _buyFxCtrl.text = formatBuyFxField(fx);
+    }
+  }
+
   void _onBuyTomanChanged(String _) {
     _buyUsdManual = false;
+    if (_kind == AssetKind.crypto && _buyFxManual) {
+      _fillUsdFromFxIfAuto();
+      return;
+    }
     _maybeSuggestBuyUsd();
   }
 
   void _onBuyUsdChanged(String _) {
     _buyUsdManual = true;
+    if (_kind == AssetKind.crypto) _fillFxFromUsdIfAuto();
+  }
+
+  void _onBuyFxChanged(String _) {
+    _buyFxManual = true;
+    _fillUsdFromFxIfAuto();
   }
 
   void _onBuyDateChanged(String iso) {
@@ -356,6 +443,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
       }
     });
     _buyUsdManual = false;
+    _buyFxManual = false;
     _maybeSuggestBuyUsd();
   }
 
@@ -376,6 +464,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
       }
     });
     _maybeSuggestLiveCurrent();
+    if (kind == AssetKind.crypto) _maybeSuggestBuyUsd();
   }
 
   void _maybeSuggestLiveCurrent() {
@@ -410,6 +499,10 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     int? parseI(String s) => int.tryParse(s.trim().replaceAll(',', ''));
     final usdRaw = parseD(_buyUsdCtrl.text);
     final usd = (usdRaw != null && usdRaw > 0) ? usdRaw : null;
+    final fxRaw = parseD(_buyFxCtrl.text);
+    final fx = (_kind == AssetKind.crypto && fxRaw != null && fxRaw > 0)
+        ? fxRaw
+        : null;
 
     switch (_kind) {
       case AssetKind.property:
@@ -433,8 +526,10 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
         );
       case AssetKind.gold:
         return AssetMeta(purity: _purityCtrl.text, buyPriceUsd: usd);
-      case AssetKind.cash:
       case AssetKind.crypto:
+        if (usd == null && fx == null) return AssetMeta.empty;
+        return AssetMeta(buyPriceUsd: usd, buyUsdTmn: fx);
+      case AssetKind.cash:
       case AssetKind.stock:
       case AssetKind.other:
         return usd == null ? AssetMeta.empty : AssetMeta(buyPriceUsd: usd);
@@ -610,12 +705,25 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
                     const TextInputType.numberWithOptions(decimal: true),
                 onChanged: _onBuyTomanChanged,
               ),
+              if (_kind == AssetKind.crypto)
+                _field(
+                  _buyFxCtrl,
+                  label: 'قیمت دلار در زمان خرید',
+                  hint: _usdSuggesting
+                      ? 'در حال خواندن نرخ تتر همان تاریخ…'
+                      : 'تومان به‌ازای ۱ دلار — خودکار از تاریخ خرید',
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  onChanged: _onBuyFxChanged,
+                ),
               _field(
                 _buyUsdCtrl,
                 label: 'بهای دلاری خرید',
                 hint: _usdSuggesting
                     ? 'در حال محاسبه از نرخ همان تاریخ…'
-                    : 'ثبت‌شده — خودکار از نرخ تتر تاریخ خرید، قابل ویرایش',
+                    : _kind == AssetKind.crypto
+                        ? 'قیمت خرید ÷ قیمت دلار آن روز — قابل ویرایش'
+                        : 'ثبت‌شده — خودکار از نرخ تتر تاریخ خرید، قابل ویرایش',
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
                 onChanged: _onBuyUsdChanged,

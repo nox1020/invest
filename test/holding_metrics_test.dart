@@ -138,4 +138,28 @@ void main() {
     expect(m.unrealizedPnlUsd(usdt), closeTo(0, 1e-6));
     expect(m.unrealizedPnlUsd(usdt)! == 2e8 / usdt, isFalse);
   });
+
+  test('avgBuyUsdTmn is implied from registered Toman and USD', () {
+    final asset = Asset(
+      id: 1,
+      name: 'BTC',
+      symbol: 'BTC',
+      quantity: 1,
+      avgBuyPrice: 7e9,
+      currentPrice: 8e9,
+      notes: '[kind:crypto]',
+    );
+    final open = [
+      Trade(
+        assetId: 1,
+        status: AppConfig.tradeOpen,
+        quantity: 1,
+        buyPrice: 7e9,
+        buyPriceUsd: 70000,
+        buyUsdTmn: 100000,
+      ),
+    ];
+    final m = HoldingMetrics.forAsset(asset, open);
+    expect(m.avgBuyUsdTmn, closeTo(100000, 1e-6));
+  });
 }

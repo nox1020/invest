@@ -95,6 +95,17 @@ void main() {
     expect(parts.meta.buyPriceUsd, closeTo(0.12, 1e-9));
   });
 
+  test('crypto buyUsdTmn round-trips in notes', () {
+    final notes = encodeAssetNotes(
+      kind: AssetKind.crypto,
+      meta: const AssetMeta(buyPriceUsd: 70000, buyUsdTmn: 100000),
+    );
+    final parts = parseAssetNotes(notes);
+    expect(parts.kind, AssetKind.crypto);
+    expect(parts.meta.buyPriceUsd, closeTo(70000, 1e-9));
+    expect(parts.meta.buyUsdTmn, closeTo(100000, 1e-9));
+  });
+
   test('card summary for property and vehicle', () {
     expect(
       assetMetaCardSummary(

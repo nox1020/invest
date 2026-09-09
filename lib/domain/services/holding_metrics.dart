@@ -1,6 +1,7 @@
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/money.dart';
 
 const _eps = 1e-9;
@@ -18,6 +19,7 @@ class HoldingMetrics {
     required this.currentPrice,
     required this.avgBuyPrice,
     this.avgBuyPriceUsd,
+    this.avgBuyUsdTmn,
     required this.costBasis,
     this.costBasisUsd,
     required this.marketValue,
@@ -31,6 +33,9 @@ class HoldingMetrics {
   /// Weighted unit buy price in USD when every open lot has a stored USD price
   /// (or asset meta for inventory-only holdings).
   final double? avgBuyPriceUsd;
+
+  /// Quantity-weighted Toman-per-USD rate at buy (stored or implied).
+  final double? avgBuyUsdTmn;
   final double costBasis;
 
   /// Total registered USD cost (`Σ qty·buyPriceUsd`) when coverage is complete.
@@ -73,7 +78,8 @@ class HoldingMetrics {
     final avg = asset.avgBuyPrice;
     final cost = qty * avg;
     final value = qty * price;
-    final metaUsd = parseAssetNotes(asset.notes).meta.buyPriceUsd;
+    final meta = parseAssetNotes(asset.notes).meta;
+    final metaUsd = meta.buyPriceUsd;
     final registeredUsd =
         (metaUsd != null && metaUsd > 0 && qty > _eps) ? metaUsd : null;
     return HoldingMetrics(
@@ -81,6 +87,11 @@ class HoldingMetrics {
       currentPrice: price,
       avgBuyPrice: avg,
       avgBuyPriceUsd: registeredUsd,
+      avgBuyUsdTmn: resolveBuyUsdTmn(
+        storedFx: meta.buyUsdTmn,
+        buyToman: avg,
+        buyUsd: registeredUsd,
+      ),
       costBasis: cost,
       costBasisUsd: registeredUsd == null ? null : qty * registeredUsd,
       marketValue: value,
@@ -125,11 +136,28 @@ class HoldingMetrics {
       currentPrice: price,
       avgBuyPrice: avg,
       avgBuyPriceUsd: avgUsd,
+      avgBuyUsdTmn: _avgBuyUsdTmn(lots, qty),
       costBasis: cost,
       costBasisUsd: costUsd,
       marketValue: value,
       unrealizedPnl: value - cost,
     );
+  }
+
+  static double? _avgBuyUsdTmn(List<Trade> lots, double qty) {
+    if (qty <= _eps) return null;
+    var fxQty = 0.0;
+    var fxSum = 0.0;
+    for (final t in lots) {
+      final fx = t.resolvedBuyUsdTmn;
+      if (fx == null || fx <= 0) continue;
+      fxQty += t.quantity;
+      fxSum += t.quantity * fx;
+    }
+    if (fxQty > _eps && (qty - fxQty).abs() <= _eps) {
+      return fxSum / fxQty;
+    }
+    return null;
   }
 
   static List<({Asset asset, HoldingMetrics metrics})> activeHoldings({

@@ -22,6 +22,7 @@ class AssetMeta {
     this.color,
     this.purity,
     this.buyPriceUsd,
+    this.buyUsdTmn,
   });
 
   /// ملک — آدرس
@@ -60,6 +61,9 @@ class AssetMeta {
   /// بهای دلاری خرید واحد (ثبت دستی؛ برای دارایی‌های بدون لات باز)
   final double? buyPriceUsd;
 
+  /// قیمت دلار در زمان خرید (تومان به‌ازای ۱ دلار)
+  final double? buyUsdTmn;
+
   static const empty = AssetMeta();
 
   bool get isEmpty =>
@@ -74,7 +78,8 @@ class AssetMeta {
       mileageKm == null &&
       (color == null || color!.trim().isEmpty) &&
       (purity == null || purity!.trim().isEmpty) &&
-      (buyPriceUsd == null || buyPriceUsd! <= 0);
+      (buyPriceUsd == null || buyPriceUsd! <= 0) &&
+      (buyUsdTmn == null || buyUsdTmn! <= 0);
 
   Map<String, Object?> toJson() {
     final m = <String, Object?>{};
@@ -97,6 +102,9 @@ class AssetMeta {
     put('purity', purity);
     if (buyPriceUsd != null && buyPriceUsd! > 0) {
       put('buyPriceUsd', buyPriceUsd);
+    }
+    if (buyUsdTmn != null && buyUsdTmn! > 0) {
+      put('buyUsdTmn', buyUsdTmn);
     }
     return m;
   }
@@ -123,6 +131,7 @@ class AssetMeta {
     }
 
     final usd = asDouble(json['buyPriceUsd'] ?? json['buy_price_usd']);
+    final fx = asDouble(json['buyUsdTmn'] ?? json['buy_usd_tmn']);
     return AssetMeta(
       address: asStr(json['address']),
       areaM2: asDouble(json['areaM2'] ?? json['area']),
@@ -136,6 +145,7 @@ class AssetMeta {
       color: asStr(json['color']),
       purity: asStr(json['purity'] ?? json['ayar']),
       buyPriceUsd: (usd != null && usd > 0) ? usd : null,
+      buyUsdTmn: (fx != null && fx > 0) ? fx : null,
     );
   }
 
@@ -152,6 +162,7 @@ class AssetMeta {
     String? color,
     String? purity,
     double? buyPriceUsd,
+    double? buyUsdTmn,
   }) =>
       AssetMeta(
         address: address ?? this.address,
@@ -166,6 +177,7 @@ class AssetMeta {
         color: color ?? this.color,
         purity: purity ?? this.purity,
         buyPriceUsd: buyPriceUsd ?? this.buyPriceUsd,
+        buyUsdTmn: buyUsdTmn ?? this.buyUsdTmn,
       );
 }
 

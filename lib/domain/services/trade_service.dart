@@ -94,6 +94,7 @@ class TradeService {
     asset = await assets.create(asset);
     if (quantity > _eps) {
       final usd = parseAssetNotes(notes).meta.buyPriceUsd;
+      final fx = parseAssetNotes(notes).meta.buyUsdTmn;
       final date = (buyDate != null && buyDate.trim().isNotEmpty)
           ? buyDate.trim()
           : todayIso();
@@ -103,6 +104,7 @@ class TradeService {
         quantity: quantity,
         buyPrice: avgBuyPrice,
         buyPriceUsd: (usd != null && usd > 0) ? usd : null,
+        buyUsdTmn: (fx != null && fx > 0) ? fx : null,
         buyDate: date,
         buyNote: 'موجودی اولیه',
       ));
@@ -118,6 +120,7 @@ class TradeService {
     required double quantity,
     required double buyPrice,
     double? buyPriceUsd,
+    double? buyUsdTmn,
     double buyFee = 0,
     String? buyDate,
     String buyNote = '',
@@ -150,6 +153,7 @@ class TradeService {
       quantity: quantity,
       buyPrice: buyPrice,
       buyPriceUsd: (buyPriceUsd != null && buyPriceUsd > 0) ? buyPriceUsd : null,
+      buyUsdTmn: (buyUsdTmn != null && buyUsdTmn > 0) ? buyUsdTmn : null,
       buyFee: buyFee,
       buyDate: buyDate ?? todayIso(),
       buyNote: buyNote,
@@ -163,6 +167,7 @@ class TradeService {
     required double quantity,
     required double buyPrice,
     double? buyPriceUsd,
+    double? buyUsdTmn,
     double buyFee = 0,
     String? buyDate,
     String? buyNote,
@@ -186,6 +191,7 @@ class TradeService {
       ..buyPrice = buyPrice
       ..buyPriceUsd =
           (buyPriceUsd != null && buyPriceUsd > 0) ? buyPriceUsd : null
+      ..buyUsdTmn = (buyUsdTmn != null && buyUsdTmn > 0) ? buyUsdTmn : null
       ..buyFee = buyFee;
     if (buyDate != null && buyDate.trim().isNotEmpty) {
       trade.buyDate = buyDate.trim();
@@ -193,11 +199,13 @@ class TradeService {
     if (buyNote != null) {
       trade.buyNote = encodeBuyNoteUsd(
         usd: trade.buyPriceUsd,
+        fx: trade.buyUsdTmn,
         note: buyNote,
       );
     } else {
       trade.buyNote = encodeBuyNoteUsd(
         usd: trade.buyPriceUsd,
+        fx: trade.buyUsdTmn,
         note: parseBuyNoteUsd(trade.buyNote).note,
       );
     }
@@ -318,6 +326,7 @@ class TradeService {
       quantity: closeQty,
       buyPrice: trade.buyPrice,
       buyPriceUsd: trade.buyPriceUsd,
+      buyUsdTmn: trade.buyUsdTmn,
       buyFee: buyFeeClosed,
       buyDate: trade.buyDate,
       buyNote: trade.buyNote,

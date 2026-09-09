@@ -243,11 +243,13 @@ class RemoteInvestService {
         throw ArgumentError('برای موجودی اولیه، قیمت خرید الزامی است.');
       }
       final usd = parseAssetNotes(notes).meta.buyPriceUsd;
+      final fx = parseAssetNotes(notes).meta.buyUsdTmn;
       await registerBuy(
         assetId: asset.id,
         quantity: quantity,
         buyPrice: avgBuyPrice,
         buyPriceUsd: (usd != null && usd > 0) ? usd : null,
+        buyUsdTmn: (fx != null && fx > 0) ? fx : null,
         buyNote: 'موجودی اولیه',
         currentPrice: price,
       );
@@ -264,12 +266,17 @@ class RemoteInvestService {
     required double quantity,
     required double buyPrice,
     double? buyPriceUsd,
+    double? buyUsdTmn,
     double buyFee = 0,
     String? buyDate,
     String buyNote = '',
     double? currentPrice,
   }) async {
-    final note = encodeBuyNoteUsd(usd: buyPriceUsd, note: buyNote);
+    final note = encodeBuyNoteUsd(
+      usd: buyPriceUsd,
+      fx: buyUsdTmn,
+      note: buyNote,
+    );
     final body = <String, dynamic>{
       'quantity': quantity,
       'buy_price': buyPrice,
@@ -294,6 +301,7 @@ class RemoteInvestService {
     required double quantity,
     required double buyPrice,
     double? buyPriceUsd,
+    double? buyUsdTmn,
     double buyFee = 0,
     String? buyDate,
     String? buyNote,
@@ -306,9 +314,10 @@ class RemoteInvestService {
     if (buyDate != null && buyDate.trim().isNotEmpty) {
       body['buy_date'] = buyDate.trim();
     }
-    if (buyNote != null || buyPriceUsd != null) {
+    if (buyNote != null || buyPriceUsd != null || buyUsdTmn != null) {
       body['buy_note'] = encodeBuyNoteUsd(
         usd: buyPriceUsd,
+        fx: buyUsdTmn,
         note: buyNote ?? '',
       );
     }

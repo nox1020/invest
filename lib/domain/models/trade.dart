@@ -10,6 +10,7 @@ class Trade {
     required this.quantity,
     required this.buyPrice,
     this.buyPriceUsd,
+    this.buyUsdTmn,
     this.buyFee = 0,
     this.buyDate = '',
     this.buyNote = '',
@@ -35,6 +36,9 @@ class Trade {
 
   /// Optional unit buy price in USD (persisted + mirrored in [buyNote]).
   double? buyPriceUsd;
+
+  /// Toman per 1 USD on the buy date (`[buy_fx:…]` in [buyNote]).
+  double? buyUsdTmn;
   double buyFee;
   String buyDate;
   String buyNote;
@@ -78,8 +82,15 @@ class Trade {
   /// Days since buy for an open lot (0 if closed or undated).
   int get openDays => isOpen ? openHoldingDays(buyDate) : (holdingDays ?? 0);
 
-  /// Free-text note without the `[buy_usd:…]` marker.
+  /// Free-text note without `[buy_usd:…]` / `[buy_fx:…]` markers.
   String get buyNoteDisplay => parseBuyNoteUsd(buyNote).note;
+
+  /// Stored dollar Toman rate, else implied from Toman ÷ registered USD.
+  double? get resolvedBuyUsdTmn => resolveBuyUsdTmn(
+        storedFx: buyUsdTmn,
+        buyToman: buyPrice,
+        buyUsd: buyPriceUsd,
+      );
 
   factory Trade.fromMap(Map<String, Object?> m) {
     final rawNote = (m['buy_note'] as String?) ?? '';
@@ -102,9 +113,14 @@ class Trade {
       quantity: (m['quantity'] as num?)?.toDouble() ?? 0,
       buyPrice: (m['buy_price'] as num?)?.toDouble() ?? 0,
       buyPriceUsd: usd,
+      buyUsdTmn: parsed.fx,
       buyFee: (m['buy_fee'] as num?)?.toDouble() ?? 0,
       buyDate: (m['buy_date'] as String?) ?? '',
-      buyNote: encodeBuyNoteUsd(usd: usd ?? parsed.usd, note: parsed.note),
+      buyNote: encodeBuyNoteUsd(
+        usd: usd ?? parsed.usd,
+        fx: parsed.fx,
+        note: parsed.note,
+      ),
       sellPrice: (m['sell_price'] as num?)?.toDouble(),
       sellFee: (m['sell_fee'] as num?)?.toDouble() ?? 0,
       sellDate: m['sell_date'] as String?,
@@ -123,6 +139,7 @@ class Trade {
   Map<String, Object?> toMap() {
     final packedNote = encodeBuyNoteUsd(
       usd: buyPriceUsd,
+      fx: buyUsdTmn,
       note: parseBuyNoteUsd(buyNote).note,
     );
     return {
