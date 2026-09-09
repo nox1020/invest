@@ -46,7 +46,16 @@ class AssetDetailPage extends StatelessWidget {
     if (matched == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('دارایی')),
-        body: const Center(child: Text('دارایی یافت نشد')),
+        body: RefreshIndicator(
+          onRefresh: () => state.refreshAll(includeQuotes: true),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: const [
+              SizedBox(height: 160),
+              Center(child: Text('دارایی یافت نشد')),
+            ],
+          ),
+        ),
       );
     }
     final asset = matched;
@@ -107,9 +116,12 @@ class AssetDetailPage extends StatelessWidget {
             )
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
-        children: [
+      body: RefreshIndicator(
+        onRefresh: () => state.refreshAll(includeQuotes: true),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
+          children: [
           _HeroTotals(
             metrics: metrics,
             usdt: usdt,
@@ -182,6 +194,7 @@ class AssetDetailPage extends StatelessWidget {
           const SizedBox(height: 18),
           AssetTradesSection(assetId: asset.id!),
         ],
+        ),
       ),
     );
   }
