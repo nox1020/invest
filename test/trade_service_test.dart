@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/data/app_database.dart';
+import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -187,5 +188,37 @@ void main() {
       ),
       throwsA(isA<ArgumentError>()),
     );
+  });
+
+  test('applyLivePrices updates crypto from Wallex TMN quotes', () async {
+    final btc = await service.createAsset(
+      name: 'Bitcoin',
+      symbol: 'BTC',
+      quantity: 1,
+      avgBuyPrice: 1e9,
+      currentPrice: 1e9,
+    );
+    await service.createAsset(
+      name: 'آپارتمان',
+      symbol: 'REAL',
+      quantity: 1,
+      avgBuyPrice: 10,
+      currentPrice: 10,
+    );
+    final n = await service.applyLivePrices(
+      usdtTmn: 100000,
+      quotes: const [
+        CommodityQuote(
+          id: 'wallex_BTCTMN',
+          name: 'بیت‌کوین',
+          symbol: 'BTC',
+          unit: 'toman',
+          price: 8e9,
+          marketSymbol: 'BTCTMN',
+        ),
+      ],
+    );
+    expect(n, 1);
+    expect((await service.assets.get(btc.id!))!.currentPrice, 8e9);
   });
 }

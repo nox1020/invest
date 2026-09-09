@@ -24,6 +24,7 @@ void main() {
   test('detects gold cash crypto and kind marker', () {
     expect(detectAssetKind(name: 'طلا', symbol: 'GOLD'), AssetKind.gold);
     expect(detectAssetKind(name: 'تتر', symbol: 'USDT'), AssetKind.cash);
+    expect(detectAssetKind(name: 'دلار', symbol: ''), AssetKind.cash);
     expect(detectAssetKind(name: 'Bitcoin', symbol: 'BTC'), AssetKind.crypto);
     expect(
       detectAssetKind(name: 'آیتم خاص', symbol: '', notes: '[kind:property]'),

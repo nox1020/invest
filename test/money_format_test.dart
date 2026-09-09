@@ -17,6 +17,12 @@ void main() {
     expect(formatUsd(80018), '\$80,018');
   });
 
+  test('formatTomanPrice keeps fractions on cheap coins', () {
+    expect(formatTomanPrice(6500000000), '6,500,000,000 تومان');
+    expect(formatTomanPrice(12.5), '12.5 تومان');
+    expect(formatTomanPrice(0.001234), contains('0.001234'));
+  });
+
   test('tomanToUsd converts with USDT rate', () {
     expect(tomanToUsd(180000000000, 225000), closeTo(800000, 1));
     expect(tomanToUsd(100, null), isNull);

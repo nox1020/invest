@@ -127,7 +127,7 @@ class AssetDetailPage extends StatelessWidget {
                   toman: buyToman,
                   usd: buyUsd,
                   accent: AppTheme.muted,
-                  usdHint: buyUsd != null ? 'ثبت‌شده' : null,
+                  usdHint: buyUsd != null ? 'دلار ثبت‌شده' : 'دلار خرید ثبت نشده',
                 ),
               ),
               const SizedBox(width: 10),
@@ -137,6 +137,7 @@ class AssetDetailPage extends StatelessWidget {
                   toman: curToman,
                   usd: curUsd,
                   accent: AppTheme.positive,
+                  usdHint: curUsd != null ? 'دلار زنده (تومان ÷ تتر)' : null,
                 ),
               ),
             ],
@@ -423,7 +424,7 @@ class _PriceCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            formatMoney(toman),
+            formatTomanPrice(toman),
             textAlign: TextAlign.right,
             style: const TextStyle(
               color: AppTheme.title,

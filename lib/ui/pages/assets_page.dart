@@ -564,21 +564,19 @@ class _AssetCard extends StatelessWidget {
               ),
               _StatRow(
                 label: kind.isUnitAsset ? 'بهای خرید' : 'میانگین خرید',
-                value: formatMoney(metrics.avgBuyPrice),
+                value: formatTomanPrice(metrics.avgBuyPrice),
+                secondary: buyUsd != null && buyUsd > 0
+                    ? formatUsd(buyUsd)
+                    : (kind == AssetKind.crypto ||
+                            kind == AssetKind.cash ||
+                            kind == AssetKind.gold
+                        ? '— دلار ثبت‌نشده'
+                        : null),
               ),
-              if (buyUsd != null && buyUsd > 0)
-                _StatRow(
-                  label: 'بهای دلاری خرید',
-                  value: formatUsd(buyUsd),
-                ),
               _StatRow(
                 label: kind.isUnitAsset ? 'ارزش فعلی واحد' : 'قیمت لحظه‌ای',
-                value: usdPrice != null
-                    ? formatUsd(usdPrice)
-                    : formatMoney(metrics.currentPrice),
-                secondary: usdPrice != null
-                    ? formatMoney(metrics.currentPrice)
-                    : null,
+                value: formatTomanPrice(metrics.currentPrice),
+                secondary: usdPrice != null ? formatUsd(usdPrice) : null,
               ),
             ],
           ),
@@ -633,6 +631,7 @@ class _StatRow extends StatelessWidget {
               if (secondary != null)
                 Text(
                   secondary!,
+                  textDirection: TextDirection.ltr,
                   style: TextStyle(
                     color: tone == AppTheme.title ? AppTheme.muted : tone,
                     fontSize: 11,

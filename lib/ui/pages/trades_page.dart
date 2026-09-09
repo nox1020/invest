@@ -393,7 +393,8 @@ Future<void> showSellTradeDialog(BuildContext context, Trade trade) async {
               ),
               TextField(
                 controller: priceCtrl,
-                decoration: const InputDecoration(labelText: 'قیمت فروش'),
+                  decoration:
+                      const InputDecoration(labelText: 'قیمت فروش (تومان)'),
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.right,
               ),
@@ -669,6 +670,8 @@ class _TradeTile extends StatelessWidget {
     final qtyText = formatNumber(trade.quantity, decimals: qtyDecimals);
     final openPnl = trade.unrealizedPnl;
     final closedPnl = trade.realizedPnl;
+    final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
+    final currentUsd = tomanToUsd(trade.currentPrice, usdt);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -728,13 +731,11 @@ class _TradeTile extends StatelessWidget {
           _TradeDetailRow(label: 'مقدار', value: qtyText),
           _TradeDetailRow(
             label: 'قیمت خرید',
-            value: formatMoney(trade.buyPrice),
+            value: formatTomanPrice(trade.buyPrice),
+            secondary: trade.buyPriceUsd != null && trade.buyPriceUsd! > 0
+                ? formatUsd(trade.buyPriceUsd!)
+                : null,
           ),
-          if (trade.buyPriceUsd != null && trade.buyPriceUsd! > 0)
-            _TradeDetailRow(
-              label: 'بهای دلاری خرید',
-              value: formatUsd(trade.buyPriceUsd!),
-            ),
           if (trade.buyFee > 0)
             _TradeDetailRow(
               label: 'کارمزد خرید',
@@ -755,7 +756,8 @@ class _TradeTile extends StatelessWidget {
             ),
             _TradeDetailRow(
               label: 'قیمت لحظه‌ای',
-              value: formatMoney(trade.currentPrice),
+              value: formatTomanPrice(trade.currentPrice),
+              secondary: currentUsd == null ? null : formatUsd(currentUsd),
             ),
             _TradeDetailRow(
               label: 'ارزش فعلی',
@@ -843,11 +845,13 @@ class _TradeDetailRow extends StatelessWidget {
   const _TradeDetailRow({
     required this.label,
     required this.value,
+    this.secondary,
     this.pct,
   });
 
   final String label;
   final String value;
+  final String? secondary;
   final double? pct;
 
   @override
@@ -885,14 +889,30 @@ class _TradeDetailRow extends StatelessWidget {
             const SizedBox(width: 8),
           ],
           Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.left,
-              style: TextStyle(
-                color: tone,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  value,
+                  textAlign: TextAlign.left,
+                  style: TextStyle(
+                    color: tone,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (secondary != null)
+                  Text(
+                    secondary!,
+                    textAlign: TextAlign.left,
+                    textDirection: TextDirection.ltr,
+                    style: TextStyle(
+                      color: tone == AppTheme.title ? AppTheme.muted : tone,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
             ),
           ),
         ],

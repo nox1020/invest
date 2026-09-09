@@ -31,6 +31,7 @@ import 'package:invest/domain/services/price_alert_prefs.dart';
 import 'package:invest/domain/services/profit_alert_engine.dart';
 import 'package:invest/domain/services/background_price_worker.dart';
 import 'package:invest/domain/services/quote_clients.dart';
+import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/security/app_lock.dart';
@@ -696,6 +697,7 @@ class AppState extends ChangeNotifier {
         liveGold = q.price;
       }
     }
+    await _overlayLiveMarks(persistLocal: true);
     await _dispatchPriceAlerts();
   }
 
@@ -890,6 +892,7 @@ class AppState extends ChangeNotifier {
         assets = await trades!.assets.listAll();
         openTrades = await trades!.trades.listOpen();
         closedTrades = await trades!.trades.listClosed();
+        await _overlayLiveMarks();
         metrics = await portfolio!.getMetrics(calendar: settings.calendar);
         await _loadLocalWithdrawals();
         await portfolio!.recordSnapshot();
@@ -940,6 +943,7 @@ class AppState extends ChangeNotifier {
     assets = await svc.assets.listAll();
     openTrades = await svc.listOpen();
     closedTrades = await svc.listClosed();
+    await _overlayLiveMarks();
     await _loadWithdrawals(remote: svc);
     lastSyncedAt = DateTime.now();
     await OfflineCacheStore.savePortfolio(
@@ -1057,6 +1061,7 @@ class AppState extends ChangeNotifier {
         liveGold = q.gold;
         settings.goldTmnPerGram = q.gold;
       }
+      await _overlayLiveMarks();
       await _dispatchPriceAlerts();
       return;
     }
@@ -1088,7 +1093,9 @@ class AppState extends ChangeNotifier {
       goldTmn: gold ?? settings.goldTmnPerGram,
       updateUsdt: settings.usdtApiEnabled,
       updateGold: settings.goldApiEnabled,
+      quotes: [...commodityIndex, ...wallexMarkets],
     );
+    await _overlayLiveMarks();
     await _dispatchPriceAlerts();
   }
 
@@ -1101,6 +1108,54 @@ class AppState extends ChangeNotifier {
         await PriceAlertPrefs.saveFrom(settings);
       }
       await BackgroundPriceWorker.sync(settings);
+    } catch (_) {}
+  }
+
+  /// Stamp gold / USDT / crypto holdings with the live Toman unit mark.
+  /// Buy prices are never touched. Remote current_price is not PUT every
+  /// index tick — overlay is in-memory (and local SQLite when [persistLocal]).
+  Future<void> _overlayLiveMarks({bool persistLocal = false}) async {
+    final quotes = [...commodityIndex, ...wallexMarkets];
+    final usdt = liveUsdt ?? settings.usdtTmnRate;
+    final gold = liveGold ?? settings.goldTmnPerGram;
+    if (quotes.isEmpty &&
+        (usdt == null || usdt <= 0) &&
+        (gold == null || gold <= 0)) {
+      return;
+    }
+    for (final a in assets) {
+      final p = liveTomanPriceFor(
+        name: a.name,
+        symbol: a.symbol,
+        notes: a.notes,
+        quotes: quotes,
+        usdtTmn: usdt,
+        goldTmn: gold,
+      );
+      if (p != null) a.currentPrice = p;
+    }
+    final notesByAssetId = <int, String>{
+      for (final a in assets)
+        if (a.id != null) a.id!: a.notes,
+    };
+    for (final t in openTrades) {
+      final p = liveTomanPriceFor(
+        name: t.assetName,
+        symbol: t.assetSymbol,
+        notes: notesByAssetId[t.assetId] ?? '',
+        quotes: quotes,
+        usdtTmn: usdt,
+        goldTmn: gold,
+      );
+      if (p != null) t.currentPrice = p;
+    }
+    if (!persistLocal || useRemote || trades == null) return;
+    try {
+      await trades!.applyLivePrices(
+        usdtTmn: usdt,
+        goldTmn: gold,
+        quotes: quotes,
+      );
     } catch (_) {}
   }
 

@@ -5,9 +5,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
+import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/price_alert.dart';
 import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
+import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/domain/services/price_alert_engine.dart';
 import 'package:invest/domain/services/price_alert_prefs.dart';
@@ -113,9 +115,16 @@ class BackgroundPriceMonitor {
     if (wantProfit) {
       var positions = await PriceAlertPrefs.loadPositions();
       if (bundle.hasAnyPrice) {
+        final quotes = [...bundle.essentials, ...bundle.wallexMarkets];
         positions = [
           for (final p in positions)
-            _revaluePosition(p, prices) ?? p,
+            _revaluePosition(
+                  p,
+                  quotes,
+                  usdt: prices['usdt'],
+                  gold: prices['gold'],
+                ) ??
+                p,
         ];
         await PriceAlertPrefs.savePositions(positions);
       }
@@ -128,29 +137,19 @@ class BackgroundPriceMonitor {
 
   static ProfitPosition? _revaluePosition(
     ProfitPosition p,
-    Map<String, double> prices,
-  ) {
-    final live = _livePriceForSymbol(p.symbol, prices);
+    List<CommodityQuote> quotes, {
+    double? usdt,
+    double? gold,
+  }) {
+    final live = liveTomanPriceFor(
+      name: p.name,
+      symbol: p.symbol,
+      quotes: quotes,
+      usdtTmn: usdt,
+      goldTmn: gold,
+    );
     if (live == null || live <= 0) return null;
     return p.revalued(live);
-  }
-
-  static double? _livePriceForSymbol(String symbol, Map<String, double> prices) {
-    final s = symbol.trim().toUpperCase();
-    if (s.isEmpty) return null;
-    final id = switch (s) {
-      'USDT' || 'TETHER' => 'usdt',
-      'USD' || 'DOLLAR' => 'usd',
-      'EUR' => 'eur',
-      'GBP' => 'gbp',
-      'AED' => 'aed',
-      'TRY' => 'try',
-      'GOLD' || 'XAU' => 'gold',
-      'BTC' || 'BITCOIN' => 'btc',
-      'ETH' || 'ETHEREUM' => 'eth',
-      _ => s.toLowerCase(),
-    };
-    return prices[id] ?? prices[s.toLowerCase()];
   }
 
   static Future<List<ProfitAlertHit>> dispatchProfitHits({

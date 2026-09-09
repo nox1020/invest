@@ -4,8 +4,10 @@ import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/buy_usd_suggest.dart';
+import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/domain/utils/dates.dart';
+import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
@@ -186,16 +188,8 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
   /// Multiple open lots: edit buy/qty via «باز» so we don't overwrite one lot.
   bool get _lotsBlockBuyEdit => _isEdit && widget.openLotCount > 1;
 
-  /// Buy price field visible on create, or on edit for non-crypto kinds
-  /// when at most one open lot can stay in sync.
-  bool get _showBuyField =>
-      !_lotsBlockBuyEdit &&
-      (!_isEdit ||
-          _kind == AssetKind.property ||
-          _kind == AssetKind.vehicle ||
-          _kind == AssetKind.gold ||
-          _kind == AssetKind.cash ||
-          _kind == AssetKind.other);
+  /// Buy Toman + USD: create always; edit when at most one open lot can sync.
+  bool get _showBuyField => !_lotsBlockBuyEdit;
 
   /// Qty field: create always; edit only for unit-like kinds that are not lot-traded.
   bool get _showQtyField =>
@@ -203,6 +197,8 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
       (!_isEdit ||
           _kind == AssetKind.property ||
           _kind == AssetKind.vehicle);
+
+  bool _currentManual = false;
 
   @override
   void initState() {
@@ -379,6 +375,33 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
         _qtyCtrl.text = _formatQty(kind.defaultQuantity);
       }
     });
+    _maybeSuggestLiveCurrent();
+  }
+
+  void _maybeSuggestLiveCurrent() {
+    if (_isEdit || _currentManual) return;
+    if (_kind != AssetKind.crypto &&
+        _kind != AssetKind.cash &&
+        _kind != AssetKind.gold) {
+      return;
+    }
+    if (!mounted) return;
+    final state = context.read<AppState>();
+    final p = liveTomanPriceFor(
+      name: _nameCtrl.text,
+      symbol: _symbolCtrl.text,
+      notes: notesWithKind('', _kind),
+      quotes: [...state.commodityIndex, ...state.wallexMarkets],
+      usdtTmn: state.liveUsdt ?? state.settings.usdtTmnRate,
+      goldTmn: state.liveGold ?? state.settings.goldTmnPerGram,
+    );
+    if (p == null || p <= 0) return;
+    setState(() => _currentCtrl.text = _formatQty(p));
+  }
+
+  void _onCurrentChanged(String _) {
+    _currentManual = true;
+    setState(() {});
   }
 
   AssetMeta _collectMeta() {
@@ -556,6 +579,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
               _nameCtrl,
               label: _kind == AssetKind.vehicle ? 'نام / مدل' : 'نام',
               hint: _kind.nameHint,
+              onChanged: (_) => _maybeSuggestLiveCurrent(),
             ),
             if (_kind == AssetKind.crypto ||
                 _kind == AssetKind.cash ||
@@ -565,6 +589,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
                 _symbolCtrl,
                 label: _kind == AssetKind.cash ? 'ارز / نماد' : 'نماد',
                 hint: _kind.symbolHint,
+                onChanged: (_) => _maybeSuggestLiveCurrent(),
               ),
             ..._kindSpecificFields(context),
             if (_showQtyField)
@@ -588,12 +613,13 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
                 label: 'بهای دلاری خرید',
                 hint: _usdSuggesting
                     ? 'در حال محاسبه از نرخ همان تاریخ…'
-                    : 'خودکار از نرخ USDT تاریخ خرید — قابل ویرایش',
+                    : 'ثبت‌شده — خودکار از نرخ تتر تاریخ خرید، قابل ویرایش',
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
                 onChanged: _onBuyUsdChanged,
               ),
-            ] else if (_isEdit) ...[
+            ],
+            if (_isEdit && !_showQtyField) ...[
               const SizedBox(height: 8),
               Text(
                 _lotsBlockBuyEdit
@@ -608,7 +634,9 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
               label: _kind.currentPriceLabel,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+              onChanged: _onCurrentChanged,
             ),
+            _LiveCurrentUsdHint(controller: _currentCtrl),
             _field(
               _notesCtrl,
               label: 'توضیح (اختیاری)',
@@ -835,6 +863,30 @@ class _KindChip extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _LiveCurrentUsdHint extends StatelessWidget {
+  const _LiveCurrentUsdHint({required this.controller});
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final toman = parseFlexibleNumber(controller.text) ?? 0;
+    final usd = tomanToUsd(
+      toman,
+      state.liveUsdt ?? state.settings.usdtTmnRate,
+    );
+    if (toman <= 0 || usd == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        'دلار فعلی (زنده): ${formatUsd(usd)}  — تومان ÷ نرخ تتر',
+        textAlign: TextAlign.right,
+        style: const TextStyle(color: AppTheme.muted, fontSize: 11),
       ),
     );
   }

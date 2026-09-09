@@ -54,6 +54,23 @@ String formatMoney(num value, {bool showSign = false, int decimals = 0}) {
   return _signed(body, value, showSign: showSign);
 }
 
+/// Decimals for a **unit** Toman price (BTC billions vs SHIB fractions).
+int tomanUnitDecimals(num value) {
+  final abs = value.abs();
+  if (abs >= 1000) return 0;
+  if (abs >= 10) return 1;
+  if (abs >= 1) return 2;
+  if (abs >= 0.01) return 4;
+  return 6;
+}
+
+/// Unit buy/current Toman price — keeps fractions for cheap coins.
+String formatTomanPrice(num value, {bool showSign = false}) => formatMoney(
+      value,
+      showSign: showSign,
+      decimals: tomanUnitDecimals(value),
+    );
+
 /// Compact Toman like `182 میلیارد ت` for portfolio cards.
 String formatCompactToman(num value, {bool showSign = false}) {
   final abs = value.abs();

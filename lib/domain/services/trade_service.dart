@@ -2,8 +2,10 @@ import 'package:invest/config/app_config.dart';
 import 'package:invest/data/repositories.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_meta.dart';
+import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
@@ -396,21 +398,37 @@ class TradeService {
     double? goldTmn,
     bool updateUsdt = true,
     bool updateGold = true,
+    bool updateCrypto = true,
+    List<CommodityQuote> quotes = const [],
   }) async {
     var count = 0;
     for (final asset in await assets.listAll()) {
-      double? newPrice;
-      if (updateGold && isGoldAsset(asset.name, asset.symbol)) {
-        if (goldTmn != null && goldTmn > 0) newPrice = goldTmn;
-      } else if (updateUsdt && isUsdtAsset(asset.name, asset.symbol)) {
-        if (usdtTmn != null && usdtTmn > 0) newPrice = usdtTmn;
-      }
+      final newPrice = liveTomanPriceFor(
+        name: asset.name,
+        symbol: asset.symbol,
+        notes: asset.notes,
+        quotes: quotes,
+        usdtTmn: usdtTmn,
+        goldTmn: goldTmn,
+        includeGold: updateGold,
+        includeUsdt: updateUsdt,
+        includeCrypto: updateCrypto,
+      );
       if (newPrice == null) continue;
-      if ((asset.currentPrice - newPrice).abs() < 0.5) continue;
+      if (!_livePriceMoved(asset.currentPrice, newPrice)) continue;
       asset.currentPrice = newPrice;
       await assets.update(asset);
       count++;
     }
     return count;
   }
+}
+
+bool _livePriceMoved(double oldPrice, double nextPrice) {
+  final diff = (oldPrice - nextPrice).abs();
+  if (diff < 1e-9) return false;
+  final scale = oldPrice.abs() < 1 ? 1.0 : oldPrice.abs();
+  // Ignore FX noise on huge Toman marks; still catch SHIB-sized ticks.
+  if (diff < 0.01 && diff / scale < 1e-4) return false;
+  return true;
 }

@@ -126,7 +126,8 @@ extension AssetKindX on AssetKind {
           'برای خودرو معمولاً تعداد ۱ است؛ بهای خرید و ارزش فعلی را به تومان وارد کنید.',
         AssetKind.gold => 'مقدار را به گرم و قیمت هر گرم را وارد کنید.',
         AssetKind.cash => 'موجودی تتر یا نقد را با قیمت هر واحد وارد کنید.',
-        AssetKind.crypto => 'مقدار و قیمت هر واحد به تومان را وارد کنید.',
+        AssetKind.crypto =>
+          'مقدار و قیمت خرید هر واحد را به تومان و دلار وارد کنید. قیمت فعلی تومانی از بازار زنده می‌آید؛ دلار فعلی معادل تومان ÷ تتر است.',
         AssetKind.other => 'هر دارایی دیگری با مقدار و قیمت تومانی.',
       };
 }
@@ -160,6 +161,7 @@ AssetKind detectAssetKind({
   if ({'USDT', 'USD', 'DOLLAR', 'USDT.TMN', 'USDTTMN'}.contains(sym) ||
       nm.contains('تتر') ||
       nm.contains('دلار نقد') ||
+      (nm.contains('دلار') && !nm.contains('سکه')) ||
       lower == 'usd' ||
       lower == 'usdt') {
     return AssetKind.cash;
