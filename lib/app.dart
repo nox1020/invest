@@ -115,7 +115,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final state = context.read<AppState>();
     if (!state.canMutate) return null;
     switch (index) {
-      case HomeTabs.dashboard:
       case HomeTabs.trades:
         return FloatingActionButton.extended(
           onPressed: () => showAssetEditor(context),

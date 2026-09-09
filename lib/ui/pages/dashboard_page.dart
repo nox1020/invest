@@ -14,7 +14,6 @@ import 'package:invest/ui/pages/capital_chart_page.dart';
 import 'package:invest/ui/pages/quote_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/allocation_donut.dart';
-import 'package:invest/ui/widgets/asset_editor_sheet.dart';
 import 'package:invest/ui/widgets/sparkline.dart';
 import 'package:provider/provider.dart';
 
@@ -61,7 +60,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
         onRefresh: () => state.refreshAll(),
         child: _EmptyDashboard(
           offline: state.offline,
-          canMutate: state.canMutate,
           onRetry: () => state.tryGoOnline(),
         ),
       );
@@ -71,7 +69,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
       onRefresh: () => state.refreshAll(includeQuotes: true),
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: shellPagePadding(extraForFab: state.canMutate),
+        padding: shellPagePadding(),
         children: [
           _HeroNetWorth(
             snap: snap,
@@ -160,19 +158,17 @@ List<CommodityQuote> _spotlightQuotes(AppState state) {
 class _EmptyDashboard extends StatelessWidget {
   const _EmptyDashboard({
     required this.offline,
-    required this.canMutate,
     required this.onRetry,
   });
 
   final bool offline;
-  final bool canMutate;
   final Future<void> Function() onRetry;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: shellPagePadding(extraForFab: canMutate),
+      padding: shellPagePadding(),
       children: [
         SizedBox(height: MediaQuery.sizeOf(context).height * 0.18),
         Icon(
@@ -196,7 +192,7 @@ class _EmptyDashboard extends StatelessWidget {
         Text(
           offline
               ? 'پس از اتصال، دارایی‌ها اینجا جمع می‌شوند.'
-              : 'یک دارایی اضافه کنید تا ارزش، سود و نمودار اینجا دیده شود.',
+              : 'دارایی را از تب معاملات ثبت کنید تا ارزش، سود و نمودار اینجا دیده شود.',
           textAlign: TextAlign.center,
           style: const TextStyle(color: AppTheme.muted, height: 1.4),
         ),
@@ -208,12 +204,11 @@ class _EmptyDashboard extends StatelessWidget {
               child: const Text('تلاش برای اتصال'),
             ),
           )
-        else if (canMutate)
+        else
           Center(
-            child: ElevatedButton.icon(
-              onPressed: () => showAssetEditor(context),
-              icon: const Icon(Icons.add),
-              label: const Text('دارایی جدید'),
+            child: OutlinedButton(
+              onPressed: () => openHomeTab(context, HomeTabs.trades),
+              child: const Text('رفتن به معاملات'),
             ),
           ),
       ],
