@@ -282,6 +282,7 @@ String assetMetaCardSummary(
       }
     case AssetKind.cash:
     case AssetKind.crypto:
+    case AssetKind.stock:
     case AssetKind.other:
       break;
   }

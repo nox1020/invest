@@ -120,6 +120,15 @@ void main() {
       liveTomanPriceFor(name: 'آپارتمان', symbol: 'REAL', quotes: quotes),
       isNull,
     );
+    expect(
+      liveTomanPriceFor(
+        name: 'سهام فولاد',
+        symbol: 'فولاد',
+        notes: '[kind:stock]',
+        quotes: quotes,
+      ),
+      isNull,
+    );
   });
 
   test('wallex TMN quote wins over earlier USD essential', () {

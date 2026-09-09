@@ -435,6 +435,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
         return AssetMeta(purity: _purityCtrl.text, buyPriceUsd: usd);
       case AssetKind.cash:
       case AssetKind.crypto:
+      case AssetKind.stock:
       case AssetKind.other:
         return usd == null ? AssetMeta.empty : AssetMeta(buyPriceUsd: usd);
     }
@@ -582,6 +583,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
               onChanged: (_) => _maybeSuggestLiveCurrent(),
             ),
             if (_kind == AssetKind.crypto ||
+                _kind == AssetKind.stock ||
                 _kind == AssetKind.cash ||
                 _kind == AssetKind.other ||
                 _kind == AssetKind.gold)
@@ -745,6 +747,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
         ];
       case AssetKind.cash:
       case AssetKind.crypto:
+      case AssetKind.stock:
       case AssetKind.other:
         return const [];
     }

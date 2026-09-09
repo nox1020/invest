@@ -35,7 +35,11 @@ double? liveTomanPriceFor({
   }
 
   if (!includeCrypto) return null;
-  if (kind == AssetKind.property || kind == AssetKind.vehicle) return null;
+  if (kind == AssetKind.property ||
+      kind == AssetKind.vehicle ||
+      kind == AssetKind.stock) {
+    return null;
+  }
   if (kind == AssetKind.gold || kind == AssetKind.cash) return null;
 
   final ticker = cryptoTicker(name: name, symbol: symbol);

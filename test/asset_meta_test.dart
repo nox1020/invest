@@ -83,6 +83,18 @@ void main() {
     expect(notes.contains('[meta:'), isFalse);
   });
 
+  test('stock kind round-trips in notes', () {
+    final notes = encodeAssetNotes(
+      kind: AssetKind.stock,
+      meta: const AssetMeta(buyPriceUsd: 0.12),
+      freeNotes: 'بورس تهران',
+    );
+    final parts = parseAssetNotes(notes);
+    expect(parts.kind, AssetKind.stock);
+    expect(parts.freeNotes, 'بورس تهران');
+    expect(parts.meta.buyPriceUsd, closeTo(0.12, 1e-9));
+  });
+
   test('card summary for property and vehicle', () {
     expect(
       assetMetaCardSummary(

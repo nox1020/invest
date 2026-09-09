@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 /// High-level asset categories for create/edit UX and icons.
 enum AssetKind {
   crypto,
+  stock,
   gold,
   cash,
   property,
@@ -13,6 +14,7 @@ enum AssetKind {
 extension AssetKindX on AssetKind {
   String get id => switch (this) {
         AssetKind.crypto => 'crypto',
+        AssetKind.stock => 'stock',
         AssetKind.gold => 'gold',
         AssetKind.cash => 'cash',
         AssetKind.property => 'property',
@@ -22,6 +24,7 @@ extension AssetKindX on AssetKind {
 
   String get label => switch (this) {
         AssetKind.crypto => 'ارز دیجیتال',
+        AssetKind.stock => 'سهام',
         AssetKind.gold => 'طلا',
         AssetKind.cash => 'نقد / تتر',
         AssetKind.property => 'ملک',
@@ -31,6 +34,7 @@ extension AssetKindX on AssetKind {
 
   String get defaultSymbol => switch (this) {
         AssetKind.crypto => '',
+        AssetKind.stock => '',
         AssetKind.gold => 'GOLD',
         AssetKind.cash => 'USDT',
         AssetKind.property => 'REAL',
@@ -40,6 +44,7 @@ extension AssetKindX on AssetKind {
 
   String get nameHint => switch (this) {
         AssetKind.crypto => 'مثل Bitcoin',
+        AssetKind.stock => 'مثل فولاد مبارکه',
         AssetKind.gold => 'مثل طلای آب‌شده',
         AssetKind.cash => 'مثل تتر یا دلار',
         AssetKind.property => 'مثل آپارتمان ونک',
@@ -49,6 +54,7 @@ extension AssetKindX on AssetKind {
 
   String get symbolHint => switch (this) {
         AssetKind.crypto => 'مثل BTC',
+        AssetKind.stock => 'مثل فولاد',
         AssetKind.gold => 'GOLD',
         AssetKind.cash => 'USDT',
         AssetKind.property => 'REAL',
@@ -58,6 +64,7 @@ extension AssetKindX on AssetKind {
 
   String get quantityLabel => switch (this) {
         AssetKind.crypto => 'مقدار',
+        AssetKind.stock => 'تعداد سهم',
         AssetKind.gold => 'مقدار (گرم)',
         AssetKind.cash => 'مقدار',
         AssetKind.property => 'تعداد واحد',
@@ -69,6 +76,7 @@ extension AssetKindX on AssetKind {
         AssetKind.property => 'بهای خرید (تومان)',
         AssetKind.vehicle => 'بهای خرید (تومان)',
         AssetKind.gold => 'قیمت خرید هر گرم',
+        AssetKind.stock => 'قیمت خرید هر سهم (تومان)',
         _ => 'قیمت خرید (تومان)',
       };
 
@@ -76,6 +84,7 @@ extension AssetKindX on AssetKind {
         AssetKind.property => 'ارزش فعلی (تومان)',
         AssetKind.vehicle => 'ارزش فعلی (تومان)',
         AssetKind.gold => 'قیمت فعلی هر گرم',
+        AssetKind.stock => 'قیمت فعلی هر سهم (تومان)',
         _ => 'قیمت فعلی (تومان)',
       };
 
@@ -83,6 +92,7 @@ extension AssetKindX on AssetKind {
         AssetKind.gold => 'گرم',
         AssetKind.property => 'واحد',
         AssetKind.vehicle => 'دستگاه',
+        AssetKind.stock => 'سهم',
         AssetKind.cash => '',
         AssetKind.crypto => '',
         AssetKind.other => '',
@@ -95,6 +105,7 @@ extension AssetKindX on AssetKind {
         AssetKind.gold => 0,
         AssetKind.cash => 0,
         AssetKind.crypto => 0,
+        AssetKind.stock => 0,
         AssetKind.other => 1,
       };
 
@@ -103,6 +114,7 @@ extension AssetKindX on AssetKind {
 
   IconData get icon => switch (this) {
         AssetKind.crypto => Icons.currency_bitcoin,
+        AssetKind.stock => Icons.candlestick_chart_outlined,
         AssetKind.gold => Icons.diamond_outlined,
         AssetKind.cash => Icons.attach_money,
         AssetKind.property => Icons.home_work_outlined,
@@ -112,6 +124,7 @@ extension AssetKindX on AssetKind {
 
   Color get color => switch (this) {
         AssetKind.crypto => const Color(0xFFF7931A),
+        AssetKind.stock => const Color(0xFF4C8DFF),
         AssetKind.gold => const Color(0xFFE8C547),
         AssetKind.cash => const Color(0xFF3DDB7E),
         AssetKind.property => const Color(0xFF5B8DEF),
@@ -128,6 +141,8 @@ extension AssetKindX on AssetKind {
         AssetKind.cash => 'موجودی تتر یا نقد را با قیمت هر واحد وارد کنید.',
         AssetKind.crypto =>
           'مقدار و قیمت خرید هر واحد را به تومان و دلار وارد کنید. قیمت فعلی تومانی از بازار زنده می‌آید؛ دلار فعلی معادل تومان ÷ تتر است.',
+        AssetKind.stock =>
+          'تعداد سهم و قیمت هر سهم را به تومان وارد کنید. نماد بورسی را در فیلد نماد بنویسید؛ بهای دلاری خرید اختیاری است.',
         AssetKind.other => 'هر دارایی دیگری با مقدار و قیمت تومانی.',
       };
 }
@@ -165,6 +180,14 @@ AssetKind detectAssetKind({
       lower == 'usd' ||
       lower == 'usdt') {
     return AssetKind.cash;
+  }
+  if ({'STOCK', 'SHARE', 'SHARES', 'EQUITY', 'TSE', 'IFB'}.contains(sym) ||
+      nm.contains('سهام') ||
+      nm.contains('بورس') ||
+      nm.contains('فرابورس') ||
+      lower.contains('stock') ||
+      lower.contains('equity')) {
+    return AssetKind.stock;
   }
   if ({'REAL', 'PROPERTY', 'HOME', 'HOUSE', 'APT', 'LAND'}.contains(sym) ||
       nm.contains('ملک') ||

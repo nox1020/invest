@@ -26,6 +26,12 @@ void main() {
     expect(detectAssetKind(name: 'تتر', symbol: 'USDT'), AssetKind.cash);
     expect(detectAssetKind(name: 'دلار', symbol: ''), AssetKind.cash);
     expect(detectAssetKind(name: 'Bitcoin', symbol: 'BTC'), AssetKind.crypto);
+    expect(detectAssetKind(name: 'سهام فولاد', symbol: 'فولاد'), AssetKind.stock);
+    expect(detectAssetKind(name: 'فولاد مبارکه', symbol: 'STOCK'), AssetKind.stock);
+    expect(
+      detectAssetKind(name: 'سهام خودرو', symbol: ''),
+      AssetKind.stock,
+    );
     expect(
       detectAssetKind(name: 'آیتم خاص', symbol: '', notes: '[kind:property]'),
       AssetKind.property,
@@ -53,5 +59,9 @@ void main() {
     expect(AssetKind.vehicle.defaultQuantity, 1);
     expect(AssetKind.property.isUnitAsset, isTrue);
     expect(AssetKind.crypto.isUnitAsset, isFalse);
+    expect(AssetKind.stock.isUnitAsset, isFalse);
+    expect(AssetKind.stock.label, 'سهام');
+    expect(AssetKind.stock.unitLabel, 'سهم');
+    expect(AssetKind.stock.defaultQuantity, 0);
   });
 }

@@ -568,6 +568,7 @@ class _AssetCard extends StatelessWidget {
                 secondary: buyUsd != null && buyUsd > 0
                     ? formatUsd(buyUsd)
                     : (kind == AssetKind.crypto ||
+                            kind == AssetKind.stock ||
                             kind == AssetKind.cash ||
                             kind == AssetKind.gold
                         ? '— دلار ثبت‌نشده'
