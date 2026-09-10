@@ -72,10 +72,33 @@ android {
             }
         }
     }
+
+    applicationVariants.configureEach { variant ->
+        variant.outputs.configureEach { output ->
+            output.outputFileName = "invest-${variant.versionName}.apk"
+        }
+    }
 }
 
 flutter {
     source = "../.."
+}
+
+// Flutter copies the APK as app-release.apk; rename to invest-<version>.apk.
+tasks.configureEach { task ->
+    if (task.name != "assembleRelease") return
+    task.doLast {
+        def dir = file("${rootProject.buildDir}/outputs/flutter-apk")
+        def src = new File(dir, "app-release.apk")
+        def versionName = android.defaultConfig.versionName
+        if (!src.exists() || versionName == null || versionName.toString().trim().isEmpty()) {
+            return
+        }
+        def dest = new File(dir, "invest-${versionName}.apk")
+        if (dest.canonicalPath == src.canonicalPath) return
+        if (dest.exists()) dest.delete()
+        src.renameTo(dest)
+    }
 }
 
 dependencies {

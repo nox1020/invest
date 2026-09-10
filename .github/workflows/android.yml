@@ -184,26 +184,41 @@ jobs:
       - name: Build APK
         id: apk
         run: |
-          set -o pipefail
+          set -euo pipefail
           test -f android/key.properties
           test -f android/app/vplus-ci.keystore
+          VERSION_NAME="1.0.${ANDROID_VERSION_CODE}"
+          APK_NAME="invest-${VERSION_NAME}.apk"
+          APK_PATH="build/app/outputs/flutter-apk/${APK_NAME}"
           flutter build apk --release \
             --build-number="${ANDROID_VERSION_CODE}" \
-            --build-name="1.0.${ANDROID_VERSION_CODE}" \
+            --build-name="${VERSION_NAME}" \
             --dart-define=VINOR_API_VERSION="${VINOR_API_VERSION}" \
             2>&1 | tee apk-build.log
+          # Flutter copies to app-release.apk; Gradle may already rename.
+          FLUTTER_APK="build/app/outputs/flutter-apk/app-release.apk"
+          if [ -f "${FLUTTER_APK}" ] && [ ! -f "${APK_PATH}" ]; then
+            mv -f "${FLUTTER_APK}" "${APK_PATH}"
+          fi
+          test -f "${APK_PATH}"
+          echo "apk_path=${APK_PATH}" >> "$GITHUB_OUTPUT"
+          echo "apk_name=${APK_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
           {
             echo "### APK identity"
+            echo "- file: \`${APK_NAME}\`"
             echo "- versionCode: ${ANDROID_VERSION_CODE}"
-            echo "- versionName: 1.0.${ANDROID_VERSION_CODE}"
+            echo "- versionName: ${VERSION_NAME}"
             echo "- applicationId: com.nox1020.invest"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify APK version + signing cert
         run: |
           set -euo pipefail
-          APK="build/app/outputs/flutter-apk/app-release.apk"
+          APK="${{ steps.apk.outputs.apk_path }}"
+          test -n "${APK}"
           test -f "${APK}"
+          test "$(basename "${APK}")" = "${{ steps.apk.outputs.apk_name }}"
 
           BT="$(ls -d "${ANDROID_HOME}/build-tools"/* | sort -V | tail -n 1)"
           AAPT="${BT}/aapt"
@@ -277,15 +292,15 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: invest-apk-${{ github.run_number }}${{ env.VINOR_API_VERSION && format('-{0}', env.VINOR_API_VERSION) || '' }}
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: invest-${{ steps.apk.outputs.version_name }}${{ env.VINOR_API_VERSION && format('-{0}', env.VINOR_API_VERSION) || '' }}
+          path: ${{ steps.apk.outputs.apk_path }}
           if-no-files-found: error
 
       - name: Release on tag
         if: startsWith(github.ref, 'refs/tags/v') && success()
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: ${{ steps.apk.outputs.apk_path }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
