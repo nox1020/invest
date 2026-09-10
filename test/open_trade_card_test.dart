@@ -7,7 +7,8 @@ import 'package:invest/ui/pages/trades_page.dart';
 import 'package:provider/provider.dart';
 
 void main() {
-  testWidgets('open trade card is compact and shows buy vs live', (tester) async {
+  testWidgets('open trade card is compact and shows buy vs live',
+      (tester) async {
     final state = AppState()
       ..loading = false
       ..authenticated = true
@@ -52,5 +53,49 @@ void main() {
     expect(find.text('قیمت لحظه‌ای'), findsNothing);
     expect(find.text('هزینه خرید'), findsNothing);
     expect(find.text('کارمزد خرید'), findsNothing);
+  });
+
+  testWidgets('tapping the open card opens trade details', (tester) async {
+    final state = AppState()
+      ..loading = false
+      ..authenticated = true
+      ..openTrades = [
+        Trade(
+          id: 1,
+          assetId: 1,
+          status: AppConfig.tradeOpen,
+          quantity: 2,
+          buyPrice: 100,
+          buyFee: 10,
+          buyDate: '2026-01-01',
+          buyPriceUsd: 80,
+          currentPrice: 130,
+          assetName: 'بیت‌کوین',
+          assetSymbol: 'BTC',
+        ),
+      ];
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: state,
+        child: MaterialApp(
+          locale: const Locale('fa', 'IR'),
+          builder: (context, child) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: child ?? const SizedBox.shrink(),
+          ),
+          home: const Scaffold(body: TradesPage(open: true)),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('بیت‌کوین'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('جزئیات معامله'), findsOneWidget);
+    expect(find.text('هزینه خرید'), findsOneWidget);
+    expect(find.text('مدت باز بودن'), findsOneWidget);
+    expect(find.text('کارمزد خرید'), findsOneWidget);
+    expect(find.text('ارزش فعلی'), findsOneWidget);
   });
 }
