@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
@@ -77,6 +78,7 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
             essentialsCount: state.commodityIndex.length,
             wallexCount: state.wallexMarkets.length,
             inflationPeriod: state.iranInflation?.periodLabel,
+            calendar: state.settings.calendar,
           ),
         ),
         Padding(
@@ -84,7 +86,9 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
           child: _SegmentTabs(
             index: _page,
             onChanged: (i) {
+              if (i == _page) return;
               setState(() => _page = i);
+              if (!_pageController.hasClients) return;
               _pageController.animateToPage(
                 i,
                 duration: const Duration(milliseconds: 280),
@@ -266,6 +270,7 @@ class _IndexHeader extends StatelessWidget {
     required this.essentialsCount,
     required this.wallexCount,
     this.inflationPeriod,
+    this.calendar = 'jalali',
   });
 
   final DateTime? updatedAt;
@@ -274,6 +279,7 @@ class _IndexHeader extends StatelessWidget {
   final int essentialsCount;
   final int wallexCount;
   final String? inflationPeriod;
+  final String calendar;
 
   @override
   Widget build(BuildContext context) {
@@ -353,7 +359,7 @@ class _IndexHeader extends StatelessWidget {
               const Spacer(),
               if (time != null)
                 Text(
-                  'آخرین بروزرسانی: ${_formatTime(time)}',
+                  'آخرین بروزرسانی: ${_formatUpdatedAt(time, calendar)}',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.7),
                     fontSize: 11,
@@ -361,25 +367,21 @@ class _IndexHeader extends StatelessWidget {
                 ),
             ],
           ),
-          if (page == 0 && essentialsCount > 0) ...[
-            const SizedBox(height: 4),
-            Text(
-              '$essentialsCount مورد',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.55),
-                fontSize: 11,
-              ),
-            ),
-          ],
         ],
       ),
     );
   }
 
-  static String _formatTime(DateTime dt) {
-    final h = dt.hour.toString().padLeft(2, '0');
-    final m = dt.minute.toString().padLeft(2, '0');
-    return '$h:$m';
+  static String _formatUpdatedAt(DateTime dt, String calendar) {
+    final local = dt.toLocal();
+    final h = local.hour.toString().padLeft(2, '0');
+    final m = local.minute.toString().padLeft(2, '0');
+    final now = DateTime.now();
+    final sameDay = local.year == now.year &&
+        local.month == now.month &&
+        local.day == now.day;
+    if (sameDay) return '$h:$m';
+    return '${formatDisplayDate(toIsoDate(local), calendar)} $h:$m';
   }
 }
 
@@ -434,7 +436,16 @@ class _QuoteListPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (loading) {
-      return const Center(child: CircularProgressIndicator());
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 120),
+            Center(child: CircularProgressIndicator()),
+          ],
+        ),
+      );
     }
 
     return RefreshIndicator(
@@ -544,6 +555,8 @@ class _CommodityCard extends StatelessWidget {
                     Text(
                       quote.name,
                       textAlign: TextAlign.right,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: AppTheme.title,
                         fontWeight: FontWeight.w700,
@@ -554,8 +567,10 @@ class _CommodityCard extends StatelessWidget {
                       [
                         quote.symbol,
                         if (showVolume && (quote.quoteVolume24h ?? 0) > 0)
-                          'حجم: ${formatNumber(quote.quoteVolume24h!, decimals: 0)}',
+                          'حجم: ${formatCompactToman(quote.quoteVolume24h!)}',
                       ].join('  ·  '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style:
                           const TextStyle(color: AppTheme.muted, fontSize: 11),
                     ),
@@ -573,12 +588,14 @@ class _CommodityCard extends StatelessWidget {
                 child: Icon(quote.icon, color: AppTheme.positive, size: 20),
               ),
               const SizedBox(width: 12),
-              SizedBox(
-                width: 110,
+              ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 88, maxWidth: 124),
                 child: Text(
-                  _formatPrice(quote),
+                  quote.formatPrice(compact: true),
                   textAlign: TextAlign.left,
                   textDirection: TextDirection.ltr,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AppTheme.text,
                     fontWeight: FontWeight.bold,
@@ -591,20 +608,5 @@ class _CommodityCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  static String _formatPrice(CommodityQuote q) {
-    final p = q.price;
-    if (p == null) return '—';
-    switch (q.unit) {
-      case 'usd':
-        return '\$${formatNumber(p, decimals: p >= 1000 ? 0 : 2)}';
-      case 'toman_per_gram':
-        return '${formatNumber(p, decimals: 0)} ت/گرم';
-      case 'toman':
-      default:
-        final decimals = p >= 1000 ? 0 : (p >= 1 ? 2 : 4);
-        return '${formatNumber(p, decimals: decimals)} تومان';
-    }
   }
 }

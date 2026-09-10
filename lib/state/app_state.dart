@@ -286,7 +286,7 @@ class AppState extends ChangeNotifier {
   Future<void> _loadCommodityCacheQuietly() async {
     final snap = await OfflineCacheStore.loadCommodities();
     if (snap != null) {
-      commodityIndex = snap.quotes;
+      commodityIndex = CommodityIndexService.alignDerivedQuotes(snap.quotes);
       wallexMarkets = snap.wallexMarkets;
       commodityIndexUpdatedAt = snap.savedAt;
     }
@@ -561,7 +561,11 @@ class AppState extends ChangeNotifier {
                 wallex: remoteBundle.wallexMarkets,
                 inflation: remoteBundle.inflation,
                 updatedAt: remoteBundle.updatedAt ?? DateTime.now(),
-                error: remoteBundle.error ?? remoteBundle.warning,
+                error: remoteBundle.stale
+                    ? (remoteBundle.warning ??
+                        remoteBundle.error ??
+                        'آفلاین — قیمت‌های ذخیره‌شده روی سرور')
+                    : (remoteBundle.error ?? remoteBundle.warning),
               );
               appliedInflation = remoteBundle.inflation ?? iranInflation;
             } else if (remoteBundle.inflation != null) {
@@ -684,13 +688,15 @@ class AppState extends ChangeNotifier {
     required DateTime updatedAt,
     String? error,
   }) async {
-    commodityIndex = essentials;
-    wallexMarkets = wallex;
+    commodityIndex = essentials.isNotEmpty
+        ? CommodityIndexService.alignDerivedQuotes(essentials)
+        : commodityIndex;
+    wallexMarkets = wallex.isNotEmpty ? wallex : wallexMarkets;
     commodityIndexUpdatedAt = updatedAt;
     commodityIndexError = error;
     await OfflineCacheStore.saveCommodities(
-      essentials,
-      wallexMarkets: wallex,
+      commodityIndex,
+      wallexMarkets: wallexMarkets,
     );
     if (inflation != null) {
       iranInflation = inflation;
@@ -715,7 +721,8 @@ class AppState extends ChangeNotifier {
   }) async {
     final cached = await OfflineCacheStore.loadCommodities();
     if (cached != null) {
-      commodityIndex = cached.quotes;
+      commodityIndex =
+          CommodityIndexService.alignDerivedQuotes(cached.quotes);
       wallexMarkets = cached.wallexMarkets;
       commodityIndexUpdatedAt = cached.savedAt;
       commodityIndexError = message;

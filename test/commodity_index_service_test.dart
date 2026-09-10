@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
 
 void main() {
@@ -102,6 +103,24 @@ void main() {
 
     final usdt = bundle.essentials.firstWhere((q) => q.symbol == 'USDT');
     expect(usdt.price, closeTo(92000, 0.01));
+
+    final usd = bundle.essentials.firstWhere((q) => q.id == 'usd');
+    expect(usd.price, closeTo(92000, 0.01));
+    expect(usd.change24h, closeTo(0.4, 1e-9));
+    final eur = bundle.essentials.firstWhere((q) => q.id == 'eur');
+    expect(eur.price, closeTo(92000 / 0.861, 0.1));
+
+    // Spot 20,869,399.2 IRR → Toman /10 → 18k ×0.75.
+    final gold = bundle.essentials.firstWhere((q) => q.id == 'gold');
+    expect(gold.unit, 'toman_per_gram');
+    expect(gold.price, closeTo(20869399.2 / 10 * 0.75, 0.1));
+    expect(gold.goldKarat, 18);
+
+    final coin = bundle.essentials.firstWhere((q) => q.id == 'coin');
+    expect(
+      coin.price,
+      closeTo(gold.price! * kFullCoin18kGrams, 1),
+    );
 
     // Only TMN quote markets, not USDT pairs.
     expect(bundle.wallexMarkets, hasLength(3));

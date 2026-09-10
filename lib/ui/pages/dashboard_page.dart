@@ -388,7 +388,7 @@ class _QuoteStrip extends StatelessWidget {
                     ),
                     const Spacer(),
                     Text(
-                      _quotePrice(q),
+                      q.formatPrice(compact: true),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -415,15 +415,6 @@ class _QuoteStrip extends StatelessWidget {
       ),
     );
   }
-}
-
-String _quotePrice(CommodityQuote q) {
-  final p = q.price;
-  if (p == null) return '—';
-  final unit = q.unit.toLowerCase();
-  if (unit == 'usd') return formatUsd(p, compact: true);
-  if (unit.contains('gram')) return '${formatCompactToman(p)}/گ';
-  return formatCompactToman(p);
 }
 
 class _PnlGrid extends StatelessWidget {
