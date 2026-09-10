@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/metrics.dart';
+import 'package:invest/domain/services/index_analytics.dart';
 import 'package:invest/domain/services/market_history_service.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/index_quote_card.dart';
 import 'package:invest/ui/widgets/price_alert_sheet.dart';
 import 'package:invest/ui/widgets/value_line_chart.dart';
 import 'package:provider/provider.dart';
@@ -103,6 +105,8 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
         : (change > 0
             ? AppTheme.positive
             : (change < 0 ? AppTheme.negative : AppTheme.muted));
+    final position = rangePosition(q);
+    final spread = spreadLabel(q);
 
     return Scaffold(
       appBar: AppBar(
@@ -183,12 +187,24 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'قیمت لحظه‌ای',
+                    indexRoleLabel(q),
                     style: TextStyle(
                       color: AppTheme.muted.withValues(alpha: 0.9),
                       fontSize: 12,
                     ),
                   ),
+                  if (position != null) ...[
+                    const SizedBox(height: 12),
+                    QuoteRangeBar(position: position, color: changeColor),
+                    const SizedBox(height: 6),
+                    Text(
+                      rangeCaption(position)!,
+                      style: const TextStyle(
+                        color: AppTheme.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -214,18 +230,27 @@ class _QuoteDetailPageState extends State<QuoteDetailPage> {
                   label: 'خرید',
                   value: q.bidPrice == null
                       ? '—'
-                      : q.copyWith(price: q.bidPrice).formatPrice(compact: true),
+                      : q
+                          .copyWith(price: q.bidPrice)
+                          .formatPrice(compact: true),
                 ),
                 _StatChip(
                   label: 'فروش',
                   value: q.askPrice == null
                       ? '—'
-                      : q.copyWith(price: q.askPrice).formatPrice(compact: true),
+                      : q
+                          .copyWith(price: q.askPrice)
+                          .formatPrice(compact: true),
                 ),
                 if ((q.quoteVolume24h ?? 0) > 0)
                   _StatChip(
                     label: 'حجم ۲۴س',
                     value: formatCompactToman(q.quoteVolume24h!),
+                  ),
+                if (spread != null)
+                  _StatChip(
+                    label: 'نقدشوندگی',
+                    value: spread,
                   ),
                 if (q.resolvedMarketSymbol != null)
                   _StatChip(
