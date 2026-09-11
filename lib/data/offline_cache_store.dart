@@ -170,7 +170,16 @@ class OfflineCacheStore {
     try {
       final map = jsonDecode(raw) as Map<String, dynamic>;
       final items = ((map['items'] as List?) ?? const [])
-          .map((e) => CommodityQuote.fromJson(Map<String, dynamic>.from(e as Map)))
+          .map((e) {
+            try {
+              return CommodityQuote.fromJson(
+                Map<String, dynamic>.from(e as Map),
+              );
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<CommodityQuote>()
           .toList();
       if (items.isEmpty) return null;
       return OfflineCommoditySnapshot(

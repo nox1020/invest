@@ -8,6 +8,7 @@ import 'package:invest/domain/models/iran_inflation.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
+import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
 
@@ -165,12 +166,10 @@ class RemoteInvestService {
         query: force ? {'force': '1'} : null,
         timeout: const Duration(seconds: 45),
       );
-      final essentials = ((data['essentials'] as List?) ?? const [])
-          .map((e) => CommodityQuote.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
-      final wallex = ((data['wallex_markets'] as List?) ?? const [])
-          .map((e) => CommodityQuote.fromJson(Map<String, dynamic>.from(e as Map)))
-          .toList();
+      final essentials = CommodityIndexService.alignDerivedQuotes(
+        _parseQuotes(data['essentials']),
+      );
+      final wallex = _parseQuotes(data['wallex_markets']);
       IranInflationSnapshot? inflation;
       final rawInf = data['inflation'];
       if (rawInf is Map) {
@@ -472,9 +471,21 @@ class RemoteInvestService {
     );
   }
 
-  static double _num(dynamic v) => (v as num?)?.toDouble() ?? 0;
+  static double _num(dynamic v) => CommodityQuote.numOf(v) ?? 0;
 
-  static double? _numOrNull(dynamic v) => (v as num?)?.toDouble();
+  static double? _numOrNull(dynamic v) => CommodityQuote.numOf(v);
+
+  static List<CommodityQuote> _parseQuotes(dynamic raw) {
+    if (raw is! List) return const [];
+    final out = <CommodityQuote>[];
+    for (final e in raw) {
+      if (e is! Map) continue;
+      try {
+        out.add(CommodityQuote.fromJson(Map<String, dynamic>.from(e)));
+      } catch (_) {}
+    }
+    return out;
+  }
 }
 
 class MarketIndexRemoteBundle {

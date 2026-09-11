@@ -82,6 +82,8 @@ class _IranInflationPaneState extends State<IranInflationPane> {
                     kind: InflationMetricKind.pointToPoint,
                   ),
                 ),
+                const SizedBox(height: 10),
+                const _PolicyNote(),
                 const SizedBox(height: 14),
                 const _SectionTitle('انواع تورم'),
                 const SizedBox(height: 8),
@@ -176,6 +178,32 @@ class _SectionTitle extends StatelessWidget {
         color: AppTheme.title,
         fontWeight: FontWeight.w800,
         fontSize: 14,
+      ),
+    );
+  }
+}
+
+class _PolicyNote extends StatelessWidget {
+  const _PolicyNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: const Text(
+        'این ارقام تورم رسمی سبد مصرف خانوارند. طلا و سکه در تب بازار پوشش خانگی تورم هستند و با CPI یکی نیستند — بازهٔ زمانی‌شان هم قابل مقایسه نیست.',
+        textAlign: TextAlign.right,
+        style: TextStyle(
+          color: AppTheme.muted,
+          fontSize: 11,
+          height: 1.45,
+        ),
       ),
     );
   }

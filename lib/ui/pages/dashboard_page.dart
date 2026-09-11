@@ -5,6 +5,7 @@ import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/services/chart_series.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
+import 'package:invest/domain/services/index_analytics.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
@@ -65,6 +66,8 @@ class _DashboardBodyState extends State<_DashboardBody> {
       );
     }
 
+    final anchors = indexAnchors(state.commodityIndex);
+
     return RefreshIndicator(
       onRefresh: () => state.refreshAll(includeQuotes: true),
       child: ListView(
@@ -85,6 +88,18 @@ class _DashboardBodyState extends State<_DashboardBody> {
           if (quotes.isNotEmpty) ...[
             const SizedBox(height: 14),
             _QuoteStrip(quotes: quotes),
+            if (anchors.caption != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                anchors.caption!,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  color: AppTheme.muted,
+                  fontSize: 11,
+                  height: 1.35,
+                ),
+              ),
+            ],
           ],
           const SizedBox(height: 18),
           _SectionHead(
@@ -172,7 +187,9 @@ class _EmptyDashboard extends StatelessWidget {
       children: [
         SizedBox(height: MediaQuery.sizeOf(context).height * 0.18),
         Icon(
-          offline ? Icons.cloud_off_outlined : Icons.account_balance_wallet_outlined,
+          offline
+              ? Icons.cloud_off_outlined
+              : Icons.account_balance_wallet_outlined,
           size: 44,
           color: AppTheme.muted,
         ),
@@ -256,7 +273,8 @@ class _HeroNetWorth extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.show_chart_rounded, size: 18, color: AppTheme.muted),
+                  const Icon(Icons.show_chart_rounded,
+                      size: 18, color: AppTheme.muted),
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
@@ -305,12 +323,14 @@ class _HeroNetWorth extends StatelessWidget {
                   if (usdPnl != null)
                     _Pill(
                       text: formatUsd(usdPnl, compact: true, showSign: true),
-                      color: usdPnl >= 0 ? AppTheme.positive : AppTheme.negative,
+                      color:
+                          usdPnl >= 0 ? AppTheme.positive : AppTheme.negative,
                     ),
                   if (spark.length >= 2)
                     _Pill(
                       text: 'روند ${formatPct(sparkPct)}',
-                      color: sparkPct >= 0 ? AppTheme.positive : AppTheme.negative,
+                      color:
+                          sparkPct >= 0 ? AppTheme.positive : AppTheme.negative,
                     ),
                 ],
               ),
@@ -388,7 +408,7 @@ class _QuoteStrip extends StatelessWidget {
                     ),
                     const Spacer(),
                     Text(
-                      _quotePrice(q),
+                      q.formatPrice(compact: true),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -415,15 +435,6 @@ class _QuoteStrip extends StatelessWidget {
       ),
     );
   }
-}
-
-String _quotePrice(CommodityQuote q) {
-  final p = q.price;
-  if (p == null) return '—';
-  final unit = q.unit.toLowerCase();
-  if (unit == 'usd') return formatUsd(p, compact: true);
-  if (unit.contains('gram')) return '${formatCompactToman(p)}/گ';
-  return formatCompactToman(p);
 }
 
 class _PnlGrid extends StatelessWidget {
@@ -558,7 +569,8 @@ class _GoldBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.diamond_outlined, color: Color(0xFFE8C547), size: 20),
+          const Icon(Icons.diamond_outlined,
+              color: Color(0xFFE8C547), size: 20),
           const SizedBox(width: 10),
           const Expanded(
             child: Text(
@@ -679,7 +691,8 @@ class _HoldingTile extends StatelessWidget {
       notes: asset.notes,
     );
     final usd = metrics.marketValueUsd(usdt);
-    final tone = metrics.unrealizedPnl >= 0 ? AppTheme.positive : AppTheme.negative;
+    final tone =
+        metrics.unrealizedPnl >= 0 ? AppTheme.positive : AppTheme.negative;
     return Material(
       color: AppTheme.card,
       borderRadius: BorderRadius.circular(14),
@@ -714,7 +727,8 @@ class _HoldingTile extends StatelessWidget {
                     Text(
                       '${formatNumber(share * 100, decimals: 1)}٪ از پورتفو',
                       textAlign: TextAlign.right,
-                      style: const TextStyle(color: AppTheme.muted, fontSize: 11),
+                      style:
+                          const TextStyle(color: AppTheme.muted, fontSize: 11),
                     ),
                   ],
                 ),
@@ -917,12 +931,14 @@ class _HintBanner extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFE8C547).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE8C547).withValues(alpha: 0.28)),
+        border:
+            Border.all(color: const Color(0xFFE8C547).withValues(alpha: 0.28)),
       ),
       child: Text(
         text,
         textAlign: TextAlign.right,
-        style: const TextStyle(color: AppTheme.muted, fontSize: 11, height: 1.4),
+        style:
+            const TextStyle(color: AppTheme.muted, fontSize: 11, height: 1.4),
       ),
     );
   }

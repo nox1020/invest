@@ -47,7 +47,9 @@ class _InflationDetailPageState extends State<InflationDetailPage> {
   void initState() {
     super.initState();
     _snap = widget.snap;
-    _ensureLongHistory();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _ensureLongHistory();
+    });
   }
 
   Future<void> _ensureLongHistory() async {

@@ -26,8 +26,6 @@ class CommodityIndexService {
 
   final http.Client _client;
 
-  static const _coinGoldGrams = 8.133;
-
   Future<MarketIndexBundle> fetchAll({
     String? wallexUrl,
     String? marketUrl,
@@ -40,7 +38,7 @@ class CommodityIndexService {
     final market = await _fetchPersianMarket(marketUrl);
     final wallex = await _fetchWallexPayload(wallexUrlResolved);
 
-    final essentials = _buildEssentials(market, wallex);
+    final essentials = alignDerivedQuotes(_buildEssentials(market, wallex));
     final wallexMarkets = _parseWallexTmnMarkets(wallex);
 
     return MarketIndexBundle(
@@ -63,25 +61,36 @@ class CommodityIndexService {
     Map<String, dynamic>? wallex,
   ) {
     final usdt = _usdtFromWallex(wallex);
+    final units = _asMap(market?['units']);
+    final iranUnit = '${units?['iranCurrency'] ?? 'IRR'}'.toUpperCase();
+    final goldUnit =
+        '${units?['goldPricePerGram'] ?? iranUnit}'.toUpperCase();
 
     final usdIrr = _num(market?['currencies']?['IRR']?['rate']);
-    final usdToman = usdIrr != null && usdIrr > 0 ? usdIrr / 10.0 : null;
+    final usdFromIrr = usdIrr != null && usdIrr > 0
+        ? _toToman(usdIrr, iranUnit)
+        : null;
+    // Free-market dollar ≈ USDT/TMN; Persian Toolbox IRR is official/forex.
+    final usdToman =
+        (usdt != null && usdt > 0) ? usdt : usdFromIrr;
 
     double? fxToman(String code) {
       if (usdToman == null) return null;
+      if (code == 'USD') return usdToman;
       final rate = _num(market?['currencies']?[code]?['rate']);
       if (rate == null || rate <= 0) return null;
-      if (code == 'USD') return usdToman;
-      if (rate >= 1) return usdToman / rate;
       return usdToman / rate;
     }
 
     double? fxChange(String code) =>
         _num(market?['currencies']?[code]?['change24h']);
 
-    final goldIrr = _num(market?['gold']?['pricePerGram']);
+    final goldRaw = _num(market?['gold']?['pricePerGram']);
+    final goldSpot =
+        goldRaw != null && goldRaw > 0 ? _toToman(goldRaw, goldUnit) : null;
+    // Spot/CoinGecko gold is 24k; the index shows طلای ۱۸ عیار.
     final goldToman =
-        goldIrr != null && goldIrr > 0 ? goldIrr / 10.0 : null;
+        goldSpot != null ? goldSpot * k18GoldPurity : null;
     final goldChange = _num(market?['gold']?['change24h']);
 
     final btcUsd = _num(market?['crypto']?['BTC']?['priceUSD']);
@@ -100,7 +109,7 @@ class CommodityIndexService {
         unit: 'toman',
         price: usdt,
         change24h: wallexUsdt?.change24h,
-        icon: Icons.currency_bitcoin_rounded,
+        icon: Icons.paid_rounded,
         marketSymbol: 'USDTTMN',
         high24h: wallexUsdt?.high24h,
         low24h: wallexUsdt?.low24h,
@@ -114,8 +123,13 @@ class CommodityIndexService {
         symbol: 'USD',
         unit: 'toman',
         price: fxToman('USD'),
-        change24h: fxChange('USD'),
+        change24h: usdt != null ? wallexUsdt?.change24h : fxChange('USD'),
         icon: Icons.attach_money_rounded,
+        marketSymbol: usdt != null ? 'USDTTMN' : null,
+        high24h: usdt != null ? wallexUsdt?.high24h : null,
+        low24h: usdt != null ? wallexUsdt?.low24h : null,
+        bidPrice: usdt != null ? wallexUsdt?.bidPrice : null,
+        askPrice: usdt != null ? wallexUsdt?.askPrice : null,
       ),
       CommodityQuote(
         id: 'eur',
@@ -161,13 +175,14 @@ class CommodityIndexService {
         price: goldToman,
         change24h: goldChange,
         icon: Icons.diamond_outlined,
+        goldKarat: 18,
       ),
       CommodityQuote(
         id: 'coin',
         name: 'سکه تمام (تقریبی)',
         symbol: 'COIN',
         unit: 'toman',
-        price: goldToman != null ? goldToman * _coinGoldGrams : null,
+        price: goldToman != null ? goldToman * kFullCoin18kGrams : null,
         change24h: goldChange,
         icon: Icons.monetization_on_outlined,
       ),
@@ -343,9 +358,41 @@ class CommodityIndexService {
     }
   }
 
-  static double? _num(dynamic v) {
-    if (v == null) return null;
-    if (v is num) return v.toDouble();
-    return double.tryParse('$v');
+  static double? _num(dynamic v) => CommodityQuote.numOf(v);
+
+  static double _toToman(double amount, String unit) {
+    if (unit.contains('IRR') || unit.contains('RIAL')) return amount / 10.0;
+    return amount;
+  }
+
+  /// Keep سکه derived from ۱۸ عیار gold and mark gold as 18k.
+  static List<CommodityQuote> alignDerivedQuotes(List<CommodityQuote> quotes) {
+    CommodityQuote? gold;
+    for (final q in quotes) {
+      if (q.id == 'gold') gold = q;
+    }
+    if (gold == null) return quotes;
+    var g = gold;
+    if (g.goldKarat != 18 && g.price != null && g.price! > 0) {
+      g = g.copyWith(price: g.price! * k18GoldPurity, goldKarat: 18);
+    } else if (g.goldKarat != 18) {
+      g = g.copyWith(goldKarat: 18);
+    }
+    final coinPrice =
+        g.price != null && g.price! > 0 ? g.price! * kFullCoin18kGrams : null;
+    return [
+      for (final q in quotes)
+        if (q.id == 'gold')
+          g
+        else if (q.id == 'coin')
+          q.copyWith(
+            price: coinPrice,
+            change24h: g.change24h,
+            clearPrice: coinPrice == null,
+            clearChange: g.change24h == null,
+          )
+        else
+          q,
+    ];
   }
 }
