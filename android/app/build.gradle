@@ -72,6 +72,14 @@ android {
             }
         }
     }
+
+    applicationVariants.configureEach { variant ->
+        variant.outputs.configureEach { output ->
+            // Android Studio / AGP output. Flutter still copies to
+            // build/app/outputs/flutter-apk/app-release.apk; CI/script renames that.
+            output.outputFileName = "invest-${variant.versionName}.apk"
+        }
+    }
 }
 
 flutter {

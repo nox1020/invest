@@ -184,26 +184,41 @@ jobs:
       - name: Build APK
         id: apk
         run: |
-          set -o pipefail
+          set -euo pipefail
           test -f android/key.properties
           test -f android/app/vplus-ci.keystore
+          VERSION_NAME="1.0.${ANDROID_VERSION_CODE}"
+          APK_NAME="invest-${VERSION_NAME}.apk"
           flutter build apk --release \
             --build-number="${ANDROID_VERSION_CODE}" \
-            --build-name="1.0.${ANDROID_VERSION_CODE}" \
+            --build-name="${VERSION_NAME}" \
             --dart-define=VINOR_API_VERSION="${VINOR_API_VERSION}" \
             2>&1 | tee apk-build.log
+          # Flutter always prints/copies app-release.apk. Canonical name is invest-1.0.<n>.apk.
+          APK_PATH="$(bash scripts/name_release_apk.sh build/app/outputs/flutter-apk "${VERSION_NAME}")"
+          test "$(basename "${APK_PATH}")" = "${APK_NAME}"
+          test ! -f build/app/outputs/flutter-apk/app-release.apk
+          ls -la build/app/outputs/flutter-apk
+          echo "apk_path=${APK_PATH}" >> "$GITHUB_OUTPUT"
+          echo "apk_name=${APK_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
           {
             echo "### APK identity"
+            echo "- file: \`${APK_NAME}\`"
             echo "- versionCode: ${ANDROID_VERSION_CODE}"
-            echo "- versionName: 1.0.${ANDROID_VERSION_CODE}"
+            echo "- versionName: ${VERSION_NAME}"
             echo "- applicationId: com.nox1020.invest"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify APK version + signing cert
         run: |
           set -euo pipefail
-          APK="build/app/outputs/flutter-apk/app-release.apk"
+          APK="${{ steps.apk.outputs.apk_path }}"
+          test -n "${APK}"
           test -f "${APK}"
+          test "$(basename "${APK}")" = "${{ steps.apk.outputs.apk_name }}"
+          test "$(basename "${APK}")" != "app-release.apk"
+          test ! -f build/app/outputs/flutter-apk/app-release.apk
 
           BT="$(ls -d "${ANDROID_HOME}/build-tools"/* | sort -V | tail -n 1)"
           AAPT="${BT}/aapt"
@@ -218,6 +233,14 @@ jobs:
           echo "Parsed versionCode=${CODE} versionName=${NAME}"
           if [ "${CODE}" != "${ANDROID_VERSION_CODE}" ]; then
             echo "versionCode mismatch: apk=${CODE} expected=${ANDROID_VERSION_CODE}" >&2
+            exit 1
+          fi
+          if [ "${NAME}" != "1.0.${ANDROID_VERSION_CODE}" ]; then
+            echo "versionName mismatch: apk=${NAME} expected=1.0.${ANDROID_VERSION_CODE}" >&2
+            exit 1
+          fi
+          if [ "$(basename "${APK}")" != "invest-${NAME}.apk" ]; then
+            echo "APK filename must be invest-${NAME}.apk, got $(basename "${APK}")" >&2
             exit 1
           fi
 
@@ -277,15 +300,15 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: invest-apk-${{ github.run_number }}${{ env.VINOR_API_VERSION && format('-{0}', env.VINOR_API_VERSION) || '' }}
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: invest-${{ steps.apk.outputs.version_name }}${{ env.VINOR_API_VERSION && format('-{0}', env.VINOR_API_VERSION) || '' }}
+          path: ${{ steps.apk.outputs.apk_path }}
           if-no-files-found: error
 
       - name: Release on tag
         if: startsWith(github.ref, 'refs/tags/v') && success()
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: ${{ steps.apk.outputs.apk_path }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
