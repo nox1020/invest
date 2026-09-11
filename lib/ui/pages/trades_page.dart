@@ -36,9 +36,7 @@ class TradesPage extends StatelessWidget {
     final list = assetId == null
         ? List<Trade>.from(raw)
         : raw
-            .where((t) =>
-                t.assetId == assetId &&
-                (!open || t.quantity > 1e-9))
+            .where((t) => t.assetId == assetId && (!open || t.quantity > 1e-9))
             .toList();
     if (open) {
       list.sort((a, b) => a.buyDate.compareTo(b.buyDate));
@@ -65,9 +63,8 @@ class TradesPage extends StatelessWidget {
       return Center(child: empty);
     }
 
-    final pad = shrinkWrap
-        ? EdgeInsets.zero
-        : shellPagePadding(extraForFab: open);
+    final pad =
+        shrinkWrap ? EdgeInsets.zero : shellPagePadding(extraForFab: open);
     return ListView.separated(
       shrinkWrap: shrinkWrap,
       physics: shrinkWrap
@@ -75,7 +72,7 @@ class TradesPage extends StatelessWidget {
           : const AlwaysScrollableScrollPhysics(),
       padding: pad,
       itemCount: list.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, i) => _TradeTile(
         trade: list[i],
         open: open,
@@ -475,7 +472,8 @@ Future<void> showSellTradeDialog(BuildContext context, Trade trade) async {
   final state = context.read<AppState>();
   final qtyCtrl = TextEditingController(text: '${trade.quantity}');
   final priceCtrl = TextEditingController(
-    text: trade.currentPrice > 0 ? '${trade.currentPrice}' : '${trade.buyPrice}',
+    text:
+        trade.currentPrice > 0 ? '${trade.currentPrice}' : '${trade.buyPrice}',
   );
   final feeCtrl = TextEditingController(text: '0');
   var sellDate = todayIso();
@@ -503,8 +501,8 @@ Future<void> showSellTradeDialog(BuildContext context, Trade trade) async {
               ),
               TextField(
                 controller: priceCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'قیمت فروش (تومان)'),
+                decoration:
+                    const InputDecoration(labelText: 'قیمت فروش (تومان)'),
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.right,
               ),
@@ -525,8 +523,12 @@ Future<void> showSellTradeDialog(BuildContext context, Trade trade) async {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('انصراف')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('فروش')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('انصراف')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('فروش')),
         ],
       ),
     ),
@@ -853,14 +855,21 @@ class _TradeTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (open) {
+      return _OpenTradeCard(
+        trade: trade,
+        showAssetIdentity: showAssetIdentity,
+        onSell: onSell,
+        onEdit: onEdit,
+      );
+    }
+
     final state = context.read<AppState>();
     final qtyDecimals =
         (trade.quantity - trade.quantity.roundToDouble()).abs() < 1e-9 ? 0 : 4;
     final qtyText = formatNumber(trade.quantity, decimals: qtyDecimals);
-    final openPnl = trade.unrealizedPnl;
     final closedPnl = trade.realizedPnl;
-    final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
-    final currentUsd = tomanToUsd(trade.currentPrice, usdt);
+    final note = trade.buyNoteDisplay.trim();
 
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -872,51 +881,30 @@ class _TradeTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if ((open && trade.id != null) || showAssetIdentity)
-            Row(
-              children: [
-                if (open && trade.id != null)
-                  ProfitAlertBell(
-                    id: ProfitAlert.forTrade(trade.id!),
-                    name: trade.assetName,
-                    symbol: trade.assetSymbol,
-                    currentPnl: openPnl,
-                    currentPnlPct: trade.unrealizedPnlPct,
-                  ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (showAssetIdentity) ...[
-                        Text(
-                          trade.assetName,
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            color: AppTheme.title,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 15,
-                          ),
-                        ),
-                        if (trade.assetSymbol.trim().isNotEmpty)
-                          Text(
-                            trade.assetSymbol,
-                            textAlign: TextAlign.right,
-                            style: const TextStyle(
-                              color: AppTheme.muted,
-                              fontSize: 12,
-                            ),
-                          ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
+          if (showAssetIdentity) ...[
+            Text(
+              trade.assetName,
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: AppTheme.title,
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+              ),
             ),
-          if (showAssetIdentity)
+            if (trade.assetSymbol.trim().isNotEmpty)
+              Text(
+                trade.assetSymbol,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  color: AppTheme.muted,
+                  fontSize: 12,
+                ),
+              ),
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 10),
               child: Divider(height: 1, color: AppTheme.border),
             ),
+          ],
           _TradeDetailRow(label: 'مقدار', value: qtyText),
           _TradeDetailRow(
             label: 'قیمت خرید',
@@ -925,12 +913,6 @@ class _TradeTile extends StatelessWidget {
                 ? formatUsd(trade.buyPriceUsd!)
                 : null,
           ),
-          if (trade.resolvedBuyUsdTmn != null &&
-              _tradeIsCrypto(trade, state.assets))
-            _TradeDetailRow(
-              label: 'قیمت دلار زمان خرید',
-              value: formatTomanPrice(trade.resolvedBuyUsdTmn!),
-            ),
           if (trade.buyFee > 0)
             _TradeDetailRow(
               label: 'کارمزد خرید',
@@ -944,75 +926,31 @@ class _TradeTile extends StatelessWidget {
             label: 'تاریخ خرید',
             value: formatDisplayDate(trade.buyDate, state.settings.calendar),
           ),
-          if (open) ...[
+          if (trade.sellPrice != null)
             _TradeDetailRow(
-              label: 'مدت باز بودن',
-              value: _formatOpenDays(trade.openDays),
+              label: 'قیمت فروش',
+              value: formatMoney(trade.sellPrice!),
             ),
+          _TradeDetailRow(
+            label: 'تاریخ فروش',
+            value: formatDisplayDate(trade.sellDate, state.settings.calendar),
+          ),
+          if (trade.holdingDays != null)
             _TradeDetailRow(
-              label: 'قیمت لحظه‌ای',
-              value: formatTomanPrice(trade.currentPrice),
-              secondary: currentUsd == null ? null : formatUsd(currentUsd),
+              label: 'مدت نگهداری',
+              value: _formatOpenDays(trade.holdingDays!),
             ),
-            _TradeDetailRow(
-              label: 'ارزش فعلی',
-              value: formatMoney(trade.currentValue),
-            ),
+          if (closedPnl != null)
             _TradeDetailRow(
               label: 'سود/زیان',
-              value: formatMoney(openPnl, showSign: true),
-              pct: trade.unrealizedPnlPct,
+              value: formatMoney(closedPnl, showSign: true),
+              pct: trade.returnPct,
             ),
-          ] else ...[
-            if (trade.sellPrice != null)
-              _TradeDetailRow(
-                label: 'قیمت فروش',
-                value: formatMoney(trade.sellPrice!),
-              ),
-            _TradeDetailRow(
-              label: 'تاریخ فروش',
-              value: formatDisplayDate(trade.sellDate, state.settings.calendar),
-            ),
-            if (trade.holdingDays != null)
-              _TradeDetailRow(
-                label: 'مدت نگهداری',
-                value: _formatOpenDays(trade.holdingDays!),
-              ),
-            if (closedPnl != null)
-              _TradeDetailRow(
-                label: 'سود/زیان',
-                value: formatMoney(closedPnl, showSign: true),
-                pct: trade.returnPct,
-              ),
-          ],
-          if (trade.buyNote.trim().isNotEmpty)
+          if (note.isNotEmpty)
             _TradeDetailRow(
               label: 'یادداشت',
-              value: trade.buyNote.trim(),
+              value: note,
             ),
-          if (onSell != null || onEdit != null) ...[
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Wrap(
-                spacing: 4,
-                children: [
-                  if (onEdit != null)
-                    TextButton.icon(
-                      onPressed: onEdit,
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      label: const Text('ویرایش'),
-                    ),
-                  if (onSell != null)
-                    TextButton.icon(
-                      onPressed: onSell,
-                      icon: const Icon(Icons.sell, size: 18),
-                      label: const Text('فروش'),
-                    ),
-                ],
-              ),
-            ),
-          ],
           if (onDelete != null) ...[
             const SizedBox(height: 8),
             Align(
@@ -1022,6 +960,692 @@ class _TradeTile extends StatelessWidget {
                 style: TextButton.styleFrom(foregroundColor: AppTheme.negative),
                 icon: const Icon(Icons.delete_outline, size: 18),
                 label: const Text('حذف'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _OpenTradeCard extends StatelessWidget {
+  const _OpenTradeCard({
+    required this.trade,
+    required this.showAssetIdentity,
+    this.onSell,
+    this.onEdit,
+  });
+
+  final Trade trade;
+  final bool showAssetIdentity;
+  final VoidCallback? onSell;
+  final VoidCallback? onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final qtyDecimals =
+        (trade.quantity - trade.quantity.roundToDouble()).abs() < 1e-9 ? 0 : 4;
+    final qtyText = formatNumber(trade.quantity, decimals: qtyDecimals);
+    final pnl = trade.unrealizedPnl;
+    final pct = trade.unrealizedPnlPct;
+    final up = pnl >= 0;
+    final tone = up ? AppTheme.positive : AppTheme.negative;
+    final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
+    final currentUsd = tomanToUsd(trade.currentPrice, usdt);
+    final buyUsd = trade.buyPriceUsd != null && trade.buyPriceUsd! > 0
+        ? trade.buyPriceUsd
+        : null;
+    final date = formatDisplayDate(trade.buyDate, state.settings.calendar);
+    final note = trade.buyNoteDisplay.trim();
+    final meta = [
+      if (!showAssetIdentity) qtyText,
+      if (date != '—') date,
+      _formatOpenDays(trade.openDays),
+    ].join(' · ');
+
+    return Material(
+      color: AppTheme.card,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => showOpenTradeDetails(
+          context,
+          trade: trade,
+          onSell: onSell,
+          onEdit: onEdit,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.border),
+          ),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(width: 4, color: tone),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    showAssetIdentity
+                                        ? trade.assetName
+                                        : '$qtyText واحد',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: AppTheme.title,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    showAssetIdentity
+                                        ? [
+                                            qtyText,
+                                            if (trade.assetSymbol
+                                                .trim()
+                                                .isNotEmpty)
+                                              trade.assetSymbol.trim(),
+                                            meta,
+                                          ].join(' · ')
+                                        : meta,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(
+                                      color: AppTheme.muted,
+                                      fontSize: 11,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            if (trade.id != null)
+                              ProfitAlertBell(
+                                id: ProfitAlert.forTrade(trade.id!),
+                                name: trade.assetName,
+                                symbol: trade.assetSymbol,
+                                currentPnl: pnl,
+                                currentPnlPct: pct,
+                              ),
+                            _PnlBadge(pct: pct, tone: tone, up: up),
+                            const Icon(
+                              Icons.chevron_left_rounded,
+                              color: AppTheme.muted,
+                              size: 20,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _PriceCell(
+                                label: 'خرید',
+                                price: formatTomanPrice(trade.buyPrice),
+                                usd: buyUsd == null ? null : formatUsd(buyUsd),
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                              child: Icon(
+                                Icons.west_rounded,
+                                size: 16,
+                                color: tone.withValues(alpha: 0.85),
+                              ),
+                            ),
+                            Expanded(
+                              child: _PriceCell(
+                                label: 'اکنون',
+                                price: formatTomanPrice(trade.currentPrice),
+                                usd: currentUsd == null
+                                    ? null
+                                    : formatUsd(currentUsd),
+                                emphasize: true,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Text(
+                              'ارزش ${formatMoney(trade.currentValue)}',
+                              style: const TextStyle(
+                                color: AppTheme.muted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              formatMoney(pnl, showSign: true),
+                              style: TextStyle(
+                                color: tone,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (note.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            note,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                              color: AppTheme.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                        if (onSell != null || onEdit != null) ...[
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              if (onSell != null)
+                                Expanded(
+                                  child: FilledButton(
+                                    onPressed: onSell,
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppTheme.accent,
+                                      foregroundColor: Colors.white,
+                                      elevation: 0,
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 10),
+                                      visualDensity: VisualDensity.compact,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                    child: const Text('فروش'),
+                                  ),
+                                ),
+                              if (onSell != null && onEdit != null)
+                                const SizedBox(width: 8),
+                              if (onEdit != null)
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: onEdit,
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppTheme.title,
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 10),
+                                      visualDensity: VisualDensity.compact,
+                                      side: const BorderSide(
+                                          color: AppTheme.border),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                    child: const Text('ویرایش'),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> showOpenTradeDetails(
+  BuildContext context, {
+  required Trade trade,
+  VoidCallback? onSell,
+  VoidCallback? onEdit,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppTheme.card,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) => _OpenTradeDetailsSheet(
+      trade: trade,
+      onSell: onSell == null
+          ? null
+          : () {
+              Navigator.pop(ctx);
+              onSell();
+            },
+      onEdit: onEdit == null
+          ? null
+          : () {
+              Navigator.pop(ctx);
+              onEdit();
+            },
+    ),
+  );
+}
+
+class _OpenTradeDetailsSheet extends StatelessWidget {
+  const _OpenTradeDetailsSheet({
+    required this.trade,
+    this.onSell,
+    this.onEdit,
+  });
+
+  final Trade trade;
+  final VoidCallback? onSell;
+  final VoidCallback? onEdit;
+
+  Trade _live(AppState state) {
+    final id = trade.id;
+    if (id == null) return trade;
+    for (final t in state.openTrades) {
+      if (t.id == id) return t;
+    }
+    return trade;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final t = _live(state);
+    final qtyDecimals =
+        (t.quantity - t.quantity.roundToDouble()).abs() < 1e-9 ? 0 : 4;
+    final qtyText = formatNumber(t.quantity, decimals: qtyDecimals);
+    final pnl = t.unrealizedPnl;
+    final pct = t.unrealizedPnlPct;
+    final up = pnl >= 0;
+    final tone = up ? AppTheme.positive : AppTheme.negative;
+    final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
+    final currentUsd = tomanToUsd(t.currentPrice, usdt);
+    final buyUsd =
+        t.buyPriceUsd != null && t.buyPriceUsd! > 0 ? t.buyPriceUsd : null;
+    final note = t.buyNoteDisplay.trim();
+    final crypto = _tradeIsCrypto(t, state.assets);
+    final bottom = MediaQuery.paddingOf(context).bottom;
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 10, 16, 16 + bottom),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppTheme.border,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Text(
+                    'جزئیات معامله',
+                    style: TextStyle(
+                      color: AppTheme.title,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const Spacer(),
+                  _PnlBadge(pct: pct, tone: tone, up: up),
+                  if (t.id != null)
+                    ProfitAlertBell(
+                      id: ProfitAlert.forTrade(t.id!),
+                      name: t.assetName,
+                      symbol: t.assetSymbol,
+                      currentPnl: pnl,
+                      currentPnlPct: pct,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                t.assetName,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  color: AppTheme.title,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 20,
+                ),
+              ),
+              if (t.assetSymbol.trim().isNotEmpty)
+                Text(
+                  t.assetSymbol,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 13),
+                ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: tone.withValues(alpha: 0.28)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      up ? 'سود باز' : 'زیان باز',
+                      style: TextStyle(
+                        color: tone,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      formatMoney(pnl, showSign: true),
+                      style: TextStyle(
+                        color: tone,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        height: 1.1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _PriceCell(
+                      label: 'خرید',
+                      price: formatTomanPrice(t.buyPrice),
+                      usd: buyUsd == null ? null : formatUsd(buyUsd),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Icon(
+                      Icons.west_rounded,
+                      size: 16,
+                      color: tone.withValues(alpha: 0.85),
+                    ),
+                  ),
+                  Expanded(
+                    child: _PriceCell(
+                      label: 'اکنون',
+                      price: formatTomanPrice(t.currentPrice),
+                      usd: currentUsd == null ? null : formatUsd(currentUsd),
+                      emphasize: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DetailFact(label: 'مقدار', value: qtyText),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DetailFact(
+                      label: 'مدت باز بودن',
+                      value: _formatOpenDays(t.openDays),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DetailFact(
+                      label: 'هزینه خرید',
+                      value: formatMoney(t.buyCost),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DetailFact(
+                      label: 'ارزش فعلی',
+                      value: formatMoney(t.currentValue),
+                    ),
+                  ),
+                ],
+              ),
+              if (t.buyFee > 0) ...[
+                const SizedBox(height: 8),
+                _DetailFact(
+                  label: 'کارمزد خرید',
+                  value: formatMoney(t.buyFee),
+                ),
+              ],
+              if (crypto && t.resolvedBuyUsdTmn != null) ...[
+                const SizedBox(height: 8),
+                _DetailFact(
+                  label: 'قیمت دلار زمان خرید',
+                  value: formatTomanPrice(t.resolvedBuyUsdTmn!),
+                ),
+              ],
+              const SizedBox(height: 8),
+              _DetailFact(
+                label: 'تاریخ خرید',
+                value: formatDisplayDate(t.buyDate, state.settings.calendar),
+              ),
+              if (note.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _DetailFact(label: 'یادداشت', value: note),
+              ],
+              if (onSell != null || onEdit != null) ...[
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (onSell != null)
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: onSell,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.accent,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('فروش'),
+                        ),
+                      ),
+                    if (onSell != null && onEdit != null)
+                      const SizedBox(width: 8),
+                    if (onEdit != null)
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: onEdit,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.title,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            side: const BorderSide(color: AppTheme.border),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('ویرایش'),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailFact extends StatelessWidget {
+  const _DetailFact({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: AppTheme.bg.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppTheme.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              color: AppTheme.title,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PnlBadge extends StatelessWidget {
+  const _PnlBadge({
+    required this.pct,
+    required this.tone,
+    required this.up,
+  });
+
+  final double pct;
+  final Color tone;
+  final bool up;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            up ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded,
+            size: 18,
+            color: tone,
+          ),
+          Text(
+            formatPct(pct),
+            style: TextStyle(
+              color: tone,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PriceCell extends StatelessWidget {
+  const _PriceCell({
+    required this.label,
+    required this.price,
+    this.usd,
+    this.emphasize = false,
+  });
+
+  final String label;
+  final String price;
+  final String? usd;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: AppTheme.bg.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppTheme.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            price,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: emphasize ? AppTheme.title : AppTheme.text,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          if (usd != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              usd!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(
+                color: AppTheme.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
