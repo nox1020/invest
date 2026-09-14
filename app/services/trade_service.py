@@ -293,9 +293,9 @@ class TradeService:
             return True
         if sym.startswith("AYAR"):
             return False
-        if "سکه" in nm or "عیار" in nm:
+        if "سکه" in nm:
             return False
-        return "طلا" in nm
+        return "طلا" in nm or "gold" in nm.lower()
 
     def gold_fund_metrics(self) -> GoldFundMetrics:
         """

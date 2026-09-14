@@ -105,8 +105,17 @@ void main() {
   test('gold and USDT use dedicated quotes; property is ignored', () {
     final quotes = [usdt, gold, btcToman];
     expect(
-      liveTomanPriceFor(name: 'طلا', symbol: 'GOLD', quotes: quotes),
+      liveTomanPriceFor(name: 'طلای ۱۸ عیار', symbol: '', quotes: quotes),
       50000000,
+    );
+    expect(
+      liveTomanPriceFor(
+        name: 'طلای آبشده',
+        symbol: 'GOLD',
+        notes: '[kind:gold] [meta:{"purity":"24"}]',
+        quotes: quotes,
+      ),
+      closeTo(50000000 / 0.75, 1),
     );
     expect(
       liveTomanPriceFor(name: 'تتر', symbol: 'USDT', quotes: quotes),

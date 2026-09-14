@@ -36,7 +36,10 @@ void main() {
 
   test('isGoldAsset heuristics', () {
     expect(TradeService.isGoldAsset('طلا', 'GOLD'), isTrue);
+    expect(TradeService.isGoldAsset('طلای ۱۸ عیار', ''), isTrue);
+    expect(TradeService.isGoldAsset('آبشده', '', '[kind:gold]'), isTrue);
     expect(TradeService.isGoldAsset('سکه طلا', 'COIN'), isFalse);
+    expect(TradeService.isGoldAsset('عیار - 200', 'AYAR200'), isFalse);
     expect(TradeService.isGoldAsset('بیت‌کوین', 'BTC'), isFalse);
   });
 
@@ -92,7 +95,8 @@ void main() {
     expect(m.goldHoldingG, 0);
   });
 
-  test('deleteClosedTrade removes history without changing inventory', () async {
+  test('deleteClosedTrade removes history without changing inventory',
+      () async {
     final asset = await service.createAsset(
       name: 'طلا',
       symbol: 'GOLD',
@@ -175,7 +179,8 @@ void main() {
   });
 
   test('updateOpenTrade rejects closed lots', () async {
-    final asset = await service.createAsset(name: 'ETH', symbol: 'ETH', quantity: 0);
+    final asset =
+        await service.createAsset(name: 'ETH', symbol: 'ETH', quantity: 0);
     await service.registerBuy(assetId: asset.id, quantity: 1, buyPrice: 50);
     final lot = (await service.trades.listOpen()).single;
     await service.closeTrade(tradeId: lot.id!, sellPrice: 60);

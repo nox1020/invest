@@ -23,11 +23,19 @@ void main() {
 
   test('detects gold cash crypto and kind marker', () {
     expect(detectAssetKind(name: 'طلا', symbol: 'GOLD'), AssetKind.gold);
+    expect(detectAssetKind(name: 'طلای ۱۸ عیار', symbol: ''), AssetKind.gold);
+    expect(detectAssetKind(name: 'طلای آب‌شده', symbol: ''), AssetKind.gold);
+    expect(detectAssetKind(name: 'سکه طلا', symbol: 'COIN'),
+        isNot(AssetKind.gold));
+    expect(detectAssetKind(name: 'عیار - 200', symbol: 'AYAR200'),
+        isNot(AssetKind.gold));
     expect(detectAssetKind(name: 'تتر', symbol: 'USDT'), AssetKind.cash);
     expect(detectAssetKind(name: 'دلار', symbol: ''), AssetKind.cash);
     expect(detectAssetKind(name: 'Bitcoin', symbol: 'BTC'), AssetKind.crypto);
-    expect(detectAssetKind(name: 'سهام فولاد', symbol: 'فولاد'), AssetKind.stock);
-    expect(detectAssetKind(name: 'فولاد مبارکه', symbol: 'STOCK'), AssetKind.stock);
+    expect(
+        detectAssetKind(name: 'سهام فولاد', symbol: 'فولاد'), AssetKind.stock);
+    expect(detectAssetKind(name: 'فولاد مبارکه', symbol: 'STOCK'),
+        AssetKind.stock);
     expect(
       detectAssetKind(name: 'سهام خودرو', symbol: ''),
       AssetKind.stock,
@@ -49,8 +57,7 @@ void main() {
   });
 
   test('stripKindMarker keeps free text when meta present', () {
-    final raw =
-        '[kind:property] [meta:{"address":"ونک","areaM2":100}] طبقه ۲';
+    final raw = '[kind:property] [meta:{"address":"ونک","areaM2":100}] طبقه ۲';
     expect(stripKindMarker(raw), 'طبقه ۲');
   });
 

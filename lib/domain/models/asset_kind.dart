@@ -137,7 +137,8 @@ extension AssetKindX on AssetKind {
           'برای ملک معمولاً تعداد ۱ است؛ بهای خرید و ارزش فعلی را به تومان وارد کنید.',
         AssetKind.vehicle =>
           'برای خودرو معمولاً تعداد ۱ است؛ بهای خرید و ارزش فعلی را به تومان وارد کنید.',
-        AssetKind.gold => 'مقدار را به گرم و قیمت هر گرم را وارد کنید.',
+        AssetKind.gold =>
+          'مقدار را به گرم وارد کنید. عیار پیش‌فرض ۱۸ است؛ قیمت زنده از طلای ۱۸ عیار شاخص، متناسب با عیار شما تنظیم می‌شود.',
         AssetKind.cash => 'موجودی تتر یا نقد را با قیمت هر واحد وارد کنید.',
         AssetKind.crypto =>
           'مقدار و قیمت خرید هر واحد را به تومان و دلار وارد کنید. قیمت فعلی تومانی از بازار زنده می‌آید؛ دلار فعلی معادل تومان ÷ تتر است.',
@@ -153,8 +154,8 @@ AssetKind detectAssetKind({
   String symbol = '',
   String notes = '',
 }) {
-  final marker = RegExp(r'\[kind:([a-z]+)\]', caseSensitive: false)
-      .firstMatch(notes);
+  final marker =
+      RegExp(r'\[kind:([a-z]+)\]', caseSensitive: false).firstMatch(notes);
   if (marker != null) {
     final id = marker.group(1)!.toLowerCase();
     for (final k in AssetKind.values) {
@@ -166,11 +167,15 @@ AssetKind detectAssetKind({
   final nm = name.trim();
   final lower = nm.toLowerCase();
 
-  if (sym == 'GOLD' ||
-      sym == 'XAU' ||
-      sym == 'GERAM' ||
-      sym == 'GRAM' ||
-      (nm.contains('طلا') && !nm.contains('سکه') && !nm.contains('عیار'))) {
+  if (sym == 'GOLD' || sym == 'XAU' || sym == 'GERAM' || sym == 'GRAM') {
+    return AssetKind.gold;
+  }
+  // «طلای ۱۸ عیار» is bullion. Coins (سکه) are a different unit.
+  // The stock «عیار» is not gold — it has no «طلا» in the name.
+  if (!nm.contains('سکه') &&
+      (nm.contains('طلا') ||
+          lower.contains('gold') ||
+          lower.contains('bullion'))) {
     return AssetKind.gold;
   }
   if ({'USDT', 'USD', 'DOLLAR', 'USDT.TMN', 'USDTTMN'}.contains(sym) ||
@@ -226,7 +231,9 @@ AssetKind detectAssetKind({
 String notesWithKind(String notes, AssetKind kind) {
   final cleaned = notes
       .replaceAll(RegExp(r'\[kind:[a-z]+\]\s*', caseSensitive: false), '')
-      .replaceAll(RegExp(r'\[meta:\{.*?\}\]\s*', caseSensitive: false, dotAll: true), '')
+      .replaceAll(
+          RegExp(r'\[meta:\{.*?\}\]\s*', caseSensitive: false, dotAll: true),
+          '')
       .trim();
   final tag = '[kind:${kind.id}]';
   if (cleaned.isEmpty) return tag;
@@ -236,5 +243,6 @@ String notesWithKind(String notes, AssetKind kind) {
 /// Free-text notes with `[kind:…]` / `[meta:…]` markers removed.
 String stripKindMarker(String notes) => notes
     .replaceAll(RegExp(r'\[kind:[a-z]+\]\s*', caseSensitive: false), '')
-    .replaceAll(RegExp(r'\[meta:\{.*?\}\]\s*', caseSensitive: false, dotAll: true), '')
+    .replaceAll(
+        RegExp(r'\[meta:\{.*?\}\]\s*', caseSensitive: false, dotAll: true), '')
     .trim();

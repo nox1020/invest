@@ -1,6 +1,14 @@
 from app.services.trade_service import TradeService
 
 
+def test_is_gold_asset_includes_18k_bullion_name() -> None:
+    assert TradeService.is_gold_asset("طلای ۱۸ عیار", "")
+    assert TradeService.is_gold_asset("طلا", "GOLD")
+    assert not TradeService.is_gold_asset("سکه طلا", "COIN")
+    assert not TradeService.is_gold_asset("عیار - 200", "AYAR200")
+    assert not TradeService.is_gold_asset("بیت‌کوین", "BTC")
+
+
 def test_register_buy_and_inventory(trade_service: TradeService) -> None:
     asset = trade_service.create_asset(name="BTC", symbol="BTC", quantity=0)
     trade = trade_service.register_buy(
