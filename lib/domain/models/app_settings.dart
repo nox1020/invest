@@ -20,9 +20,11 @@ class AppSettings {
     this.notifyPriceMoves = true,
     this.notifyBackground = true,
     int autoRefreshSeconds = AppConfig.defaultAutoRefreshSeconds,
+    int annualWithdrawalPct = AppConfig.defaultAnnualWithdrawalPct,
     List<PriceAlert>? priceAlerts,
     List<ProfitAlert>? profitAlerts,
   })  : autoRefreshSeconds = clampAutoRefreshSeconds(autoRefreshSeconds),
+        annualWithdrawalPct = clampAnnualWithdrawalPct(annualWithdrawalPct),
         priceAlerts = priceAlerts ?? [],
         profitAlerts = profitAlerts ?? [];
 
@@ -48,6 +50,9 @@ class AppSettings {
 
   /// Seconds between automatic portfolio + live-price refreshes.
   int autoRefreshSeconds;
+
+  /// Yearly withdrawable profit as a percent of total portfolio inflows.
+  int annualWithdrawalPct;
   List<PriceAlert> priceAlerts;
   List<ProfitAlert> profitAlerts;
 
@@ -74,6 +79,43 @@ class AppSettings {
 
   static int parseAutoRefreshSeconds(dynamic v) {
     return clampAutoRefreshSeconds(_intOf(v));
+  }
+
+  static int clampAnnualWithdrawalPct(int? raw) {
+    final n = raw ?? AppConfig.defaultAnnualWithdrawalPct;
+    final c = n.clamp(
+      AppConfig.minAnnualWithdrawalPct,
+      AppConfig.maxAnnualWithdrawalPct,
+    );
+    const opts = AppConfig.annualWithdrawalOptions;
+    if (opts.contains(c)) return c;
+    return opts.reduce(
+      (a, b) => (a - c).abs() <= (b - c).abs() ? a : b,
+    );
+  }
+
+  static int parseAnnualWithdrawalPct(dynamic v) {
+    return clampAnnualWithdrawalPct(_intOf(v));
+  }
+
+  static String annualWithdrawalLabel(int pct) {
+    final p = clampAnnualWithdrawalPct(pct);
+    return '${annualWithdrawalShortLabel(p)} از ورودی';
+  }
+
+  static String annualWithdrawalShortLabel(int pct) {
+    final p = clampAnnualWithdrawalPct(pct);
+    return switch (p) {
+      5 => '۵٪',
+      8 => '۸٪',
+      10 => '۱۰٪',
+      12 => '۱۲٪',
+      15 => '۱۵٪',
+      20 => '۲۰٪',
+      25 => '۲۵٪',
+      30 => '۳۰٪',
+      _ => '$p٪',
+    };
   }
 
   static String autoRefreshLabel(int seconds) {
@@ -169,6 +211,7 @@ class AppSettings {
     bool? notifyPriceMoves,
     bool? notifyBackground,
     int? autoRefreshSeconds,
+    int? annualWithdrawalPct,
     List<PriceAlert>? priceAlerts,
     List<ProfitAlert>? profitAlerts,
     bool clearUsdtTmnRate = false,
@@ -192,6 +235,7 @@ class AppSettings {
       notifyPriceMoves: notifyPriceMoves ?? this.notifyPriceMoves,
       notifyBackground: notifyBackground ?? this.notifyBackground,
       autoRefreshSeconds: autoRefreshSeconds ?? this.autoRefreshSeconds,
+      annualWithdrawalPct: annualWithdrawalPct ?? this.annualWithdrawalPct,
       priceAlerts:
           (priceAlerts ?? this.priceAlerts).map((e) => e.copy()).toList(),
       profitAlerts:
@@ -217,6 +261,7 @@ class AppSettings {
         'notify_price_moves': notifyPriceMoves,
         'notify_background': notifyBackground,
         'price_refresh_seconds': autoRefreshSeconds,
+        'annual_withdrawal_pct': annualWithdrawalPct,
         'price_alerts': priceAlerts.map((e) => e.toJson()).toList(),
         'profit_alerts': profitAlerts.map((e) => e.toJson()).toList(),
       };
@@ -239,6 +284,7 @@ class AppSettings {
         AppConfig.settingNotifyPriceMoves: notifyPriceMoves ? '1' : '0',
         AppConfig.settingNotifyBackground: notifyBackground ? '1' : '0',
         AppConfig.settingAutoRefreshSeconds: '$autoRefreshSeconds',
+        AppConfig.settingAnnualWithdrawalPct: '$annualWithdrawalPct',
         AppConfig.settingPriceAlerts: PriceAlertList.encode(priceAlerts),
         AppConfig.settingProfitAlerts: ProfitAlertList.encode(profitAlerts),
       };
@@ -282,6 +328,9 @@ class AppSettings {
       autoRefreshSeconds: parseAutoRefreshSeconds(
         s['price_refresh_seconds'] ?? s['auto_refresh_seconds'],
       ),
+      annualWithdrawalPct: parseAnnualWithdrawalPct(
+        s['annual_withdrawal_pct'] ?? s[AppConfig.settingAnnualWithdrawalPct],
+      ),
       priceAlerts: PriceAlertList.parse(
         s['price_alerts'] ?? s[AppConfig.settingPriceAlerts],
       ),
@@ -310,6 +359,7 @@ class AppSettings {
       'notify_price_moves': map[AppConfig.settingNotifyPriceMoves],
       'notify_background': map[AppConfig.settingNotifyBackground],
       'price_refresh_seconds': map[AppConfig.settingAutoRefreshSeconds],
+      'annual_withdrawal_pct': map[AppConfig.settingAnnualWithdrawalPct],
       'price_alerts': map[AppConfig.settingPriceAlerts],
       'profit_alerts': map[AppConfig.settingProfitAlerts],
     });

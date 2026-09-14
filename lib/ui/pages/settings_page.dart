@@ -316,6 +316,41 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
           TgSettingsSection(
+            title: 'برداشت',
+            children: [
+              TgSettingsTile(
+                icon: Icons.savings_rounded,
+                iconColor: const Color(0xFF30D158),
+                title: 'سود سالانه قابل برداشت',
+                subtitle: 'نسبت به کل ورودی پرتفو',
+                value: AppSettings.annualWithdrawalLabel(s.annualWithdrawalPct),
+                onTap: !canEdit
+                    ? null
+                    : () async {
+                        final picked = await showTgChoiceSheet<int>(
+                          context: context,
+                          title: 'سود سالانه قابل برداشت',
+                          selected: s.annualWithdrawalPct,
+                          options: [
+                            for (final pct
+                                in AppConfig.annualWithdrawalOptions)
+                              (
+                                value: pct,
+                                label: AppSettings.annualWithdrawalLabel(pct),
+                              ),
+                          ],
+                        );
+                        if (picked == null || !mounted) return;
+                        await _persist(
+                          state,
+                          (d) => d.annualWithdrawalPct = picked,
+                        );
+                      },
+                showDivider: false,
+              ),
+            ],
+          ),
+          TgSettingsSection(
             title: 'اعلان‌ها',
             children: [
               TgSettingsSwitchTile(

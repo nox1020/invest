@@ -128,6 +128,7 @@ class RemoteInvestService {
       'notify_withdrawals': s.notifyWithdrawals,
       'notify_price_moves': s.notifyPriceMoves,
       'price_refresh_seconds': s.autoRefreshSeconds,
+      'annual_withdrawal_pct': s.annualWithdrawalPct,
     };
     if (s.wallexUrl.trim().isNotEmpty) {
       body['wallex_markets_url'] = s.wallexUrl.trim();
@@ -473,6 +474,9 @@ class RemoteInvestService {
             raw['price_refresh_seconds'] ??
             s['auto_refresh_seconds'] ??
             raw['auto_refresh_seconds'],
+      ),
+      annualWithdrawalPct: AppSettings.parseAnnualWithdrawalPct(
+        s['annual_withdrawal_pct'] ?? raw['annual_withdrawal_pct'],
       ),
     );
   }

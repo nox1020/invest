@@ -33,6 +33,7 @@ import 'package:invest/domain/services/background_price_worker.dart';
 import 'package:invest/domain/services/quote_clients.dart';
 import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/services/trade_service.dart';
+import 'package:invest/domain/services/withdrawal_allowance.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/security/app_lock.dart';
 import 'package:invest/security/biometric_auth.dart';
@@ -129,10 +130,17 @@ class AppState extends ChangeNotifier {
       .where((w) => w.status != 'rejected')
       .fold<double>(0, (s, w) => s + w.amount);
 
-  double get withdrawableAmount => computeWithdrawableAmount(
+  WithdrawalAllowance get withdrawalAllowance => WithdrawalAllowance.compute(
         realizedPnl: metrics?.realizedPnl ?? 0,
-        withdrawnTotal: withdrawnTotal,
+        openTrades: openTrades,
+        closedTrades: closedTrades,
+        withdrawals: withdrawals,
+        annualPct: settings.annualWithdrawalPct,
+        calendar: settings.calendar,
+        yearKey: metrics?.yearKey,
       );
+
+  double get withdrawableAmount => withdrawalAllowance.available;
 
   Future<WithdrawalRepository> _localWithdrawals() async {
     _withdrawalsRepo ??=
@@ -846,6 +854,7 @@ class AppState extends ChangeNotifier {
     final keepProfit = s.profitAlerts.map((e) => e.copy()).toList();
     final keepBg = s.notifyBackground;
     final keepRefresh = s.autoRefreshSeconds;
+    final keepAnnualPct = s.annualWithdrawalPct;
     notifyListeners();
 
     if (useRemote && !offline) {
@@ -856,7 +865,9 @@ class AppState extends ChangeNotifier {
         ..priceAlerts = keepAlerts
         ..profitAlerts = keepProfit
         ..notifyBackground = keepBg
-        ..autoRefreshSeconds = AppSettings.clampAutoRefreshSeconds(keepRefresh);
+        ..autoRefreshSeconds = AppSettings.clampAutoRefreshSeconds(keepRefresh)
+        ..annualWithdrawalPct =
+            AppSettings.clampAnnualWithdrawalPct(keepAnnualPct);
       if (settings.wallexUrl.trim().isEmpty) {
         settings.wallexUrl = prevWallex;
       }

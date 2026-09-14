@@ -50,6 +50,13 @@ class AppConfig {
   static const maxAutoRefreshSeconds = 3600;
   static const autoRefreshOptions = [5, 10, 15, 30, 60, 120, 300];
 
+  /// Yearly withdrawable profit as a percent of total portfolio inflows.
+  static const settingAnnualWithdrawalPct = 'annual_withdrawal_pct';
+  static const defaultAnnualWithdrawalPct = 10;
+  static const minAnnualWithdrawalPct = 1;
+  static const maxAnnualWithdrawalPct = 50;
+  static const annualWithdrawalOptions = [5, 8, 10, 12, 15, 20, 25, 30];
+
   static const defaultWallexUrl = 'https://api.wallex.ir/v1/markets';
   static const defaultPersianToolboxUrl =
       'https://api.persiantoolbox.com/v1/metal';
@@ -70,5 +77,6 @@ class AppConfig {
     settingNotifyPriceMoves: '1',
     settingNotifyBackground: '1',
     settingAutoRefreshSeconds: '$defaultAutoRefreshSeconds',
+    settingAnnualWithdrawalPct: '$defaultAnnualWithdrawalPct',
   };
 }
