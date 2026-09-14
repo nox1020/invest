@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/price_alert.dart';
 import 'package:invest/domain/models/profit_alert.dart';
@@ -25,6 +26,7 @@ class PriceAlertPrefs {
         'notify_price_moves': s.notifyPriceMoves,
         'notify_trades': s.notifyTrades,
         'notify_background': s.notifyBackground,
+        'price_refresh_seconds': s.autoRefreshSeconds,
         'wallex_url': s.wallexUrl,
         'persian_toolbox_url': s.persianToolboxUrl,
         'price_alerts': s.priceAlerts.map((e) => e.toJson()).toList(),
@@ -37,6 +39,9 @@ class PriceAlertPrefs {
     final snap = await loadSnapshot();
     if (snap == null) return;
     s.notifyBackground = snap.notifyBackground;
+    if (snap.hasAutoRefreshSeconds) {
+      s.autoRefreshSeconds = snap.autoRefreshSeconds;
+    }
     s.priceAlerts = snap.alerts.map((e) => e.copy()).toList();
     if (snap.hasProfitAlerts) {
       s.profitAlerts = snap.profitAlerts.map((e) => e.copy()).toList();
@@ -134,6 +139,8 @@ class PriceAlertSnapshot {
     required this.notifyPriceMoves,
     required this.notifyTrades,
     required this.notifyBackground,
+    this.autoRefreshSeconds = AppConfig.defaultAutoRefreshSeconds,
+    this.hasAutoRefreshSeconds = false,
     required this.wallexUrl,
     required this.persianToolboxUrl,
     required this.alerts,
@@ -145,6 +152,8 @@ class PriceAlertSnapshot {
   final bool notifyPriceMoves;
   final bool notifyTrades;
   final bool notifyBackground;
+  final int autoRefreshSeconds;
+  final bool hasAutoRefreshSeconds;
   final String wallexUrl;
   final String persianToolboxUrl;
   final List<PriceAlert> alerts;
@@ -157,6 +166,10 @@ class PriceAlertSnapshot {
       notifyPriceMoves: m['notify_price_moves'] != false,
       notifyTrades: m['notify_trades'] != false,
       notifyBackground: m['notify_background'] != false,
+      autoRefreshSeconds: AppSettings.parseAutoRefreshSeconds(
+        m['price_refresh_seconds'],
+      ),
+      hasAutoRefreshSeconds: m.containsKey('price_refresh_seconds'),
       wallexUrl: '${m['wallex_url'] ?? ''}',
       persianToolboxUrl: '${m['persian_toolbox_url'] ?? ''}',
       alerts: PriceAlertList.parse(m['price_alerts']),

@@ -19,9 +19,11 @@ class AppSettings {
     this.notifyWithdrawals = true,
     this.notifyPriceMoves = true,
     this.notifyBackground = true,
+    int autoRefreshSeconds = AppConfig.defaultAutoRefreshSeconds,
     List<PriceAlert>? priceAlerts,
     List<ProfitAlert>? profitAlerts,
-  })  : priceAlerts = priceAlerts ?? [],
+  })  : autoRefreshSeconds = clampAutoRefreshSeconds(autoRefreshSeconds),
+        priceAlerts = priceAlerts ?? [],
         profitAlerts = profitAlerts ?? [];
 
   String calendar;
@@ -43,6 +45,9 @@ class AppSettings {
 
   /// Keep checking prices via WorkManager when the app is closed.
   bool notifyBackground;
+
+  /// Seconds between automatic portfolio + live-price refreshes.
+  int autoRefreshSeconds;
   List<PriceAlert> priceAlerts;
   List<ProfitAlert> profitAlerts;
 
@@ -52,11 +57,51 @@ class AppSettings {
   bool get withdrawalAlertsOn => notificationsEnabled && notifyWithdrawals;
   bool get priceAlertsOn => notificationsEnabled && notifyPriceMoves;
 
-  int get armedPriceAlertCount =>
-      priceAlerts.where((e) => e.isArmed).length;
+  Duration get autoRefreshInterval => Duration(seconds: autoRefreshSeconds);
 
-  int get armedProfitAlertCount =>
-      profitAlerts.where((e) => e.isArmed).length;
+  static int clampAutoRefreshSeconds(int? raw) {
+    final n = raw ?? AppConfig.defaultAutoRefreshSeconds;
+    final c = n.clamp(
+      AppConfig.minAutoRefreshSeconds,
+      AppConfig.maxAutoRefreshSeconds,
+    );
+    const opts = AppConfig.autoRefreshOptions;
+    if (opts.contains(c)) return c;
+    return opts.reduce(
+      (a, b) => (a - c).abs() <= (b - c).abs() ? a : b,
+    );
+  }
+
+  static int parseAutoRefreshSeconds(dynamic v) {
+    return clampAutoRefreshSeconds(_intOf(v));
+  }
+
+  static String autoRefreshLabel(int seconds) {
+    final s = clampAutoRefreshSeconds(seconds);
+    return switch (s) {
+      5 => '۵ ثانیه',
+      10 => '۱۰ ثانیه',
+      15 => '۱۵ ثانیه',
+      30 => '۳۰ ثانیه',
+      60 => '۱ دقیقه',
+      120 => '۲ دقیقه',
+      300 => '۵ دقیقه',
+      _ when s < 60 => '$s ثانیه',
+      _ when s % 60 == 0 => '${s ~/ 60} دقیقه',
+      _ => '$s ثانیه',
+    };
+  }
+
+  static int? _intOf(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is num) return v.round();
+    return int.tryParse('$v'.trim());
+  }
+
+  int get armedPriceAlertCount => priceAlerts.where((e) => e.isArmed).length;
+
+  int get armedProfitAlertCount => profitAlerts.where((e) => e.isArmed).length;
 
   PriceAlert alertFor(
     String id, {
@@ -123,6 +168,7 @@ class AppSettings {
     bool? notifyWithdrawals,
     bool? notifyPriceMoves,
     bool? notifyBackground,
+    int? autoRefreshSeconds,
     List<PriceAlert>? priceAlerts,
     List<ProfitAlert>? profitAlerts,
     bool clearUsdtTmnRate = false,
@@ -145,7 +191,9 @@ class AppSettings {
       notifyWithdrawals: notifyWithdrawals ?? this.notifyWithdrawals,
       notifyPriceMoves: notifyPriceMoves ?? this.notifyPriceMoves,
       notifyBackground: notifyBackground ?? this.notifyBackground,
-      priceAlerts: (priceAlerts ?? this.priceAlerts).map((e) => e.copy()).toList(),
+      autoRefreshSeconds: autoRefreshSeconds ?? this.autoRefreshSeconds,
+      priceAlerts:
+          (priceAlerts ?? this.priceAlerts).map((e) => e.copy()).toList(),
       profitAlerts:
           (profitAlerts ?? this.profitAlerts).map((e) => e.copy()).toList(),
     );
@@ -168,6 +216,7 @@ class AppSettings {
         'notify_withdrawals': notifyWithdrawals,
         'notify_price_moves': notifyPriceMoves,
         'notify_background': notifyBackground,
+        'price_refresh_seconds': autoRefreshSeconds,
         'price_alerts': priceAlerts.map((e) => e.toJson()).toList(),
         'profit_alerts': profitAlerts.map((e) => e.toJson()).toList(),
       };
@@ -183,13 +232,13 @@ class AppSettings {
         AppConfig.settingWallexUrl: wallexUrl,
         AppConfig.settingPersianToolboxUrl: persianToolboxUrl,
         if (usdtTmnRate != null) AppConfig.settingUsdtTmn: '$usdtTmnRate',
-        if (goldTmnPerGram != null)
-          AppConfig.settingGoldTmn: '$goldTmnPerGram',
+        if (goldTmnPerGram != null) AppConfig.settingGoldTmn: '$goldTmnPerGram',
         AppConfig.settingNotifications: notificationsEnabled ? '1' : '0',
         AppConfig.settingNotifyTrades: notifyTrades ? '1' : '0',
         AppConfig.settingNotifyWithdrawals: notifyWithdrawals ? '1' : '0',
         AppConfig.settingNotifyPriceMoves: notifyPriceMoves ? '1' : '0',
         AppConfig.settingNotifyBackground: notifyBackground ? '1' : '0',
+        AppConfig.settingAutoRefreshSeconds: '$autoRefreshSeconds',
         AppConfig.settingPriceAlerts: PriceAlertList.encode(priceAlerts),
         AppConfig.settingProfitAlerts: ProfitAlertList.encode(profitAlerts),
       };
@@ -230,6 +279,9 @@ class AppSettings {
       notifyWithdrawals: _on(s['notify_withdrawals']),
       notifyPriceMoves: _on(s['notify_price_moves']),
       notifyBackground: _on(s['notify_background']),
+      autoRefreshSeconds: parseAutoRefreshSeconds(
+        s['price_refresh_seconds'] ?? s['auto_refresh_seconds'],
+      ),
       priceAlerts: PriceAlertList.parse(
         s['price_alerts'] ?? s[AppConfig.settingPriceAlerts],
       ),
@@ -257,6 +309,7 @@ class AppSettings {
       'notify_withdrawals': map[AppConfig.settingNotifyWithdrawals],
       'notify_price_moves': map[AppConfig.settingNotifyPriceMoves],
       'notify_background': map[AppConfig.settingNotifyBackground],
+      'price_refresh_seconds': map[AppConfig.settingAutoRefreshSeconds],
       'price_alerts': map[AppConfig.settingPriceAlerts],
       'profit_alerts': map[AppConfig.settingProfitAlerts],
     });

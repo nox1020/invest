@@ -10,6 +10,10 @@ from app.config import (
     DEFAULT_PERSIANTOOLBOX_URL,
     DEFAULT_SETTINGS,
     DEFAULT_WALLEX_MARKETS_URL,
+    PRICE_REFRESH_DEFAULT,
+    PRICE_REFRESH_MAX,
+    PRICE_REFRESH_MIN,
+    PRICE_REFRESH_OPTIONS,
     SETTING_CALENDAR,
     SETTING_CURRENCY,
     SETTING_APP_LOCK_HASH,
@@ -54,6 +58,14 @@ def _as_optional_float(value: str | None) -> float | None:
         return None
 
 
+def clamp_price_refresh_seconds(raw: int | None) -> int:
+    n = PRICE_REFRESH_DEFAULT if raw is None else int(raw)
+    n = max(PRICE_REFRESH_MIN, min(n, PRICE_REFRESH_MAX))
+    if n in PRICE_REFRESH_OPTIONS:
+        return n
+    return min(PRICE_REFRESH_OPTIONS, key=lambda option: abs(option - n))
+
+
 @dataclass
 class AppSettings:
     """Runtime application preferences."""
@@ -66,7 +78,7 @@ class AppSettings:
     usdt_api_enabled: bool = True
     gold_api_enabled: bool = True
     gold_auto_update_assets: bool = True
-    price_refresh_seconds: int = 60
+    price_refresh_seconds: int = PRICE_REFRESH_DEFAULT
     wallex_markets_url: str = DEFAULT_WALLEX_MARKETS_URL
     persiantoolbox_url: str = DEFAULT_PERSIANTOOLBOX_URL
     goal_roi_pct: float | None = None
@@ -79,8 +91,9 @@ class AppSettings:
     @classmethod
     def from_dict(cls, data: dict[str, str]) -> AppSettings:
         merged = {**DEFAULT_SETTINGS, **data}
-        refresh = _as_int(merged.get(SETTING_PRICE_REFRESH_SEC), 60)
-        refresh = max(15, min(refresh, 3600))
+        refresh = clamp_price_refresh_seconds(
+            _as_int(merged.get(SETTING_PRICE_REFRESH_SEC), PRICE_REFRESH_DEFAULT)
+        )
         return cls(
             calendar=normalize_calendar(merged.get(SETTING_CALENDAR)),
             currency=merged.get(SETTING_CURRENCY, CURRENCY_TOMAN),

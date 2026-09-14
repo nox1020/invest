@@ -43,8 +43,14 @@ class AppConfig {
   static const settingPriceAlerts = 'price_alerts';
   static const settingProfitAlerts = 'profit_alerts';
 
-  static const defaultWallexUrl =
-      'https://api.wallex.ir/v1/markets';
+  /// Shared with the desktop `price_refresh_seconds` key.
+  static const settingAutoRefreshSeconds = 'price_refresh_seconds';
+  static const defaultAutoRefreshSeconds = 5;
+  static const minAutoRefreshSeconds = 5;
+  static const maxAutoRefreshSeconds = 3600;
+  static const autoRefreshOptions = [5, 10, 15, 30, 60, 120, 300];
+
+  static const defaultWallexUrl = 'https://api.wallex.ir/v1/markets';
   static const defaultPersianToolboxUrl =
       'https://api.persiantoolbox.com/v1/metal';
   static const defaultMarketUrl = 'https://persiantoolbox.ir/api/market';
@@ -63,5 +69,6 @@ class AppConfig {
     settingNotifyWithdrawals: '1',
     settingNotifyPriceMoves: '1',
     settingNotifyBackground: '1',
+    settingAutoRefreshSeconds: '$defaultAutoRefreshSeconds',
   };
 }

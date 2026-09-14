@@ -35,6 +35,7 @@ from app.config import (
     THEME_LABELS,
     THEMES,
 )
+from app.models.settings import clamp_price_refresh_seconds
 from app.ui.dialogs.app_lock_dialog import AppLockSetDialog
 from app.ui.dialogs.confirm import confirm_delete
 from app.ui.error_handlers import show_user_error
@@ -43,6 +44,25 @@ from app.utils.app_lock import is_lock_enabled
 from app.utils.dates import normalize_calendar
 from app.utils.i18n import t
 from app.utils.money import format_number
+
+
+def _refresh_interval_label(sec: int) -> str:
+    labels = {
+        5: "۵ ثانیه",
+        10: "۱۰ ثانیه",
+        15: "۱۵ ثانیه",
+        30: "۳۰ ثانیه",
+        60: "۱ دقیقه",
+        120: "۲ دقیقه",
+        300: "۵ دقیقه",
+    }
+    if sec in labels:
+        return labels[sec]
+    if sec < 60:
+        return f"{sec} ثانیه"
+    if sec % 60 == 0:
+        return f"{sec // 60} دقیقه"
+    return f"{sec} ثانیه"
 
 
 class SettingsPage(QWidget):
@@ -125,16 +145,7 @@ class SettingsPage(QWidget):
 
         self.refresh_combo = QComboBox()
         for sec in PRICE_REFRESH_OPTIONS:
-            label = f"{sec} ثانیه" if sec < 60 else f"{sec // 60} دقیقه"
-            if sec == 60:
-                label = "۱ دقیقه"
-            elif sec == 120:
-                label = "۲ دقیقه"
-            elif sec == 300:
-                label = "۵ دقیقه"
-            elif sec == 30:
-                label = "۳۰ ثانیه"
-            self.refresh_combo.addItem(label, sec)
+            self.refresh_combo.addItem(_refresh_interval_label(sec), sec)
 
         self.wallex_url = QLineEdit()
         self.wallex_url.setPlaceholderText(DEFAULT_WALLEX_MARKETS_URL)
@@ -378,7 +389,9 @@ class SettingsPage(QWidget):
         wallex = self.wallex_url.text().strip() or DEFAULT_WALLEX_MARKETS_URL
         pt = self.pt_url.text().strip() or DEFAULT_PERSIANTOOLBOX_URL
         refresh = self.refresh_combo.currentData()
-        refresh_sec = int(refresh) if refresh else s.price_refresh_seconds
+        refresh_sec = clamp_price_refresh_seconds(
+            int(refresh) if refresh else s.price_refresh_seconds
+        )
 
         new_vals = (
             self.chk_live.isChecked(),

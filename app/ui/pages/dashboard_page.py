@@ -321,7 +321,7 @@ class DashboardPage(QWidget):
         outer.addWidget(scroll)
 
         self._quotes_timer = QTimer(self)
-        self._quotes_timer.timeout.connect(self._refresh_quotes_async)
+        self._quotes_timer.timeout.connect(self._on_auto_refresh_tick)
         self._apply_quotes_timer()
 
     def _on_details_toggled(self, expanded: bool) -> None:
@@ -330,14 +330,15 @@ class DashboardPage(QWidget):
             Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.LeftArrow
         )
 
-    def refresh(self, *, fetch_quotes: bool = True) -> None:
+    def refresh(self, *, fetch_quotes: bool = True, persist_snapshot: bool = True) -> None:
         self.ctx.apply_price_api_settings()
         self._apply_quotes_timer()
         self.ctx.sync_live_prices_to_portfolio()
-        self.ctx.portfolio.record_snapshot()
+        if persist_snapshot:
+            self.ctx.portfolio.record_snapshot()
         dash = self.ctx.dashboard.build(
             calendar=self.ctx.settings.calendar,
-            persist_growth=True,
+            persist_growth=persist_snapshot,
         )
         series = dash.growth_series
         self._render_header()
@@ -364,13 +365,18 @@ class DashboardPage(QWidget):
 
     def _apply_quotes_timer(self) -> None:
         s = self.ctx.settings
-        msec = max(15, int(s.price_refresh_seconds)) * 1000
-        self._quotes_timer.setInterval(msec)
-        if s.live_prices_enabled and (s.usdt_api_enabled or s.gold_api_enabled):
-            if not self._quotes_timer.isActive():
-                self._quotes_timer.start()
-        else:
-            self._quotes_timer.stop()
+        msec = max(5, int(s.price_refresh_seconds)) * 1000
+        if self._quotes_timer.interval() != msec:
+            self._quotes_timer.setInterval(msec)
+        if not self._quotes_timer.isActive():
+            self._quotes_timer.start()
+
+    def _on_auto_refresh_tick(self) -> None:
+        self.refresh(
+            fetch_quotes=self.ctx.settings.live_prices_enabled,
+            persist_snapshot=False,
+        )
+        self.request_refresh.emit()
 
     def _clear_asset_rows(self) -> None:
         while self._asset_rows.count() > 1:
