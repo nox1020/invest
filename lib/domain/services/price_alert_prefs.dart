@@ -27,6 +27,7 @@ class PriceAlertPrefs {
         'notify_trades': s.notifyTrades,
         'notify_background': s.notifyBackground,
         'price_refresh_seconds': s.autoRefreshSeconds,
+        'annual_withdrawal_pct': s.annualWithdrawalPct,
         'wallex_url': s.wallexUrl,
         'persian_toolbox_url': s.persianToolboxUrl,
         'price_alerts': s.priceAlerts.map((e) => e.toJson()).toList(),
@@ -41,6 +42,9 @@ class PriceAlertPrefs {
     s.notifyBackground = snap.notifyBackground;
     if (snap.hasAutoRefreshSeconds) {
       s.autoRefreshSeconds = snap.autoRefreshSeconds;
+    }
+    if (snap.hasAnnualWithdrawalPct) {
+      s.annualWithdrawalPct = snap.annualWithdrawalPct;
     }
     s.priceAlerts = snap.alerts.map((e) => e.copy()).toList();
     if (snap.hasProfitAlerts) {
@@ -141,6 +145,8 @@ class PriceAlertSnapshot {
     required this.notifyBackground,
     this.autoRefreshSeconds = AppConfig.defaultAutoRefreshSeconds,
     this.hasAutoRefreshSeconds = false,
+    this.annualWithdrawalPct = AppConfig.defaultAnnualWithdrawalPct,
+    this.hasAnnualWithdrawalPct = false,
     required this.wallexUrl,
     required this.persianToolboxUrl,
     required this.alerts,
@@ -154,6 +160,8 @@ class PriceAlertSnapshot {
   final bool notifyBackground;
   final int autoRefreshSeconds;
   final bool hasAutoRefreshSeconds;
+  final int annualWithdrawalPct;
+  final bool hasAnnualWithdrawalPct;
   final String wallexUrl;
   final String persianToolboxUrl;
   final List<PriceAlert> alerts;
@@ -170,6 +178,10 @@ class PriceAlertSnapshot {
         m['price_refresh_seconds'],
       ),
       hasAutoRefreshSeconds: m.containsKey('price_refresh_seconds'),
+      annualWithdrawalPct: AppSettings.parseAnnualWithdrawalPct(
+        m['annual_withdrawal_pct'],
+      ),
+      hasAnnualWithdrawalPct: m.containsKey('annual_withdrawal_pct'),
       wallexUrl: '${m['wallex_url'] ?? ''}',
       persianToolboxUrl: '${m['persian_toolbox_url'] ?? ''}',
       alerts: PriceAlertList.parse(m['price_alerts']),

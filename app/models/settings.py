@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.config import (
+    ANNUAL_WITHDRAWAL_DEFAULT,
+    ANNUAL_WITHDRAWAL_MAX,
+    ANNUAL_WITHDRAWAL_MIN,
+    ANNUAL_WITHDRAWAL_OPTIONS,
     CALENDAR_JALALI,
     CURRENCY_TOMAN,
     DEFAULT_PERSIANTOOLBOX_URL,
@@ -14,6 +18,7 @@ from app.config import (
     PRICE_REFRESH_MAX,
     PRICE_REFRESH_MIN,
     PRICE_REFRESH_OPTIONS,
+    SETTING_ANNUAL_WITHDRAWAL_PCT,
     SETTING_CALENDAR,
     SETTING_CURRENCY,
     SETTING_APP_LOCK_HASH,
@@ -66,6 +71,14 @@ def clamp_price_refresh_seconds(raw: int | None) -> int:
     return min(PRICE_REFRESH_OPTIONS, key=lambda option: abs(option - n))
 
 
+def clamp_annual_withdrawal_pct(raw: int | None) -> int:
+    n = ANNUAL_WITHDRAWAL_DEFAULT if raw is None else int(raw)
+    n = max(ANNUAL_WITHDRAWAL_MIN, min(n, ANNUAL_WITHDRAWAL_MAX))
+    if n in ANNUAL_WITHDRAWAL_OPTIONS:
+        return n
+    return min(ANNUAL_WITHDRAWAL_OPTIONS, key=lambda option: abs(option - n))
+
+
 @dataclass
 class AppSettings:
     """Runtime application preferences."""
@@ -82,6 +95,7 @@ class AppSettings:
     wallex_markets_url: str = DEFAULT_WALLEX_MARKETS_URL
     persiantoolbox_url: str = DEFAULT_PERSIANTOOLBOX_URL
     goal_roi_pct: float | None = None
+    annual_withdrawal_pct: int = ANNUAL_WITHDRAWAL_DEFAULT
     app_lock_hash: str = ""
     notifications_enabled: bool = True
     notify_trades: bool = True
@@ -93,6 +107,12 @@ class AppSettings:
         merged = {**DEFAULT_SETTINGS, **data}
         refresh = clamp_price_refresh_seconds(
             _as_int(merged.get(SETTING_PRICE_REFRESH_SEC), PRICE_REFRESH_DEFAULT)
+        )
+        annual_pct = clamp_annual_withdrawal_pct(
+            _as_int(
+                merged.get(SETTING_ANNUAL_WITHDRAWAL_PCT),
+                ANNUAL_WITHDRAWAL_DEFAULT,
+            )
         )
         return cls(
             calendar=normalize_calendar(merged.get(SETTING_CALENDAR)),
@@ -115,6 +135,7 @@ class AppSettings:
                 or DEFAULT_PERSIANTOOLBOX_URL
             ),
             goal_roi_pct=_as_optional_float(merged.get(SETTING_GOAL_ROI_PCT)),
+            annual_withdrawal_pct=annual_pct,
             app_lock_hash=(merged.get(SETTING_APP_LOCK_HASH) or "").strip(),
             notifications_enabled=_as_bool(merged.get(SETTING_NOTIFICATIONS), True),
             notify_trades=_as_bool(merged.get(SETTING_NOTIFY_TRADES), True),
@@ -142,6 +163,7 @@ class AppSettings:
             SETTING_GOAL_ROI_PCT: (
                 "" if self.goal_roi_pct is None else str(self.goal_roi_pct)
             ),
+            SETTING_ANNUAL_WITHDRAWAL_PCT: str(self.annual_withdrawal_pct),
             SETTING_APP_LOCK_HASH: self.app_lock_hash or "",
             SETTING_NOTIFICATIONS: "1" if self.notifications_enabled else "0",
             SETTING_NOTIFY_TRADES: "1" if self.notify_trades else "0",
