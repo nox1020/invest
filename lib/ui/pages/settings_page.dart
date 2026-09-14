@@ -150,8 +150,8 @@ class _SettingsPageState extends State<SettingsPage> {
                     );
                   }
                 },
-                showDivider: state.appLockEnabled ||
-                    state.biometricDeviceSupported,
+                showDivider:
+                    state.appLockEnabled || state.biometricDeviceSupported,
               ),
               if (state.appLockEnabled)
                 TgSettingsTile(
@@ -220,18 +220,16 @@ class _SettingsPageState extends State<SettingsPage> {
                 iconColor: const Color(0xFF64D2FF),
                 title: 'صدور پشتیبان',
                 subtitle: 'همه داده‌ها + تنظیمات (رمزگذاری‌شده)',
-                onTap: state.authenticated
-                    ? () => exportAppBackup(context)
-                    : null,
+                onTap:
+                    state.authenticated ? () => exportAppBackup(context) : null,
               ),
               TgSettingsTile(
                 icon: Icons.download_rounded,
                 iconColor: const Color(0xFF64D2FF),
                 title: 'ورود پشتیبان',
                 subtitle: 'جایگزینی کامل شامل تنظیمات',
-                onTap: state.authenticated
-                    ? () => importAppBackup(context)
-                    : null,
+                onTap:
+                    state.authenticated ? () => importAppBackup(context) : null,
                 showDivider: false,
               ),
             ],
@@ -470,6 +468,34 @@ class _SettingsPageState extends State<SettingsPage> {
                           (d) => d.livePricesEnabled = v,
                         )
                     : null,
+              ),
+              TgSettingsTile(
+                icon: Icons.timer_outlined,
+                iconColor: const Color(0xFF5856D6),
+                title: 'بازه بروزرسانی خودکار',
+                subtitle: 'پورتفوی، معاملات و قیمت زنده',
+                value: AppSettings.autoRefreshLabel(s.autoRefreshSeconds),
+                onTap: !canEdit
+                    ? null
+                    : () async {
+                        final picked = await showTgChoiceSheet<int>(
+                          context: context,
+                          title: 'بازه بروزرسانی خودکار',
+                          selected: s.autoRefreshSeconds,
+                          options: [
+                            for (final sec in AppConfig.autoRefreshOptions)
+                              (
+                                value: sec,
+                                label: AppSettings.autoRefreshLabel(sec),
+                              ),
+                          ],
+                        );
+                        if (picked == null || !mounted) return;
+                        await _persist(
+                          state,
+                          (d) => d.autoRefreshSeconds = picked,
+                        );
+                      },
               ),
               TgSettingsSwitchTile(
                 icon: Icons.currency_exchange_rounded,

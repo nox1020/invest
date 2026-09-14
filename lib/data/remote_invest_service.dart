@@ -100,15 +100,13 @@ class RemoteInvestService {
 
   Future<List<Trade>> listOpen({String search = ''}) async {
     final query = search.trim().isEmpty ? null : {'q': search.trim()};
-    final data =
-        await _api.get('/invest/api/v1/trades/open', query: query);
+    final data = await _api.get('/invest/api/v1/trades/open', query: query);
     return _tradesFrom(data);
   }
 
   Future<List<Trade>> listClosed({String search = ''}) async {
     final query = search.trim().isEmpty ? null : {'q': search.trim()};
-    final data =
-        await _api.get('/invest/api/v1/trades/closed', query: query);
+    final data = await _api.get('/invest/api/v1/trades/closed', query: query);
     return _tradesFrom(data);
   }
 
@@ -129,6 +127,7 @@ class RemoteInvestService {
       'notify_trades': s.notifyTrades,
       'notify_withdrawals': s.notifyWithdrawals,
       'notify_price_moves': s.notifyPriceMoves,
+      'price_refresh_seconds': s.autoRefreshSeconds,
     };
     if (s.wallexUrl.trim().isNotEmpty) {
       body['wallex_markets_url'] = s.wallexUrl.trim();
@@ -159,7 +158,8 @@ class RemoteInvestService {
   }
 
   /// Full شاخص bundle from Vinor (server fetch + persisted store).
-  Future<MarketIndexRemoteBundle?> fetchMarketIndex({bool force = false}) async {
+  Future<MarketIndexRemoteBundle?> fetchMarketIndex(
+      {bool force = false}) async {
     try {
       final data = await _api.get(
         '/invest/api/v1/markets/index',
@@ -253,7 +253,8 @@ class RemoteInvestService {
         currentPrice: price,
       );
       final refreshed = await assets.listAll();
-      asset = refreshed.firstWhere((a) => a.id == asset.id, orElse: () => asset);
+      asset =
+          refreshed.firstWhere((a) => a.id == asset.id, orElse: () => asset);
     }
     return asset;
   }
@@ -458,8 +459,7 @@ class RemoteInvestService {
               ? (s['persiantoolbox_url'] as String)
               : AppConfig.defaultPersianToolboxUrl,
       usdtTmnRate: rate(s['usdt_tmn_rate'] ?? raw['usdt_tmn_rate']),
-      goldTmnPerGram:
-          rate(s['gold_tmn_per_gram'] ?? raw['gold_tmn_per_gram']),
+      goldTmnPerGram: rate(s['gold_tmn_per_gram'] ?? raw['gold_tmn_per_gram']),
       notificationsEnabled: on(
         s['notifications_enabled'] ?? raw['notifications_enabled'],
       ),
@@ -468,6 +468,12 @@ class RemoteInvestService {
           on(s['notify_withdrawals'] ?? raw['notify_withdrawals']),
       notifyPriceMoves:
           on(s['notify_price_moves'] ?? raw['notify_price_moves']),
+      autoRefreshSeconds: AppSettings.parseAutoRefreshSeconds(
+        s['price_refresh_seconds'] ??
+            raw['price_refresh_seconds'] ??
+            s['auto_refresh_seconds'] ??
+            raw['auto_refresh_seconds'],
+      ),
     );
   }
 

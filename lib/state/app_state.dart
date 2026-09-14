@@ -95,11 +95,10 @@ class AppState extends ChangeNotifier {
 
   final RefreshCoordinator _refreshCoordinator = RefreshCoordinator();
   final ResumeRefreshDebouncer _resumeDebouncer = ResumeRefreshDebouncer();
-  Timer? _indexRefreshTimer;
+  Timer? _autoRefreshTimer;
   Future<void>? _indexRefreshFuture;
   bool _indexRefreshWantForce = false;
-
-  static const Duration indexRefreshInterval = Duration(minutes: 1);
+  bool _autoRefreshBusy = false;
 
   bool get canMutate => authenticated && !readOnlyOffline;
 
@@ -172,11 +171,11 @@ class AppState extends ChangeNotifier {
           authenticated = true;
           try {
             await _loadRemoteData();
-            _startIndexRefreshTimer();
+            _startAutoRefreshTimer();
           } on InvestApiException catch (e) {
             if (e.errorCode == 'network_error' || e.statusCode == null) {
               await _bootOfflineWithSession();
-              _startIndexRefreshTimer();
+              _startAutoRefreshTimer();
             } else {
               rethrow;
             }
@@ -231,7 +230,7 @@ class AppState extends ChangeNotifier {
     await _loadLocalSettings();
     await _loadPriceAlertRuntime();
     await refresh();
-    _startIndexRefreshTimer();
+    _startAutoRefreshTimer();
   }
 
   Future<void> _bootOfflineWithSession() async {
@@ -242,7 +241,7 @@ class AppState extends ChangeNotifier {
     if (loaded) {
       useRemote = true;
       readOnlyOffline = true;
-      _startIndexRefreshTimer();
+      _startAutoRefreshTimer();
       return;
     }
     // No remote cache — open writable local SQLite workspace.
@@ -256,7 +255,7 @@ class AppState extends ChangeNotifier {
     authenticated = true;
     readOnlyOffline = true;
     useRemote = true;
-    _startIndexRefreshTimer();
+    _startAutoRefreshTimer();
     return true;
   }
 
@@ -320,7 +319,7 @@ class AppState extends ChangeNotifier {
     }
     await refresh();
     await _loadCommodityCacheQuietly();
-    _startIndexRefreshTimer();
+    _startAutoRefreshTimer();
   }
 
   /// Try reconnect to Vinor after offline boot.
@@ -340,7 +339,7 @@ class AppState extends ChangeNotifier {
         fetchSettings: true,
         checkApiVersion: true,
       );
-      _startIndexRefreshTimer();
+      _startAutoRefreshTimer();
       return true;
     } catch (_) {
       return false;
@@ -395,7 +394,7 @@ class AppState extends ChangeNotifier {
       readOnlyOffline = false;
       useRemote = true;
       await _loadRemoteData();
-      _startIndexRefreshTimer();
+      _startAutoRefreshTimer();
     } finally {
       loading = false;
       notifyListeners();
@@ -403,7 +402,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    _stopIndexRefreshTimer();
+    _stopAutoRefreshTimer();
     await _api?.logout();
     authenticated = false;
     offline = false;
@@ -551,8 +550,7 @@ class AppState extends ChangeNotifier {
       // Prefer Vinor shared store (server refresh + persistence).
       if (useRemote && !offline && remote != null && authenticated) {
         try {
-          final remoteBundle =
-              await remote!.fetchMarketIndex(force: force);
+          final remoteBundle = await remote!.fetchMarketIndex(force: force);
           if (remoteBundle != null &&
               (remoteBundle.hasAnyPrice || remoteBundle.inflation != null)) {
             if (remoteBundle.hasAnyPrice) {
@@ -571,7 +569,8 @@ class AppState extends ChangeNotifier {
             } else if (remoteBundle.inflation != null) {
               iranInflation = remoteBundle.inflation;
               iranInflationError = null;
-              await OfflineCacheStore.saveIranInflation(remoteBundle.inflation!);
+              await OfflineCacheStore.saveIranInflation(
+                  remoteBundle.inflation!);
               appliedInflation = remoteBundle.inflation;
             }
             // Markets ok but inflation missing → fill from Hugging Face.
@@ -579,7 +578,8 @@ class AppState extends ChangeNotifier {
                 force ||
                 DateTime.now().difference(appliedInflation.fetchedAt) >
                     const Duration(hours: 6)) {
-              await _ensureIranInflation(force: force || appliedInflation == null);
+              await _ensureIranInflation(
+                  force: force || appliedInflation == null);
             }
             return;
           }
@@ -721,8 +721,7 @@ class AppState extends ChangeNotifier {
   }) async {
     final cached = await OfflineCacheStore.loadCommodities();
     if (cached != null) {
-      commodityIndex =
-          CommodityIndexService.alignDerivedQuotes(cached.quotes);
+      commodityIndex = CommodityIndexService.alignDerivedQuotes(cached.quotes);
       wallexMarkets = cached.wallexMarkets;
       commodityIndexUpdatedAt = cached.savedAt;
       commodityIndexError = message;
@@ -735,24 +734,43 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _startIndexRefreshTimer() {
-    _indexRefreshTimer?.cancel();
+  void _startAutoRefreshTimer({bool immediate = true}) {
+    _autoRefreshTimer?.cancel();
     if (!authenticated) return;
-    _indexRefreshTimer = Timer.periodic(indexRefreshInterval, (_) {
-      if (!authenticated || loading) return;
-      unawaited(refreshCommodityIndex());
+    _autoRefreshTimer = Timer.periodic(settings.autoRefreshInterval, (_) {
+      unawaited(_tickAutoRefresh());
     });
-    unawaited(refreshCommodityIndex(force: true));
+    if (immediate) {
+      // Run after the current boot/login `finally` so `loading` is already false.
+      Timer.run(() => unawaited(_tickAutoRefresh(forceIndex: true)));
+    }
   }
 
-  void _stopIndexRefreshTimer() {
-    _indexRefreshTimer?.cancel();
-    _indexRefreshTimer = null;
+  void _stopAutoRefreshTimer() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
+  }
+
+  Future<void> _tickAutoRefresh({bool forceIndex = false}) async {
+    if (!authenticated || loading || _autoRefreshBusy) return;
+    _autoRefreshBusy = true;
+    try {
+      await refreshAll(
+        includeQuotes: settings.livePricesEnabled,
+        fetchSettings: false,
+        checkApiVersion: false,
+      );
+      if (settings.livePricesEnabled) {
+        await refreshCommodityIndex(force: forceIndex);
+      }
+    } finally {
+      _autoRefreshBusy = false;
+    }
   }
 
   @override
   void dispose() {
-    _stopIndexRefreshTimer();
+    _stopAutoRefreshTimer();
     _resumeDebouncer.dispose();
     super.dispose();
   }
@@ -791,8 +809,12 @@ class AppState extends ChangeNotifier {
     final stored = _session!.apiVersion;
     await _session!.setApiVersion(server);
     if (stored != null && stored != server) {
+      final prevRefresh = settings.autoRefreshSeconds;
       settings = await remote!.fetchSettings();
       await PriceAlertPrefs.overlayOnto(settings);
+      if (settings.autoRefreshSeconds != prevRefresh) {
+        _startAutoRefreshTimer(immediate: false);
+      }
     }
   }
 
@@ -823,6 +845,7 @@ class AppState extends ChangeNotifier {
     final keepAlerts = s.priceAlerts.map((e) => e.copy()).toList();
     final keepProfit = s.profitAlerts.map((e) => e.copy()).toList();
     final keepBg = s.notifyBackground;
+    final keepRefresh = s.autoRefreshSeconds;
     notifyListeners();
 
     if (useRemote && !offline) {
@@ -832,7 +855,8 @@ class AppState extends ChangeNotifier {
         ..goldTmnPerGram = prevGold
         ..priceAlerts = keepAlerts
         ..profitAlerts = keepProfit
-        ..notifyBackground = keepBg;
+        ..notifyBackground = keepBg
+        ..autoRefreshSeconds = AppSettings.clampAutoRefreshSeconds(keepRefresh);
       if (settings.wallexUrl.trim().isEmpty) {
         settings.wallexUrl = prevWallex;
       }
@@ -844,6 +868,7 @@ class AppState extends ChangeNotifier {
     await PriceAlertPrefs.saveFrom(settings);
     await BackgroundPriceWorker.sync(settings);
     notifyListeners();
+    _startAutoRefreshTimer(immediate: false);
     await refreshAll(
       includeQuotes: false,
       fetchSettings: false,
@@ -871,8 +896,8 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  Future<void> refresh() =>
-      refreshAll(includeQuotes: false, fetchSettings: true, checkApiVersion: true);
+  Future<void> refresh() => refreshAll(
+      includeQuotes: false, fetchSettings: true, checkApiVersion: true);
 
   Future<void> refreshQuotes() => refreshAll(
         includeQuotes: true,
@@ -950,8 +975,12 @@ class AppState extends ChangeNotifier {
       await _syncApiVersion();
     }
     if (fetchSettings) {
+      final prevRefresh = settings.autoRefreshSeconds;
       settings = await remote!.fetchSettings();
       await PriceAlertPrefs.overlayOnto(settings);
+      if (settings.autoRefreshSeconds != prevRefresh) {
+        _startAutoRefreshTimer(immediate: false);
+      }
     }
     final svc = remote!;
     metrics = await svc.fetchDashboard(settings.calendar);
@@ -998,7 +1027,8 @@ class AppState extends ChangeNotifier {
     String note = '',
   }) async {
     if (!canMutate) {
-      throw StateError('در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.');
+      throw StateError(
+          'در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.');
     }
     if (amount <= 0) {
       throw ArgumentError('مبلغ برداشت باید بزرگ‌تر از صفر باشد.');
@@ -1008,7 +1038,8 @@ class AppState extends ChangeNotifier {
     }
     var saved = false;
     if (useRemote && !offline && remote != null) {
-      final created = await remote!.createWithdrawal(amount: amount, note: note);
+      final created =
+          await remote!.createWithdrawal(amount: amount, note: note);
       if (created != null) {
         withdrawals = [created, ...withdrawals];
         saved = true;
@@ -1308,7 +1339,11 @@ class AppState extends ChangeNotifier {
 
     var remotePushed = false;
     String? remoteWarning;
-    if (pushToRemote && useRemote && !offline && remote != null && !readOnlyOffline) {
+    if (pushToRemote &&
+        useRemote &&
+        !offline &&
+        remote != null &&
+        !readOnlyOffline) {
       try {
         await _rebuildRemoteFromBackup(payload);
         remotePushed = true;
@@ -1334,12 +1369,10 @@ class AppState extends ChangeNotifier {
       settings.persianToolboxUrl = AppConfig.defaultPersianToolboxUrl;
     }
     assets = List<Asset>.from(payload.assets);
-    openTrades = payload.trades
-        .where((t) => t.status == AppConfig.tradeOpen)
-        .toList();
-    closedTrades = payload.trades
-        .where((t) => t.status == AppConfig.tradeClosed)
-        .toList();
+    openTrades =
+        payload.trades.where((t) => t.status == AppConfig.tradeOpen).toList();
+    closedTrades =
+        payload.trades.where((t) => t.status == AppConfig.tradeClosed).toList();
     withdrawals = List<Withdrawal>.from(payload.withdrawals);
     liveUsdt = settings.usdtTmnRate;
     liveGold = settings.goldTmnPerGram;
