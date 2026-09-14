@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/domain/services/economist_insights.dart';
+import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/services/index_analytics.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
+import 'package:invest/ui/pages/economist_insights_pane.dart';
 import 'package:invest/ui/pages/iran_inflation_pane.dart';
 import 'package:invest/ui/pages/quote_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -86,6 +89,22 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
       marketLabel: 'دفتر والکس',
     );
     final anchors = indexAnchors(state.commodityIndex);
+    final holdings = HoldingMetrics.activeHoldings(
+      assets: state.assets,
+      openTrades: state.openTrades,
+    );
+    var holdCost = 0.0;
+    var holdPnl = 0.0;
+    for (final h in holdings) {
+      holdCost += h.metrics.costBasis;
+      holdPnl += h.metrics.unrealizedPnl;
+    }
+    final briefing = buildEconomistInsights(
+      holdings: holdings,
+      quotes: state.commodityIndex,
+      inflation: state.iranInflation,
+      unrealizedPnlPct: holdCost.abs() < 1e-9 ? null : holdPnl / holdCost * 100,
+    );
 
     return Column(
       children: [
@@ -103,6 +122,7 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
             calendar: state.settings.calendar,
             pulse: _page == 1 ? wallexPulse : essentialsPulse,
             anchors: anchors,
+            insightHeadline: briefing.headline,
           ),
         ),
         Padding(
@@ -195,6 +215,7 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
                     : 'پاک کردن جستجو',
               ),
               const IranInflationPane(),
+              const EconomistInsightsPane(),
             ],
           ),
         ),
@@ -241,6 +262,13 @@ class _SegmentTabs extends StatelessWidget {
               onTap: () => onChanged(2),
             ),
           ),
+          Expanded(
+            child: _TabChip(
+              label: 'بینش',
+              selected: index == 3,
+              onTap: () => onChanged(3),
+            ),
+          ),
         ],
       ),
     );
@@ -274,7 +302,7 @@ class _TabChip extends StatelessWidget {
             style: TextStyle(
               color: selected ? Colors.white : AppTheme.muted,
               fontWeight: FontWeight.w700,
-              fontSize: 13,
+              fontSize: 12,
             ),
           ),
         ),
@@ -345,6 +373,7 @@ class _IndexHeader extends StatelessWidget {
     this.calendar = 'jalali',
     required this.pulse,
     required this.anchors,
+    this.insightHeadline,
   });
 
   final DateTime? updatedAt;
@@ -355,13 +384,16 @@ class _IndexHeader extends StatelessWidget {
   final String calendar;
   final MarketPulse pulse;
   final IndexAnchors anchors;
+  final String? insightHeadline;
 
   @override
   Widget build(BuildContext context) {
     final inflation = page == 2;
+    final insight = page == 3;
     final title = switch (page) {
       1 => 'دفتر والکس',
       2 => 'تورم رسمی',
+      3 => 'اتاق فکر',
       _ => 'نبض بازار',
     };
     final subtitle = offlineHint
@@ -373,6 +405,8 @@ class _IndexHeader extends StatelessWidget {
             2 => inflationPeriod == null
                 ? 'شاخص قیمت مصرف‌کننده مرکز آمار — سبد خانوار، نه قیمت طلا'
                 : 'CPI مرکز آمار · $inflationPeriod — سبد مصرف، نه دارایی',
+            3 => insightHeadline ??
+                'اقتصاددان سبد شما را با طلا، دلار آزاد و تورم رسمی می‌سنجد',
             _ => pulse.isEmpty
                 ? 'دلار آزاد، طلای ۱۸ عیار و دارایی‌های ریسکی'
                 : pulse.headline,
@@ -386,9 +420,11 @@ class _IndexHeader extends StatelessWidget {
           end: Alignment.bottomLeft,
           colors: inflation
               ? const [Color(0xFF3D1A1A), Color(0xFF241212)]
-              : pulse.isRed
-                  ? const [Color(0xFF3A1E1E), Color(0xFF1A241C)]
-                  : const [Color(0xFF1A3D2E), Color(0xFF122820)],
+              : insight
+                  ? const [Color(0xFF1A2C3D), Color(0xFF122018)]
+                  : pulse.isRed
+                      ? const [Color(0xFF3A1E1E), Color(0xFF1A241C)]
+                      : const [Color(0xFF1A3D2E), Color(0xFF122820)],
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.border),
@@ -398,7 +434,7 @@ class _IndexHeader extends StatelessWidget {
         children: [
           Row(
             children: [
-              _PageDots(active: page, alert: inflation),
+              _PageDots(active: page, alert: inflation, insight: insight),
               const Spacer(),
               Text(
                 title,
@@ -413,13 +449,16 @@ class _IndexHeader extends StatelessWidget {
                 switch (page) {
                   1 => Icons.currency_exchange_rounded,
                   2 => Icons.trending_up_rounded,
+                  3 => Icons.psychology_outlined,
                   _ => Icons.monitor_heart_outlined,
                 },
                 color: inflation
                     ? const Color(0xFFFF8A80)
-                    : pulse.isRed
-                        ? AppTheme.negative
-                        : AppTheme.positive,
+                    : insight
+                        ? const Color(0xFF7EB6FF)
+                        : pulse.isRed
+                            ? AppTheme.negative
+                            : AppTheme.positive,
                 size: 22,
               ),
             ],
@@ -435,7 +474,7 @@ class _IndexHeader extends StatelessWidget {
               height: 1.45,
             ),
           ),
-          if (!inflation && !pulse.isEmpty) ...[
+          if (!inflation && !insight && !pulse.isEmpty) ...[
             const SizedBox(height: 10),
             Wrap(
               spacing: 6,
@@ -526,15 +565,20 @@ class _PulseChip extends StatelessWidget {
 }
 
 class _PageDots extends StatelessWidget {
-  const _PageDots({required this.active, this.alert = false});
+  const _PageDots({
+    required this.active,
+    this.alert = false,
+    this.insight = false,
+  });
 
   final int active;
   final bool alert;
+  final bool insight;
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: List.generate(3, (i) {
+      children: List.generate(4, (i) {
         final on = i == active;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -543,7 +587,11 @@ class _PageDots extends StatelessWidget {
           height: 7,
           decoration: BoxDecoration(
             color: on
-                ? (alert ? const Color(0xFFFF8A80) : AppTheme.positive)
+                ? (alert
+                    ? const Color(0xFFFF8A80)
+                    : insight
+                        ? const Color(0xFF7EB6FF)
+                        : AppTheme.positive)
                 : Colors.white.withValues(alpha: 0.35),
             borderRadius: BorderRadius.circular(8),
           ),
