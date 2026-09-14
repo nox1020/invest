@@ -113,10 +113,18 @@ class DashboardSnapshot {
 
     var goldG = 0.0;
     var openLots = 0;
+    final notesById = {
+      for (final a in assets)
+        if (a.id != null) a.id!: a.notes,
+    };
     for (final t in openTrades) {
       if (t.quantity <= _eps) continue;
       openLots++;
-      if (TradeService.isGoldAsset(t.assetName, t.assetSymbol)) {
+      if (TradeService.isGoldAsset(
+        t.assetName,
+        t.assetSymbol,
+        notesById[t.assetId] ?? '',
+      )) {
         goldG += t.quantity;
       }
     }

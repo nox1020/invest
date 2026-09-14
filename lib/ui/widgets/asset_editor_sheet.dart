@@ -87,8 +87,9 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
               result.updateQuantity ? result.quantity : primaryLot.quantity,
           buyPrice:
               result.updateBuyPrice ? result.buyPrice : primaryLot.buyPrice,
-          buyPriceUsd:
-              result.updateBuyPriceUsd ? meta.buyPriceUsd : primaryLot.buyPriceUsd,
+          buyPriceUsd: result.updateBuyPriceUsd
+              ? meta.buyPriceUsd
+              : primaryLot.buyPriceUsd,
           buyUsdTmn:
               result.updateBuyPriceUsd ? meta.buyUsdTmn : primaryLot.buyUsdTmn,
           buyFee: primaryLot.buyFee,
@@ -199,9 +200,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
   /// Qty field: create always; edit only for unit-like kinds that are not lot-traded.
   bool get _showQtyField =>
       !_lotsBlockBuyEdit &&
-      (!_isEdit ||
-          _kind == AssetKind.property ||
-          _kind == AssetKind.vehicle);
+      (!_isEdit || _kind == AssetKind.property || _kind == AssetKind.vehicle);
 
   bool _currentManual = false;
 
@@ -229,8 +228,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     final seedQty = lot?.quantity ?? edit?.quantity;
     final seedBuy = lot?.buyPrice ?? edit?.avgBuyPrice;
     final lotUsd = lot?.buyPriceUsd;
-    final seedUsd =
-        (lotUsd != null && lotUsd > 0) ? lotUsd : meta.buyPriceUsd;
+    final seedUsd = (lotUsd != null && lotUsd > 0) ? lotUsd : meta.buyPriceUsd;
     final lotFx = lot?.resolvedBuyUsdTmn;
     final seedFx = (lotFx != null && lotFx > 0)
         ? lotFx
@@ -251,9 +249,8 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
       text: edit == null || (seedBuy ?? 0) <= 0 ? '' : '$seedBuy',
     );
     _currentCtrl = TextEditingController(
-      text: edit == null || edit.currentPrice <= 0
-          ? ''
-          : '${edit.currentPrice}',
+      text:
+          edit == null || edit.currentPrice <= 0 ? '' : '${edit.currentPrice}',
     );
     _notesCtrl = TextEditingController(text: parts.freeNotes);
 
@@ -452,6 +449,9 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
       _kind = kind;
       _error = null;
       if (_isEdit) return;
+      if (kind == AssetKind.gold && _purityCtrl.text.trim().isEmpty) {
+        _purityCtrl.text = '18';
+      }
       if (_symbolCtrl.text.trim().isEmpty ||
           AssetKind.values
               .any((k) => k.defaultSymbol == _symbolCtrl.text.trim())) {
@@ -479,7 +479,10 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     final p = liveTomanPriceFor(
       name: _nameCtrl.text,
       symbol: _symbolCtrl.text,
-      notes: notesWithKind('', _kind),
+      notes: encodeAssetNotes(
+        kind: _kind,
+        meta: AssetMeta(purity: _purityCtrl.text),
+      ),
       quotes: [...state.commodityIndex, ...state.wallexMarkets],
       usdtTmn: state.liveUsdt ?? state.settings.usdtTmnRate,
       goldTmn: state.liveGold ?? state.settings.goldTmnPerGram,
@@ -494,8 +497,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
   }
 
   AssetMeta _collectMeta() {
-    double? parseD(String s) =>
-        double.tryParse(s.trim().replaceAll(',', ''));
+    double? parseD(String s) => double.tryParse(s.trim().replaceAll(',', ''));
     int? parseI(String s) => int.tryParse(s.trim().replaceAll(',', ''));
     final usdRaw = parseD(_buyUsdCtrl.text);
     final usd = (usdRaw != null && usdRaw > 0) ? usdRaw : null;
@@ -546,20 +548,19 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
     if (symbol.isEmpty && _kind.defaultSymbol.isNotEmpty) {
       symbol = _kind.defaultSymbol;
     }
-    final buy = double.tryParse(_buyCtrl.text.replaceAll(',', '')) ?? 0;
-    final current =
-        double.tryParse(_currentCtrl.text.replaceAll(',', '')) ?? buy;
+    final buy = parseFlexibleNumber(_buyCtrl.text) ?? 0;
+    final current = parseFlexibleNumber(_currentCtrl.text) ?? buy;
     double qty;
     if (_isEdit && !_showQtyField) {
       qty = widget.edit!.quantity;
     } else {
-      qty = double.tryParse(_qtyCtrl.text.replaceAll(',', '')) ?? 0;
+      qty = parseFlexibleNumber(_qtyCtrl.text) ?? 0;
       if (_kind.isUnitAsset && qty <= 0) qty = 1;
     }
     if (!_isEdit && qty > 0 && buy <= 0) {
       setState(
-        () => _error =
-            'برای موجودی اولیه، ${_kind.buyPriceLabel} را وارد کنید.',
+        () =>
+            _error = 'برای موجودی اولیه، ${_kind.buyPriceLabel} را وارد کنید.',
       );
       return;
     }
@@ -793,8 +794,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
           _field(
             _areaCtrl,
             label: 'متراژ (م²)',
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
           const SizedBox(height: 10),
           const Text(
@@ -839,8 +839,7 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
           _field(
             _mileageCtrl,
             label: 'کارکرد (کیلومتر)',
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
           _field(_colorCtrl, label: 'رنگ'),
           _purchaseDateField(context),
@@ -850,7 +849,12 @@ class _AssetEditorSheetState extends State<_AssetEditorSheet> {
           _field(
             _purityCtrl,
             label: 'عیار / خلوص',
-            hint: 'مثل ۱۸ یا ۷۵۰',
+            hint: '۱۸ پیش‌فرض شاخص — یا ۲۴ / ۷۵۰',
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (_) {
+              _currentManual = false;
+              _maybeSuggestLiveCurrent();
+            },
           ),
         ];
       case AssetKind.cash:
@@ -902,9 +906,7 @@ class _UsageChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected
-          ? AppTheme.accent.withValues(alpha: 0.18)
-          : AppTheme.bg,
+      color: selected ? AppTheme.accent.withValues(alpha: 0.18) : AppTheme.bg,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onTap,

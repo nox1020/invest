@@ -1,5 +1,7 @@
 import 'package:invest/domain/models/asset_kind.dart';
+import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/domain/utils/gold_purity.dart';
 
 /// Live **Toman** unit mark from the commodity/Wallex index.
 ///
@@ -22,9 +24,11 @@ double? liveTomanPriceFor({
 
   if (includeGold && kind == AssetKind.gold) {
     final quoted = _priceById(quotes, 'gold');
-    if (quoted != null) return quoted;
-    if (goldTmn != null && goldTmn > 0) return goldTmn;
-    return null;
+    final base = (quoted != null && quoted > 0)
+        ? quoted
+        : ((goldTmn != null && goldTmn > 0) ? goldTmn : null);
+    if (base == null) return null;
+    return scaleGoldPriceFrom18k(base, parseAssetNotes(notes).meta.purity);
   }
 
   if (includeUsdt && kind == AssetKind.cash) {

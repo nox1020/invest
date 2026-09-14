@@ -1,6 +1,7 @@
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/repositories.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/metrics.dart';
@@ -21,13 +22,12 @@ class TradeService {
   final AssetRepository assets;
   final TradeRepository trades;
 
-  static bool isGoldAsset(String name, [String symbol = '']) {
+  static bool isGoldAsset(String name,
+      [String symbol = '', String notes = '']) {
     final sym = symbol.trim().toUpperCase();
-    final nm = name.trim();
-    if ({'GOLD', 'XAU', 'GERAM', 'GRAM'}.contains(sym)) return true;
     if (sym.startsWith('AYAR')) return false;
-    if (nm.contains('سکه') || nm.contains('عیار')) return false;
-    return nm.contains('طلا');
+    return detectAssetKind(name: name, symbol: symbol, notes: notes) ==
+        AssetKind.gold;
   }
 
   static bool isUsdtAsset(String name, [String symbol = '']) {
@@ -44,9 +44,19 @@ class TradeService {
   Future<GoldFundMetrics> goldFundMetrics() async {
     var openG = 0.0;
     var closedG = 0.0;
+    final notesById = {
+      for (final a in await assets.listAll())
+        if (a.id != null) a.id!: a.notes,
+    };
     final all = [...await trades.listOpen(), ...await trades.listClosed()];
     for (final t in all) {
-      if (!isGoldAsset(t.assetName, t.assetSymbol)) continue;
+      if (!isGoldAsset(
+        t.assetName,
+        t.assetSymbol,
+        notesById[t.assetId] ?? '',
+      )) {
+        continue;
+      }
       final qty = t.quantity;
       if (qty <= _eps) continue;
       if (t.isClosed) {
@@ -55,7 +65,8 @@ class TradeService {
         openG += qty;
       }
     }
-    double clean(double v) => v.abs() < _eps ? 0.0 : double.parse(v.toStringAsFixed(8));
+    double clean(double v) =>
+        v.abs() < _eps ? 0.0 : double.parse(v.toStringAsFixed(8));
     return GoldFundMetrics(
       goldInG: clean(openG + closedG),
       goldOutG: clean(closedG),
@@ -77,8 +88,7 @@ class TradeService {
     if (quantity > _eps && avgBuyPrice <= 0) {
       throw ArgumentError('برای موجودی اولیه، قیمت خرید الزامی است.');
     }
-    final existing =
-        await assets.findByNameSymbol(name.trim(), symbol.trim());
+    final existing = await assets.findByNameSymbol(name.trim(), symbol.trim());
     if (existing != null) {
       throw ArgumentError('دارایی با این نام و نماد از قبل وجود دارد.');
     }
@@ -127,7 +137,8 @@ class TradeService {
     double? currentPrice,
   }) async {
     if (quantity <= 0) throw ArgumentError('مقدار باید بزرگ‌تر از صفر باشد.');
-    if (buyPrice <= 0) throw ArgumentError('قیمت خرید باید بزرگ‌تر از صفر باشد.');
+    if (buyPrice <= 0)
+      throw ArgumentError('قیمت خرید باید بزرگ‌تر از صفر باشد.');
     if (buyFee < 0) throw ArgumentError('کارمزد نمی‌تواند منفی باشد.');
     if (buyPriceUsd != null && buyPriceUsd < 0) {
       throw ArgumentError('بهای دلاری خرید نمی‌تواند منفی باشد.');
@@ -152,7 +163,8 @@ class TradeService {
       status: AppConfig.tradeOpen,
       quantity: quantity,
       buyPrice: buyPrice,
-      buyPriceUsd: (buyPriceUsd != null && buyPriceUsd > 0) ? buyPriceUsd : null,
+      buyPriceUsd:
+          (buyPriceUsd != null && buyPriceUsd > 0) ? buyPriceUsd : null,
       buyUsdTmn: (buyUsdTmn != null && buyUsdTmn > 0) ? buyUsdTmn : null,
       buyFee: buyFee,
       buyDate: buyDate ?? todayIso(),
@@ -225,11 +237,13 @@ class TradeService {
     final trade = await trades.get(tradeId);
     if (trade == null) throw ArgumentError('معامله یافت نشد.');
     if (!trade.isOpen) throw ArgumentError('این معامله قبلاً بسته شده است.');
-    if (sellPrice <= 0) throw ArgumentError('قیمت فروش باید بزرگ‌تر از صفر باشد.');
+    if (sellPrice <= 0)
+      throw ArgumentError('قیمت فروش باید بزرگ‌تر از صفر باشد.');
     if (sellFee < 0) throw ArgumentError('کارمزد نمی‌تواند منفی باشد.');
 
     final closeQty = quantity ?? trade.quantity;
-    if (closeQty <= 0) throw ArgumentError('مقدار فروش باید بزرگ‌تر از صفر باشد.');
+    if (closeQty <= 0)
+      throw ArgumentError('مقدار فروش باید بزرگ‌تر از صفر باشد.');
     if (closeQty > trade.quantity + _eps) {
       throw ArgumentError('مقدار فروش از مقدار معامله باز بیشتر است.');
     }
@@ -351,8 +365,7 @@ class TradeService {
   Future<Asset> _syncInventory(int assetId) async {
     final asset = await assets.get(assetId);
     if (asset == null) throw ArgumentError('دارایی یافت نشد.');
-    final openLots =
-        await trades.listByAsset(assetId, AppConfig.tradeOpen);
+    final openLots = await trades.listByAsset(assetId, AppConfig.tradeOpen);
     final totalQty = openLots.fold<double>(0, (s, t) => s + t.quantity);
     if (totalQty <= _eps) {
       asset.quantity = 0;
@@ -374,7 +387,8 @@ class TradeService {
     final trade = await trades.get(tradeId);
     if (trade == null) throw ArgumentError('معامله یافت نشد.');
     if (!trade.isClosed) {
-      throw ArgumentError('فقط معاملات بسته‌شده را می‌توان از تاریخچه حذف کرد.');
+      throw ArgumentError(
+          'فقط معاملات بسته‌شده را می‌توان از تاریخچه حذف کرد.');
     }
     await trades.delete(tradeId);
   }
