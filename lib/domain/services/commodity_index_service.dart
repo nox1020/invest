@@ -34,9 +34,12 @@ class CommodityIndexService {
         ? wallexUrl!
         : AppConfig.defaultWallexUrl;
 
-    // Sequential fetches keep shared http.Client / MockClient deterministic.
-    final market = await _fetchPersianMarket(marketUrl);
-    final wallex = await _fetchWallexPayload(wallexUrlResolved);
+    final results = await Future.wait<Map<String, dynamic>?>([
+      _fetchPersianMarket(marketUrl),
+      _fetchWallexPayload(wallexUrlResolved),
+    ]);
+    final market = results[0];
+    final wallex = results[1];
 
     final essentials = alignDerivedQuotes(_buildEssentials(market, wallex));
     final wallexMarkets = _parseWallexTmnMarkets(wallex);
@@ -334,7 +337,7 @@ class CommodityIndexService {
           : AppConfig.defaultMarketUrl,
     );
     try {
-      final res = await _client.get(url).timeout(const Duration(seconds: 12));
+      final res = await _client.get(url).timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return null;
       final body = jsonDecode(res.body);
       final root = _asMap(body);
@@ -350,7 +353,7 @@ class CommodityIndexService {
     try {
       final res = await _client
           .get(Uri.parse(wallexUrl))
-          .timeout(const Duration(seconds: 15));
+          .timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return null;
       return _asMap(jsonDecode(res.body));
     } catch (_) {

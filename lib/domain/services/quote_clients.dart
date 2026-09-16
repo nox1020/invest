@@ -13,7 +13,7 @@ class QuoteClients {
         ? wallexUrl!
         : AppConfig.defaultWallexUrl);
     try {
-      final res = await _client.get(url).timeout(const Duration(seconds: 12));
+      final res = await _client.get(url).timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return null;
       final body = jsonDecode(res.body);
       // Wallex markets payload: result.symbols.USDTTMN or similar
@@ -44,14 +44,15 @@ class QuoteClients {
         ? persianUrl!
         : AppConfig.defaultPersianToolboxUrl);
     try {
-      final res = await _client.get(url).timeout(const Duration(seconds: 12));
+      final res = await _client.get(url).timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return (price: null, change24h: null);
       final body = jsonDecode(res.body);
       if (body is Map) {
-        final gold = body['gold'];
+        final payload = body['data'] is Map ? body['data'] as Map : body;
+        final gold = payload['gold'];
         if (gold is Map) {
           var price = double.tryParse('${gold['pricePerGram']}');
-          final units = body['units'];
+          final units = payload['units'] ?? body['units'];
           final unit = units is Map
               ? '${units['goldPricePerGram'] ?? 'IRR'}'.toUpperCase()
               : 'IRR';

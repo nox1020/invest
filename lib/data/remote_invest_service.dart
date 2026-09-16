@@ -165,7 +165,7 @@ class RemoteInvestService {
       final data = await _api.get(
         '/invest/api/v1/markets/index',
         query: force ? {'force': '1'} : null,
-        timeout: const Duration(seconds: 45),
+        timeout: const Duration(seconds: 20),
       );
       final essentials = CommodityIndexService.alignDerivedQuotes(
         _parseQuotes(data['essentials']),

@@ -58,9 +58,8 @@ class AppConfig {
   static const annualWithdrawalOptions = [5, 8, 10, 12, 15, 20, 25, 30];
 
   static const defaultWallexUrl = 'https://api.wallex.ir/v1/markets';
-  static const defaultPersianToolboxUrl =
-      'https://api.persiantoolbox.com/v1/metal';
   static const defaultMarketUrl = 'https://persiantoolbox.ir/api/market';
+  static const defaultPersianToolboxUrl = defaultMarketUrl;
 
   static const Map<String, String> defaultSettings = {
     settingCalendar: calendarJalali,

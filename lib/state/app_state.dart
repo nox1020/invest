@@ -100,6 +100,7 @@ class AppState extends ChangeNotifier {
   Future<void>? _indexRefreshFuture;
   bool _indexRefreshWantForce = false;
   bool _autoRefreshBusy = false;
+  int _autoRefreshTicks = 0;
 
   bool get canMutate => authenticated && !readOnlyOffline;
 
@@ -763,13 +764,19 @@ class AppState extends ChangeNotifier {
     if (!authenticated || loading || _autoRefreshBusy) return;
     _autoRefreshBusy = true;
     try {
-      await refreshAll(
-        includeQuotes: settings.livePricesEnabled,
-        fetchSettings: false,
-        checkApiVersion: false,
-      );
+      _autoRefreshTicks++;
       if (settings.livePricesEnabled) {
+        await _syncLiveQuotes();
         await refreshCommodityIndex(force: forceIndex);
+      }
+      // Full portfolio every ~30s (or on the first forced tick).
+      final full = forceIndex || _autoRefreshTicks % 6 == 1;
+      if (full) {
+        await refreshAll(
+          includeQuotes: false,
+          fetchSettings: false,
+          checkApiVersion: false,
+        );
       }
     } finally {
       _autoRefreshBusy = false;
@@ -994,12 +1001,14 @@ class AppState extends ChangeNotifier {
       }
     }
     final svc = remote!;
-    metrics = await svc.fetchDashboard(settings.calendar);
-    assets = await svc.assets.listAll();
-    openTrades = await svc.listOpen();
-    closedTrades = await svc.listClosed();
+    await Future.wait<void>([
+      svc.fetchDashboard(settings.calendar).then((v) => metrics = v),
+      svc.assets.listAll().then((v) => assets = v),
+      svc.listOpen().then((v) => openTrades = v),
+      svc.listClosed().then((v) => closedTrades = v),
+      _loadWithdrawals(remote: svc),
+    ]);
     await _overlayLiveMarks();
-    await _loadWithdrawals(remote: svc);
     lastSyncedAt = DateTime.now();
     await OfflineCacheStore.savePortfolio(
       settings: settings,
@@ -1127,27 +1136,37 @@ class AppState extends ChangeNotifier {
 
     double? usdt;
     double? gold;
+    final tasks = <Future<void>>[];
     if (settings.usdtApiEnabled) {
-      usdt = await quotes!.fetchUsdtToman(wallexUrl: settings.wallexUrl);
-      if (usdt != null) {
-        liveUsdt = usdt;
-        settings.usdtTmnRate = usdt;
-        await settingsRepo?.set(AppConfig.settingUsdtTmn, usdt.toString());
-      }
+      tasks.add(() async {
+        usdt = await quotes!.fetchUsdtToman(wallexUrl: settings.wallexUrl);
+      }());
     }
     if (settings.goldApiEnabled) {
-      final g =
-          await quotes!.fetchGoldToman(persianUrl: settings.persianToolboxUrl);
-      gold = g.price;
-      if (gold != null) {
-        liveGold = gold;
-        settings.goldTmnPerGram = gold;
-        await settingsRepo?.set(AppConfig.settingGoldTmn, gold.toString());
-      }
+      tasks.add(() async {
+        final g = await quotes!
+            .fetchGoldToman(persianUrl: settings.persianToolboxUrl);
+        gold = g.price;
+      }());
+    }
+    if (tasks.isNotEmpty) {
+      await Future.wait(tasks);
+    }
+    final fetchedUsdt = usdt;
+    final fetchedGold = gold;
+    if (fetchedUsdt != null) {
+      liveUsdt = fetchedUsdt;
+      settings.usdtTmnRate = fetchedUsdt;
+      await settingsRepo?.set(AppConfig.settingUsdtTmn, fetchedUsdt.toString());
+    }
+    if (fetchedGold != null) {
+      liveGold = fetchedGold;
+      settings.goldTmnPerGram = fetchedGold;
+      await settingsRepo?.set(AppConfig.settingGoldTmn, fetchedGold.toString());
     }
     await trades!.applyLivePrices(
-      usdtTmn: usdt ?? settings.usdtTmnRate,
-      goldTmn: gold ?? settings.goldTmnPerGram,
+      usdtTmn: fetchedUsdt ?? settings.usdtTmnRate,
+      goldTmn: fetchedGold ?? settings.goldTmnPerGram,
       updateUsdt: settings.usdtApiEnabled,
       updateGold: settings.goldApiEnabled,
       quotes: [...commodityIndex, ...wallexMarkets],
