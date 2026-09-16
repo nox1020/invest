@@ -13,6 +13,7 @@ import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:invest/ui/widgets/profit_alert_sheet.dart';
+import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 
 class TradesPage extends StatelessWidget {
@@ -462,9 +463,7 @@ Future<void> showBuyTradeDialog(
       body: choice!.name,
     );
   } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-    }
+    if (context.mounted) showUserError(context, e);
   }
 }
 
@@ -549,9 +548,7 @@ Future<void> showSellTradeDialog(BuildContext context, Trade trade) async {
       body: trade.assetName,
     );
   } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-    }
+    if (context.mounted) showUserError(context, e);
   }
 }
 
@@ -781,9 +778,7 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
       );
     }
   } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-    }
+    if (context.mounted) showUserError(context, e);
   }
 }
 
@@ -825,9 +820,7 @@ Future<void> confirmDeleteClosedTrade(BuildContext context, Trade trade) async {
       );
     }
   } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-    }
+    if (context.mounted) showUserError(context, e);
   }
 }
 

@@ -7,6 +7,7 @@ import 'package:invest/domain/services/backup_service.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shamsi_date/shamsi_date.dart';
@@ -64,7 +65,9 @@ Future<void> exportAppBackup(BuildContext context) async {
       );
     }
   } catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text('صدور ناموفق: $e')));
+    messenger.showSnackBar(
+      SnackBar(content: Text('صدور ناموفق: ${formatUserError(e)}')),
+    );
   }
 }
 
@@ -134,7 +137,9 @@ Future<void> importAppBackup(BuildContext context) async {
     );
     preview = await state.importEncryptedBackup(bytes);
   } catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text('وارد کردن ناموفق: $e')));
+    messenger.showSnackBar(
+      SnackBar(content: Text('وارد کردن ناموفق: ${formatUserError(e)}')),
+    );
     return;
   }
 

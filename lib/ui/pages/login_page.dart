@@ -7,6 +7,7 @@ import 'package:invest/domain/utils/sms_otp.dart';
 import 'package:invest/ui/widgets/app_logo.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 import 'package:smart_auth/smart_auth.dart';
 
@@ -113,7 +114,7 @@ class _LoginPageState extends State<LoginPage> {
       });
     } catch (e) {
       await _stopSmsListen();
-      setState(() => _error = e.toString());
+      setState(() => _error = formatUserError(e));
     } finally {
       setState(() => _busy = false);
     }
@@ -129,7 +130,7 @@ class _LoginPageState extends State<LoginPage> {
       await state.verifyOtp(_phoneCtrl.text.trim(), _codeCtrl.text.trim());
       await _stopSmsListen();
     } catch (e) {
-      setState(() => _error = e.toString());
+      setState(() => _error = formatUserError(e));
     } finally {
       setState(() => _busy = false);
     }

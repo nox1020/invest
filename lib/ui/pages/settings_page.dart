@@ -8,6 +8,7 @@ import 'package:invest/ui/pages/price_alerts_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/backup_actions.dart';
 import 'package:invest/ui/widgets/settings_ui.dart';
+import 'package:invest/ui/widgets/user_error.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:provider/provider.dart';
 
@@ -51,11 +52,7 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       await state.saveSettings(next);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ذخیره تنظیمات ناموفق: $e')),
-        );
-      }
+      if (mounted) showUserError(context, e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

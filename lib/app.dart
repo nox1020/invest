@@ -14,6 +14,7 @@ import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/asset_editor_sheet.dart';
 import 'package:invest/ui/widgets/connection_status_title.dart';
 import 'package:invest/ui/widgets/offline_banner.dart';
+import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 
 class InvestApp extends StatelessWidget {
@@ -194,6 +195,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               child: Column(
                 children: [
                   if (state.readOnlyOffline) const OfflineReadOnlyNotice(),
+                  if (state.error != null && state.error!.isNotEmpty)
+                    UserErrorBanner(message: state.error!),
                   Expanded(
                     child: IndexedStack(
                       index: index,

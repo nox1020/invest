@@ -8,6 +8,7 @@ import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 
 class WithdrawalsPage extends StatelessWidget {
@@ -321,9 +322,7 @@ Future<void> showRecordWithdrawalDialog(BuildContext context) async {
       );
     }
   } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-    }
+    if (context.mounted) showUserError(context, e);
   }
 }
 

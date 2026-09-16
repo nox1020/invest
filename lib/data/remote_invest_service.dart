@@ -9,6 +9,7 @@ import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
+import 'package:invest/domain/services/invest_mutations.dart';
 import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
 
@@ -69,7 +70,7 @@ class RemoteAssetRepository {
 }
 
 /// Invest operations via Vinor REST API (mirrors local [TradeService] surface).
-class RemoteInvestService {
+class RemoteInvestService implements InvestMutations {
   RemoteInvestService(this._api) : assets = RemoteAssetRepository(_api);
 
   final InvestApiClient _api;
@@ -225,9 +226,16 @@ class RemoteInvestService {
     double avgBuyPrice = 0,
     double currentPrice = 0,
     String notes = '',
+    String? buyDate,
   }) async {
     if (name.trim().isEmpty) {
       throw ArgumentError('نام دارایی الزامی است.');
+    }
+    if (quantity < 0) {
+      throw ArgumentError('مقدار نمی‌تواند منفی باشد.');
+    }
+    if (quantity > 0 && avgBuyPrice <= 0) {
+      throw ArgumentError('برای موجودی اولیه، قیمت خرید الزامی است.');
     }
     final price = currentPrice > 0 ? currentPrice : avgBuyPrice;
     var asset = await assets.create(Asset(
@@ -239,8 +247,8 @@ class RemoteInvestService {
       notes: notes,
     ));
     if (quantity > 0) {
-      if (avgBuyPrice <= 0) {
-        throw ArgumentError('برای موجودی اولیه، قیمت خرید الزامی است.');
+      if (asset.id == null) {
+        throw StateError('ایجاد دارایی روی سرور ناموفق بود.');
       }
       final usd = parseAssetNotes(notes).meta.buyPriceUsd;
       final fx = parseAssetNotes(notes).meta.buyUsdTmn;
@@ -250,6 +258,9 @@ class RemoteInvestService {
         buyPrice: avgBuyPrice,
         buyPriceUsd: (usd != null && usd > 0) ? usd : null,
         buyUsdTmn: (fx != null && fx > 0) ? fx : null,
+        buyDate: (buyDate != null && buyDate.trim().isNotEmpty)
+            ? buyDate.trim()
+            : null,
         buyNote: 'موجودی اولیه',
         currentPrice: price,
       );
@@ -259,6 +270,9 @@ class RemoteInvestService {
     }
     return asset;
   }
+
+  @override
+  Future<void> updateAsset(Asset asset) => assets.update(asset);
 
   Future<Trade> registerBuy({
     int? assetId,
@@ -273,6 +287,13 @@ class RemoteInvestService {
     String buyNote = '',
     double? currentPrice,
   }) async {
+    if (quantity <= 0) {
+      throw ArgumentError('مقدار باید بزرگ‌تر از صفر باشد.');
+    }
+    if (buyPrice <= 0) {
+      throw ArgumentError('قیمت خرید باید بزرگ‌تر از صفر باشد.');
+    }
+    if (buyFee < 0) throw ArgumentError('کارمزد نمی‌تواند منفی باشد.');
     final note = encodeBuyNoteUsd(
       usd: buyPriceUsd,
       fx: buyUsdTmn,

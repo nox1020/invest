@@ -12,6 +12,7 @@ import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
+import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 
 Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
@@ -72,7 +73,7 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
       if (result.updateQuantity) {
         edit.quantity = result.quantity;
       }
-      await svc.assets.update(edit);
+      await svc.updateAsset(edit);
 
       // Keep the single open lot in sync so cards/metrics see the edit.
       if (primaryLot != null &&
@@ -100,9 +101,7 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
     }
     await state.refresh();
   } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-    }
+    if (context.mounted) showUserError(context, e);
   }
 }
 

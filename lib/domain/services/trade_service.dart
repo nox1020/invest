@@ -6,6 +6,7 @@ import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/services/invest_mutations.dart';
 import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
@@ -14,7 +15,7 @@ import 'package:sqflite/sqflite.dart';
 
 const _eps = 1e-9;
 
-class TradeService {
+class TradeService implements InvestMutations {
   TradeService(Database db)
       : assets = AssetRepository(db),
         trades = TradeRepository(db);
@@ -122,6 +123,9 @@ class TradeService {
     }
     return asset;
   }
+
+  @override
+  Future<void> updateAsset(Asset asset) => assets.update(asset);
 
   Future<Trade> registerBuy({
     int? assetId,

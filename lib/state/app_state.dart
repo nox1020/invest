@@ -33,11 +33,13 @@ import 'package:invest/domain/services/background_price_worker.dart';
 import 'package:invest/domain/services/quote_clients.dart';
 import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/services/trade_service.dart';
+import 'package:invest/domain/services/invest_mutations.dart';
 import 'package:invest/domain/services/withdrawal_allowance.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/security/app_lock.dart';
 import 'package:invest/security/biometric_auth.dart';
 import 'package:invest/services/refresh_coordinator.dart';
+import 'package:invest/ui/widgets/user_error.dart';
 import 'package:sqflite/sqflite.dart';
 
 /// App-wide state — online (Vinor API), offline cache, or local SQLite.
@@ -197,7 +199,7 @@ class AppState extends ChangeNotifier {
           await _loadCommodityCacheQuietly();
       }
     } catch (e) {
-      error = e.toString();
+      error = formatUserError(e);
       if (metrics == null) {
         final recovered = await _tryBootFromCache();
         if (recovered) {
@@ -636,7 +638,7 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       await _loadIndexFromCache(
         message: 'آفلاین — قیمت‌های ذخیره‌شده نمایش داده می‌شود',
-        fallbackError: e.toString(),
+        fallbackError: formatUserError(e),
       );
     } finally {
       commodityIndexLoading = false;
@@ -684,7 +686,7 @@ class AppState extends ChangeNotifier {
           iranInflation = cached;
           iranInflationError = 'آفلاین — آخرین داده تورم ذخیره‌شده';
         } else {
-          iranInflationError = e.toString();
+          iranInflationError = formatUserError(e);
         }
       }
     }
@@ -702,7 +704,9 @@ class AppState extends ChangeNotifier {
         : commodityIndex;
     wallexMarkets = wallex.isNotEmpty ? wallex : wallexMarkets;
     commodityIndexUpdatedAt = updatedAt;
-    commodityIndexError = error;
+    commodityIndexError = (error != null && error.trim().isNotEmpty)
+        ? formatUserError(error)
+        : error;
     await OfflineCacheStore.saveCommodities(
       commodityIndex,
       wallexMarkets: wallexMarkets,
@@ -968,13 +972,13 @@ class AppState extends ChangeNotifier {
           readOnlyOffline = true;
           error = null;
         } else {
-          error = e.message;
+          error = formatUserError(e);
         }
       } else {
-        error = e.message;
+        error = formatUserError(e);
       }
     } catch (e) {
-      error = e.toString();
+      error = formatUserError(e);
     } finally {
       refreshing = false;
       notifyListeners();
@@ -1301,7 +1305,20 @@ class AppState extends ChangeNotifier {
   }
 
   /// Used by UI for buy/sell/asset mutations.
-  dynamic get tradeService => useRemote && !offline ? remote : trades;
+  InvestMutations get tradeService {
+    if (useRemote && !offline) {
+      final svc = remote;
+      if (svc == null) {
+        throw StateError('اتصال به سرور آماده نیست.');
+      }
+      return svc;
+    }
+    final local = trades;
+    if (local == null) {
+      throw StateError('داده‌های محلی آماده نیست.');
+    }
+    return local;
+  }
 
   /// Encrypted full backup bytes (`.vplusbak`).
   Future<Uint8List> exportEncryptedBackup() async {
@@ -1379,7 +1396,7 @@ class AppState extends ChangeNotifier {
         remotePushed = true;
       } catch (e) {
         remoteWarning =
-            'پشتیبان محلی اعمال شد، اما همگام‌سازی با سرور کامل نشد: $e';
+            'پشتیبان محلی اعمال شد، اما همگام‌سازی با سرور کامل نشد: ${formatUserError(e)}';
       }
     } else if (useRemote && (offline || readOnlyOffline)) {
       remoteWarning =

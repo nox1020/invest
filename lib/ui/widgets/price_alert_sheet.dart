@@ -7,6 +7,7 @@ import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/settings_ui.dart';
+import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 
 Future<void> showPriceAlertEditor(
@@ -69,9 +70,7 @@ Future<void> showPriceAlertEditor(
     );
   } catch (e) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('ذخیره ناموفق: $e')),
-    );
+    showUserError(context, e);
   }
 }
 
