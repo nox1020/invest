@@ -14,13 +14,13 @@ class AppMark extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.black,
         borderRadius: BorderRadius.circular(size * 0.22),
         border: Border.all(color: AppTheme.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Image.asset(
-        'assets/app_icon.png',
+        'assets/invest.png',
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => Center(
           child: Text(
@@ -28,7 +28,7 @@ class AppMark extends StatelessWidget {
             style: TextStyle(
               fontSize: size * 0.42,
               fontWeight: FontWeight.w900,
-              color: Colors.black,
+              color: Colors.white,
               height: 1,
             ),
           ),
