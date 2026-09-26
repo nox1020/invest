@@ -902,14 +902,23 @@ class _ClosedTradeCard extends StatelessWidget {
       if (held != null) held,
     ].join(' · ');
 
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.border),
-      ),
+    return Material(
+      color: AppTheme.card,
+      borderRadius: BorderRadius.circular(16),
       clipBehavior: Clip.antiAlias,
-      child: IntrinsicHeight(
+      child: InkWell(
+        onTap: () => showClosedTradeDetails(
+          context,
+          trade: trade,
+          onDelete: onDelete,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.border),
+          ),
+          child: IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -964,6 +973,11 @@ class _ClosedTradeCard extends StatelessWidget {
                             up: up,
                           ),
                         ],
+                        const Icon(
+                          Icons.chevron_left_rounded,
+                          color: AppTheme.muted,
+                          size: 20,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -1009,6 +1023,267 @@ class _ClosedTradeCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> showClosedTradeDetails(
+  BuildContext context, {
+  required Trade trade,
+  VoidCallback? onDelete,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppTheme.card,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) => _ClosedTradeDetailsSheet(
+      trade: trade,
+      onDelete: onDelete == null
+          ? null
+          : () {
+              Navigator.pop(ctx);
+              onDelete();
+            },
+    ),
+  );
+}
+
+class _ClosedTradeDetailsSheet extends StatelessWidget {
+  const _ClosedTradeDetailsSheet({
+    required this.trade,
+    this.onDelete,
+  });
+
+  final Trade trade;
+  final VoidCallback? onDelete;
+
+  Trade _live(AppState state) {
+    final id = trade.id;
+    if (id == null) return trade;
+    for (final t in state.closedTrades) {
+      if (t.id == id) return t;
+    }
+    return trade;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final t = _live(state);
+    final calendar = state.settings.calendar;
+    final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
+    final qtyDecimals =
+        (t.quantity - t.quantity.roundToDouble()).abs() < 1e-9 ? 0 : 4;
+    final qtyText = formatNumber(t.quantity, decimals: qtyDecimals);
+    final pnl = t.realizedPnl ?? 0;
+    final up = pnl >= 0;
+    final tone = up ? AppTheme.positive : AppTheme.negative;
+    final sellToman = t.quantity * (t.sellPrice ?? 0);
+    final sellUsd = tomanToUsd(sellToman, usdt);
+    final pnlUsd = tomanToUsd(pnl, usdt);
+    final buyUsd =
+        t.buyPriceUsd != null && t.buyPriceUsd! > 0 ? t.buyPriceUsd : null;
+    final sellUnitUsd = tomanToUsd(t.sellPrice ?? 0, usdt);
+    final note = t.buyNoteDisplay.trim();
+    final sellNote = t.sellNote.trim();
+    final crypto = _tradeIsCrypto(t, state.assets);
+    final bottom = MediaQuery.paddingOf(context).bottom;
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 10, 16, 16 + bottom),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppTheme.border,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Text(
+                    'جزئیات معامله',
+                    style: TextStyle(
+                      color: AppTheme.title,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (t.returnPct != null)
+                    _PnlBadge(pct: t.returnPct!, tone: tone, up: up),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                t.assetName,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  color: AppTheme.title,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 20,
+                ),
+              ),
+              if (t.assetSymbol.trim().isNotEmpty)
+                Text(
+                  t.assetSymbol,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 13),
+                ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _MoneyPair(
+                      label: 'مبلغ فروش نهایی',
+                      toman: formatMoney(sellToman),
+                      usd: sellUsd == null ? '—' : formatUsd(sellUsd),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _MoneyPair(
+                      label: 'سود نهایی',
+                      toman: formatMoney(pnl, showSign: true),
+                      usd: pnlUsd == null
+                          ? '—'
+                          : formatUsd(pnlUsd, showSign: true),
+                      tone: tone,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _PriceCell(
+                      label: 'قیمت خرید',
+                      price: formatTomanPrice(t.buyPrice),
+                      usd: buyUsd == null ? null : formatUsd(buyUsd),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Icon(
+                      Icons.west_rounded,
+                      size: 16,
+                      color: tone.withValues(alpha: 0.85),
+                    ),
+                  ),
+                  Expanded(
+                    child: _PriceCell(
+                      label: 'قیمت فروش',
+                      price: formatTomanPrice(t.sellPrice ?? 0),
+                      usd: sellUnitUsd == null ? null : formatUsd(sellUnitUsd),
+                      emphasize: true,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DetailFact(label: 'مقدار', value: qtyText),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DetailFact(
+                      label: 'مدت نگهداری',
+                      value: t.holdingDays == null
+                          ? '—'
+                          : _formatOpenDays(t.holdingDays!),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DetailFact(
+                      label: 'تاریخ خرید',
+                      value: formatDisplayDate(t.buyDate, calendar),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DetailFact(
+                      label: 'تاریخ فروش',
+                      value: formatDisplayDate(t.sellDate, calendar),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _DetailFact(
+                label: 'هزینه خرید',
+                value: formatMoney(t.buyCost),
+              ),
+              if (t.buyFee > 0) ...[
+                const SizedBox(height: 8),
+                _DetailFact(
+                  label: 'کارمزد خرید',
+                  value: formatMoney(t.buyFee),
+                ),
+              ],
+              if (t.sellFee > 0) ...[
+                const SizedBox(height: 8),
+                _DetailFact(
+                  label: 'کارمزد فروش',
+                  value: formatMoney(t.sellFee),
+                ),
+              ],
+              if (crypto && t.resolvedBuyUsdTmn != null) ...[
+                const SizedBox(height: 8),
+                _DetailFact(
+                  label: 'قیمت دلار زمان خرید',
+                  value: formatTomanPrice(t.resolvedBuyUsdTmn!),
+                ),
+              ],
+              if (note.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _DetailFact(label: 'یادداشت خرید', value: note),
+              ],
+              if (sellNote.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _DetailFact(label: 'یادداشت فروش', value: sellNote),
+              ],
+              if (onDelete != null) ...[
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: onDelete,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.negative,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    side: const BorderSide(color: AppTheme.border),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('حذف از تاریخچه'),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
