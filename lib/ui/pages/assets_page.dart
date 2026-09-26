@@ -8,7 +8,6 @@ import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/asset_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
-import 'package:invest/ui/widgets/allocation_donut.dart';
 import 'package:invest/ui/widgets/asset_editor_sheet.dart';
 import 'package:invest/ui/widgets/profit_alert_sheet.dart';
 import 'package:provider/provider.dart';
@@ -93,8 +92,6 @@ class AssetsPage extends StatelessWidget {
             usdt: usdt,
           ),
           const SizedBox(height: 18),
-          _AllocationSection(holdings: holdings, totalValue: totalValue),
-          const SizedBox(height: 16),
           for (var i = 0; i < holdings.length; i++) ...[
             if (i > 0) const SizedBox(height: 10),
             _AssetCard(
@@ -261,101 +258,6 @@ class _SummaryCard extends StatelessWidget {
           ],
         ],
       ),
-    );
-  }
-}
-
-class _AllocationSection extends StatelessWidget {
-  const _AllocationSection({
-    required this.holdings,
-    required this.totalValue,
-  });
-
-  final List<({Asset asset, HoldingMetrics metrics})> holdings;
-  final double totalValue;
-
-  @override
-  Widget build(BuildContext context) {
-    final slices = <AllocationSlice>[];
-    for (final h in holdings) {
-      if (h.metrics.marketValue <= 0) continue;
-      final kind = detectAssetKind(
-        name: h.asset.name,
-        symbol: h.asset.symbol,
-        notes: h.asset.notes,
-      );
-      final useName = kind == AssetKind.property ||
-          kind == AssetKind.vehicle ||
-          h.asset.symbol.trim().isEmpty;
-      slices.add(
-        AllocationSlice(
-          label: useName ? h.asset.name : h.asset.symbol.trim(),
-          share: totalValue <= 0 ? 0 : h.metrics.marketValue / totalValue,
-          color: kind.color,
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          'توزیع دارایی',
-          textAlign: TextAlign.right,
-          style: TextStyle(
-            color: AppTheme.title,
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          textDirection: TextDirection.ltr,
-          children: [
-            Expanded(
-              child: slices.isEmpty
-                  ? const Text(
-                      'موجودی برای نمودار نیست',
-                      style: TextStyle(color: AppTheme.muted, fontSize: 12),
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (final slice in slices.take(6))
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    color: slice.color,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Flexible(
-                                  child: Text(
-                                    '${slice.label}  ${formatNumber(slice.share * 100, decimals: 2)}%',
-                                    style: const TextStyle(
-                                      color: AppTheme.text,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-            ),
-            const SizedBox(width: 16),
-            AllocationDonut(slices: slices),
-          ],
-        ),
-      ],
     );
   }
 }
