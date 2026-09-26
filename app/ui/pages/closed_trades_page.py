@@ -18,7 +18,7 @@ from app.ui.error_handlers import show_user_error
 from app.ui.widgets.searchable_table import SearchableTable
 from app.utils.dates import format_short_date
 from app.utils.i18n import t
-from app.utils.money import format_pct, format_qty
+from app.utils.money import format_pct, format_qty, format_toman_fixed, format_usd_from_toman
 
 
 class ClosedTradesPage(QWidget):
@@ -30,6 +30,8 @@ class ClosedTradesPage(QWidget):
 
         self.summary = QLabel("")
         self.summary.setObjectName("summaryPositive")
+        self.sale_summary = QLabel("")
+        self.sale_summary.setObjectName("mutedText")
 
         self.btn_delete = QPushButton(t("delete_closed_trade"))
         self.btn_delete.setObjectName("dangerBtn")
@@ -48,6 +50,8 @@ class ClosedTradesPage(QWidget):
                 t("quantity"),
                 t("buy_price"),
                 t("sell_price"),
+                t("sale_total_toman"),
+                t("sale_total_usd"),
                 t("pnl"),
                 t("pnl_pct"),
                 t("holding_days"),
@@ -57,19 +61,24 @@ class ClosedTradesPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.addWidget(self.summary)
+        layout.addWidget(self.sale_summary)
         layout.addLayout(toolbar)
         layout.addWidget(self.table)
 
     def refresh(self) -> None:
         money = self.ctx.money
         calendar = self.ctx.settings.calendar
+        fx_rate = self.ctx.fx.usdt_tmn
         trades = self.ctx.trades.trades.list_closed()
         rows = []
         total_pnl = 0.0
+        total_sale = 0.0
         for i, tr in enumerate(trades, start=1):
             pnl = tr.realized_pnl or 0.0
             pct = tr.return_pct or 0.0
+            sale = tr.quantity * (tr.sell_price or 0.0)
             total_pnl += pnl
+            total_sale += sale
             rows.append(
                 [
                     str(i),
@@ -79,6 +88,8 @@ class ClosedTradesPage(QWidget):
                     format_qty(tr.quantity),
                     money(tr.buy_price),
                     money(tr.sell_price or 0),
+                    format_toman_fixed(sale),
+                    format_usd_from_toman(sale, fx_rate),
                     SearchableTable.colored_item(
                         money(pnl, show_sign=True), pnl
                     ),
@@ -89,6 +100,10 @@ class ClosedTradesPage(QWidget):
         self.table.set_rows(rows, raw=trades)
         self.summary.setText(
             f"جمع سود / زیان تحقق‌یافته: {money(total_pnl, show_sign=True)}"
+        )
+        self.sale_summary.setText(
+            "قیمت کل فروش: "
+            f"{format_toman_fixed(total_sale)}  ·  {format_usd_from_toman(total_sale, fx_rate)}"
         )
         self.summary.setObjectName(
             "summaryPositive" if total_pnl >= 0 else "summaryNegative"

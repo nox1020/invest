@@ -70,6 +70,18 @@ def format_money(
     return f"{sign}{format_number(amount, decimals)} {label}"
 
 
+def format_toman_fixed(value: float) -> str:
+    """Format a stored toman amount without converting to the display currency."""
+    return format_money(value, CURRENCY_TOMAN, convert=False)
+
+
+def format_usd_from_toman(value: float, fx_rate: float | None) -> str:
+    """Convert a toman amount to dollars using the USDT/toman rate."""
+    if not fx_rate or fx_rate <= 0:
+        return "—"
+    return format_money(value, CURRENCY_USD, fx_rate=fx_rate)
+
+
 def format_pct(value: float, *, show_sign: bool = True, decimals: int = 2) -> str:
     sign = ""
     if show_sign and value > 0:

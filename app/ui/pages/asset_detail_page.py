@@ -27,7 +27,7 @@ from app.ui.widgets.searchable_table import SearchableTable
 from app.utils import calc
 from app.utils.dates import format_short_date
 from app.utils.i18n import t
-from app.utils.money import format_pct, format_qty
+from app.utils.money import format_pct, format_qty, format_toman_fixed, format_usd_from_toman
 
 
 class AssetDetailPage(QWidget):
@@ -108,6 +108,8 @@ class AssetDetailPage(QWidget):
                 t("quantity"),
                 t("buy_price"),
                 t("sell_price"),
+                t("sale_total_toman"),
+                t("sale_total_usd"),
                 t("pnl"),
                 t("pnl_pct"),
                 t("holding_days"),
@@ -203,10 +205,12 @@ class AssetDetailPage(QWidget):
             0, f"{t('open_positions')} ({len(open_trades)})"
         )
 
+        fx_rate = self.ctx.fx.usdt_tmn
         closed_rows = []
         for i, tr in enumerate(closed_trades, start=1):
             pnl = tr.realized_pnl or 0.0
             pct = tr.return_pct or 0.0
+            sale = tr.quantity * (tr.sell_price or 0.0)
             closed_rows.append(
                 [
                     str(i),
@@ -215,6 +219,8 @@ class AssetDetailPage(QWidget):
                     format_qty(tr.quantity),
                     money(tr.buy_price),
                     money(tr.sell_price or 0),
+                    format_toman_fixed(sale),
+                    format_usd_from_toman(sale, fx_rate),
                     SearchableTable.colored_item(
                         money(pnl, show_sign=True), pnl
                     ),

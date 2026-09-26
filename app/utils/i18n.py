@@ -86,6 +86,8 @@ LABELS: dict[str, str] = {
     "buy_price": "قیمت خرید",
     "current_price": "قیمت فعلی",
     "sell_price": "قیمت فروش",
+    "sale_total_toman": "قیمت کل فروش (تومان)",
+    "sale_total_usd": "قیمت کل فروش (دلار)",
     "fee": "کارمزد",
     "date": "تاریخ",
     "buy_date": "تاریخ خرید",
