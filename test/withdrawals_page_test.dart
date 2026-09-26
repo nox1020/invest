@@ -83,6 +83,8 @@ void main() {
     expect(find.text('20,000 تومان'), findsWidgets);
     expect(find.byTooltip('ویرایش'), findsOneWidget);
 
+    await tester.ensureVisible(find.byTooltip('ویرایش'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('ویرایش'));
     await tester.pumpAndSettle();
     expect(find.text('ویرایش برداشت'), findsOneWidget);
