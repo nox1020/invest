@@ -167,7 +167,7 @@ jobs:
           print("--- analyze tail ---")
           print("\n".join(text.splitlines()[-60:]))
           pat = re.compile(
-              r"^\s*(error|warning)\s*[•\-]\s*(.+?)\s*[•\-]\s*([^:\s]+):(\d+):(\d+)\s*[•\-]\s*(\S+)\s*$",
+              r"^\s*(error|warning)\s*[\-]\s*(.+?)\s*[\-]\s*([^:\s]+):(\d+):(\d+)\s*[\-]\s*(\S+)\s*$",
               re.M,
           )
           for m in pat.finditer(text):
@@ -179,7 +179,23 @@ jobs:
           exit $code
 
       - name: Test
-        run: flutter test
+        run: |
+          set +e
+          flutter test --reporter expanded 2>&1 | tee test.log
+          code=${PIPESTATUS[0]}
+          python3 - <<'PY'
+          import pathlib
+          lines = pathlib.Path("test.log").read_text(errors="replace").splitlines()
+          keys = ("FAILED", "Expected:", "Test failed", "EXCEPTION", "overflowed", "Which:", "Error:")
+          interesting = [ln for ln in lines if any(k in ln for k in keys)]
+          blob = "\n".join((interesting or lines)[-25:])
+          safe = blob.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+          print("--- test tail ---")
+          print("\n".join(lines[-40:]))
+          if code != 0:
+              print(f"::error::{safe[:3500]}")
+          PY
+          exit $code
 
       - name: Build APK
         id: apk
