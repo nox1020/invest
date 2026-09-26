@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/models/asset_kind.dart';
-import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
@@ -395,13 +394,6 @@ class _AssetCard extends StatelessWidget {
         ? kind.unitLabel
         : (asset.symbol.trim().isEmpty ? '' : asset.symbol.trim());
     final qtyLabel = unit.isEmpty ? qtyNumber : '$qtyNumber $unit';
-    final notesParts = parseAssetNotes(asset.notes);
-    final note = assetMetaCardSummary(
-      kind,
-      notesParts.meta,
-      freeNotes: notesParts.freeNotes,
-      calendar: context.watch<AppState>().settings.calendar,
-    );
     final tomanTone =
         metrics.unrealizedPnl >= 0 ? AppTheme.positive : AppTheme.negative;
     final usdTone = usdPnl == null
@@ -473,18 +465,6 @@ class _AssetCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (note.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            note,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppTheme.muted,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),
