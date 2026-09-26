@@ -70,6 +70,7 @@ class AppState extends ChangeNotifier {
   List<Trade> openTrades = [];
   List<Trade> closedTrades = [];
   List<Withdrawal> withdrawals = [];
+  bool _withdrawalsFromRemote = false;
   bool loading = true;
   bool refreshing = false;
   String? error;
@@ -424,6 +425,7 @@ class AppState extends ChangeNotifier {
     openTrades = [];
     closedTrades = [];
     withdrawals = [];
+    _withdrawalsFromRemote = false;
     if (appLockEnabled) {
       appUnlocked = false;
     }
@@ -1031,9 +1033,11 @@ class AppState extends ChangeNotifier {
       final remoteItems = await remote.listWithdrawals();
       if (remoteItems != null) {
         withdrawals = remoteItems;
+        _withdrawalsFromRemote = true;
         return;
       }
     }
+    _withdrawalsFromRemote = false;
     await _loadLocalWithdrawals();
   }
 
@@ -1057,15 +1061,13 @@ class AppState extends ChangeNotifier {
     if (amount <= 0) {
       throw ArgumentError('مبلغ برداشت باید بزرگ‌تر از صفر باشد.');
     }
-    if (amount > withdrawableAmount + 1e-6) {
-      throw ArgumentError('مبلغ از موجودی قابل برداشت بیشتر است.');
-    }
     var saved = false;
     if (useRemote && !offline && remote != null) {
       final created =
           await remote!.createWithdrawal(amount: amount, note: note);
       if (created != null) {
         withdrawals = [created, ...withdrawals];
+        _withdrawalsFromRemote = true;
         saved = true;
       }
     }
@@ -1081,6 +1083,61 @@ class AppState extends ChangeNotifier {
       title: 'برداشت ثبت شد',
       body: formatMoney(amount),
     );
+  }
+
+  Future<void> updateWithdrawal({
+    required Withdrawal item,
+    required double amount,
+    String note = '',
+    String? createdAt,
+  }) async {
+    if (!canMutate) {
+      throw StateError(
+          'در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.');
+    }
+    if (item.id == null) {
+      throw ArgumentError('شناسه برداشت نامعتبر است.');
+    }
+    if (amount <= 0) {
+      throw ArgumentError('مبلغ برداشت باید بزرگ‌تر از صفر باشد.');
+    }
+    final when = (createdAt ?? item.createdAt).trim();
+    if (when.isEmpty) {
+      throw ArgumentError('تاریخ برداشت نامعتبر است.');
+    }
+    final updated = Withdrawal(
+      id: item.id,
+      amount: amount,
+      note: note.trim(),
+      status: item.status.trim().isEmpty ? 'completed' : item.status,
+      createdAt: when,
+    );
+    var saved = false;
+    if (_withdrawalsFromRemote && useRemote && !offline && remote != null) {
+      final result = await remote!.updateWithdrawal(updated);
+      if (result != null) {
+        _replaceWithdrawal(result);
+        saved = true;
+      }
+    }
+    if (!saved) {
+      final repo = await _localWithdrawals();
+      await repo.update(updated);
+      if (_withdrawalsFromRemote) {
+        _replaceWithdrawal(updated);
+      } else {
+        await _loadLocalWithdrawals();
+      }
+    }
+    await _persistWithdrawalCache();
+    notifyListeners();
+  }
+
+  void _replaceWithdrawal(Withdrawal updated) {
+    withdrawals = [
+      for (final w in withdrawals)
+        if (w.id == updated.id) updated else w,
+    ];
   }
 
   /// Shows a local notification when the matching preference is on.
@@ -1421,6 +1478,7 @@ class AppState extends ChangeNotifier {
     closedTrades =
         payload.trades.where((t) => t.status == AppConfig.tradeClosed).toList();
     withdrawals = List<Withdrawal>.from(payload.withdrawals);
+    _withdrawalsFromRemote = false;
     liveUsdt = settings.usdtTmnRate;
     liveGold = settings.goldTmnPerGram;
 

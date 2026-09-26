@@ -136,6 +136,24 @@ void main() {
       expect(allowance.yearWithdrawn, 15000);
       expect(allowance.available, 85000);
     });
+
+    test('keeps withdrawals larger than the annual cap', () {
+      final allowance = WithdrawalAllowance.compute(
+        realizedPnl: 50000,
+        openTrades: [_lot(qty: 1, buyPrice: 1000000)],
+        closedTrades: const [],
+        withdrawals: [
+          Withdrawal(amount: 150000, createdAt: '2026-04-01'),
+        ],
+        annualPct: 10,
+        calendar: AppConfig.calendarGregorian,
+        asOfIso: '2026-09-14',
+      );
+      expect(allowance.annualCap, 100000);
+      expect(allowance.yearWithdrawn, 150000);
+      expect(allowance.remainingAnnual, 0);
+      expect(allowance.available, 0);
+    });
   });
 
   group('WithdrawalRepository', () {
@@ -178,6 +196,25 @@ void main() {
       expect(items.length, 3);
       expect(await repo.totalCompleted(), 170000);
       expect(items.first.amount, 20000);
+    });
+
+    test('updates amount, note, and date of a saved withdrawal', () async {
+      final created = await repo.create(
+        Withdrawal(amount: 1000, note: 'قدیم', createdAt: '2026-01-01'),
+      );
+      created
+        ..amount = 2500
+        ..note = 'جدید'
+        ..createdAt = '2026-05-02';
+      await repo.update(created);
+
+      final items = await repo.listAll();
+      expect(items, hasLength(1));
+      expect(items.single.id, created.id);
+      expect(items.single.amount, 2500);
+      expect(items.single.note, 'جدید');
+      expect(items.single.createdAt, '2026-05-02');
+      expect(await repo.totalCompleted(), 2500);
     });
   });
 }

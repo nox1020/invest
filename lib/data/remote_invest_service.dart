@@ -410,6 +410,36 @@ class RemoteInvestService implements InvestMutations {
     }
   }
 
+  /// Returns null when the backend has no withdrawal update route yet.
+  Future<Withdrawal?> updateWithdrawal(Withdrawal item) async {
+    if (item.id == null) {
+      throw ArgumentError('شناسه برداشت نامعتبر است.');
+    }
+    try {
+      final data = await _api.put(
+        '/invest/api/v1/withdrawals/${item.id}',
+        body: {
+          'amount': item.amount,
+          'note': item.note,
+          'status': item.status,
+          'created_at': item.createdAt,
+        },
+      );
+      final saved = data['item'];
+      if (saved is Map) {
+        return Withdrawal.fromMap(Map<String, Object?>.from(saved));
+      }
+      return item;
+    } on InvestApiException catch (e) {
+      if (e.statusCode == 404 ||
+          e.statusCode == 405 ||
+          e.errorCode == 'not_found') {
+        return null;
+      }
+      rethrow;
+    }
+  }
+
   Future<Withdrawal?> createWithdrawal({
     required double amount,
     String note = '',

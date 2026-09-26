@@ -45,6 +45,7 @@ void main() {
       )
       ..withdrawals = [
         Withdrawal(
+          id: 1,
           amount: 20000,
           note: 'بانک',
           createdAt: '2026-04-01',
@@ -77,5 +78,72 @@ void main() {
     expect(find.text('انجام‌شده'), findsOneWidget);
     expect(find.text('بانک'), findsOneWidget);
     expect(find.text('20,000 تومان'), findsWidgets);
+    expect(find.byTooltip('ویرایش'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('ویرایش'));
+    await tester.pumpAndSettle();
+    expect(find.text('ویرایش برداشت'), findsOneWidget);
+    expect(find.text('تاریخ برداشت'), findsOneWidget);
+    expect(find.text('20000'), findsOneWidget);
+    expect(find.text('مبلغ می‌تواند بیشتر از قابل برداشت باشد.'), findsOneWidget);
+
+    await tester.tap(find.text('انصراف'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('withdrawal dialog opens when nothing is withdrawable',
+      (tester) async {
+    final state = AppState()
+      ..loading = false
+      ..authenticated = true
+      ..settings = AppSettings(
+        annualWithdrawalPct: 10,
+        calendar: AppConfig.calendarGregorian,
+      )
+      ..metrics = const DashboardMetrics(
+        totalValue: 0,
+        totalPnl: 0,
+        totalPnlPct: 0,
+        realizedPnl: 0,
+        unrealizedPnl: 0,
+        openCount: 0,
+        closedCount: 0,
+        yearRealizedPnl: 0,
+        yearKey: '2026',
+        goldFund: GoldFundMetrics(
+          goldInG: 0,
+          goldOutG: 0,
+          goldHoldingG: 0,
+        ),
+      );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: state,
+        child: MaterialApp(
+          locale: const Locale('fa', 'IR'),
+          builder: (context, child) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: child ?? const SizedBox.shrink(),
+          ),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showRecordWithdrawalDialog(context),
+                child: const Text('ثبت جدید'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('ثبت جدید'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('ثبت برداشت'), findsOneWidget);
+    expect(find.text('مبلغ قابل برداشت صفر است'), findsNothing);
+    expect(find.text('مبلغ می‌تواند بیشتر از قابل برداشت باشد.'), findsOneWidget);
+    expect(find.text('قابل برداشت: 0 تومان'), findsOneWidget);
   });
 }

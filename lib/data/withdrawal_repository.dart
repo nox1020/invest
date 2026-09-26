@@ -29,4 +29,32 @@ class WithdrawalRepository {
     item.id = id;
     return item;
   }
+
+  /// Updates an existing row. Inserts it when the id is not in this database yet.
+  Future<Withdrawal> update(Withdrawal item) async {
+    if (item.id == null) {
+      throw ArgumentError('شناسه برداشت نامعتبر است.');
+    }
+    if (item.createdAt.trim().isEmpty) item.createdAt = nowIso();
+    if (item.status.trim().isEmpty) item.status = 'completed';
+    final changed = await _db.update(
+      'withdrawals',
+      {
+        'amount': item.amount,
+        'note': item.note,
+        'status': item.status,
+        'created_at': item.createdAt,
+      },
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+    if (changed == 0) {
+      await _db.insert(
+        'withdrawals',
+        item.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    return item;
+  }
 }

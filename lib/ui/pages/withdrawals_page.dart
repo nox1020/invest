@@ -8,6 +8,7 @@ import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 
@@ -57,7 +58,10 @@ class WithdrawalsPage extends StatelessWidget {
           else
             for (var i = 0; i < history.length; i++) ...[
               if (i > 0) const SizedBox(height: 8),
-              _WithdrawalTile(item: history[i]),
+              _WithdrawalTile(
+                item: history[i],
+                canEdit: state.canMutate,
+              ),
             ],
         ],
       ),
@@ -232,68 +236,105 @@ class _BreakdownRow extends StatelessWidget {
   }
 }
 
-Future<void> showRecordWithdrawalDialog(BuildContext context) async {
+Future<void> showRecordWithdrawalDialog(
+  BuildContext context, {
+  Withdrawal? existing,
+}) async {
   final state = context.read<AppState>();
-  final allowance = state.withdrawalAllowance;
-  final available = allowance.available;
-  if (available <= 0) {
+  if (!state.canMutate) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('مبلغ قابل برداشت صفر است')),
+      const SnackBar(
+        content: Text('در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.'),
+      ),
     );
     return;
   }
-  final amountCtrl = TextEditingController();
-  final noteCtrl = TextEditingController();
+  final draft = existing;
+  if (draft != null && draft.id == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('این برداشت قابل ویرایش نیست.')),
+    );
+    return;
+  }
+  final editing = draft != null;
+  final allowance = state.withdrawalAllowance;
+  final available = allowance.available;
+  final amountCtrl = TextEditingController(
+    text: draft == null ? '' : _amountFieldText(draft.amount),
+  );
+  final noteCtrl = TextEditingController(text: draft?.note ?? '');
+  var createdAt = todayIso();
+  if (draft != null && draft.createdAt.trim().isNotEmpty) {
+    createdAt = tryNormalizeToIso(draft.createdAt) ?? todayIso();
+  }
   final pctLabel = AppSettings.annualWithdrawalLabel(allowance.annualPct);
+  final calendar = state.settings.calendar;
   final ok = await showDialog<bool>(
     context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('ثبت برداشت'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'قابل برداشت: ${formatMoney(available)}',
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                color: AppTheme.positive,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setLocal) => AlertDialog(
+        title: Text(editing ? 'ویرایش برداشت' : 'ثبت برداشت'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'قابل برداشت: ${formatMoney(available)}',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: available > 0 ? AppTheme.positive : AppTheme.muted,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'سقف امسال $pctLabel · باقیمانده سقف ${formatMoney(allowance.remainingAnnual)}',
-              textAlign: TextAlign.right,
-              style: const TextStyle(color: AppTheme.muted, fontSize: 12),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: amountCtrl,
-              decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.right,
-            ),
-            TextField(
-              controller: noteCtrl,
-              decoration: const InputDecoration(labelText: 'توضیح (اختیاری)'),
-              textAlign: TextAlign.right,
-            ),
-          ],
+              const SizedBox(height: 6),
+              Text(
+                'سقف امسال $pctLabel · باقیمانده سقف ${formatMoney(allowance.remainingAnnual)}',
+                textAlign: TextAlign.right,
+                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'مبلغ می‌تواند بیشتر از قابل برداشت باشد.',
+                textAlign: TextAlign.right,
+                style: TextStyle(color: AppTheme.muted, fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: amountCtrl,
+                decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                textAlign: TextAlign.right,
+              ),
+              TextField(
+                controller: noteCtrl,
+                decoration: const InputDecoration(labelText: 'توضیح (اختیاری)'),
+                textAlign: TextAlign.right,
+              ),
+              if (editing)
+                AppDateTile(
+                  label: 'تاریخ برداشت',
+                  isoDate: createdAt,
+                  calendar: calendar,
+                  onChanged: (v) => setLocal(() => createdAt = v),
+                ),
+            ],
+          ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('انصراف'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(editing ? 'ذخیره' : 'ثبت'),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('انصراف'),
-        ),
-        ElevatedButton(
-          onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('ثبت'),
-        ),
-      ],
     ),
   );
   if (ok != true || !context.mounted) {
@@ -312,13 +353,24 @@ Future<void> showRecordWithdrawalDialog(BuildContext context) async {
     return;
   }
   try {
-    await state.recordWithdrawal(
-      amount: parsed,
-      note: note,
-    );
+    if (draft != null) {
+      await state.updateWithdrawal(
+        item: draft,
+        amount: parsed,
+        note: note,
+        createdAt: createdAt,
+      );
+    } else {
+      await state.recordWithdrawal(
+        amount: parsed,
+        note: note,
+      );
+    }
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('برداشت ثبت شد')),
+        SnackBar(
+          content: Text(editing ? 'برداشت ویرایش شد' : 'برداشت ثبت شد'),
+        ),
       );
     }
   } catch (e) {
@@ -326,9 +378,19 @@ Future<void> showRecordWithdrawalDialog(BuildContext context) async {
   }
 }
 
+String _amountFieldText(double amount) {
+  if ((amount - amount.roundToDouble()).abs() < 1e-9) {
+    return amount.round().toString();
+  }
+  var text = amount.toStringAsFixed(4);
+  text = text.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  return text;
+}
+
 class _WithdrawalTile extends StatelessWidget {
-  const _WithdrawalTile({required this.item});
+  const _WithdrawalTile({required this.item, required this.canEdit});
   final Withdrawal item;
+  final bool canEdit;
 
   Color get _statusColor => switch (item.status) {
         'rejected' => AppTheme.negative,
@@ -349,14 +411,30 @@ class _WithdrawalTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            formatMoney(item.amount),
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: AppTheme.title,
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  formatMoney(item.amount),
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    color: AppTheme.title,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              if (canEdit)
+                IconButton(
+                  tooltip: 'ویرایش',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => showRecordWithdrawalDialog(
+                    context,
+                    existing: item,
+                  ),
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                ),
+            ],
           ),
           const SizedBox(height: 8),
           Row(
