@@ -137,6 +137,53 @@ void main() {
       expect(allowance.available, 85000);
     });
 
+    test('excess over realized profit ignores withdrawals inside the profit', () {
+      final allowance = WithdrawalAllowance.compute(
+        realizedPnl: 400000,
+        openTrades: [_lot(qty: 1, buyPrice: 1000000)],
+        closedTrades: const [],
+        withdrawals: [
+          Withdrawal(amount: 20000, createdAt: '2026-04-01'),
+        ],
+        annualPct: 10,
+        calendar: AppConfig.calendarGregorian,
+        asOfIso: '2026-09-14',
+      );
+      expect(allowance.realizedPnl, 400000);
+      expect(allowance.withdrawnAllTime, 20000);
+      expect(allowance.excessOverRealized, 0);
+    });
+
+    test('excess over realized profit is the amount past profit', () {
+      final allowance = WithdrawalAllowance.compute(
+        realizedPnl: 50000,
+        openTrades: [_lot(qty: 1, buyPrice: 1000000)],
+        closedTrades: const [],
+        withdrawals: [
+          Withdrawal(amount: 150000, createdAt: '2026-04-01'),
+        ],
+        annualPct: 10,
+        calendar: AppConfig.calendarGregorian,
+        asOfIso: '2026-09-14',
+      );
+      expect(allowance.excessOverRealized, 100000);
+    });
+
+    test('a loss treats the whole withdrawal as excess', () {
+      final allowance = WithdrawalAllowance.compute(
+        realizedPnl: -10000,
+        openTrades: [_lot(qty: 1, buyPrice: 1000000)],
+        closedTrades: const [],
+        withdrawals: [
+          Withdrawal(amount: 5000, createdAt: '2026-04-01'),
+        ],
+        annualPct: 10,
+        calendar: AppConfig.calendarGregorian,
+        asOfIso: '2026-09-14',
+      );
+      expect(allowance.excessOverRealized, 5000);
+    });
+
     test('keeps withdrawals larger than the annual cap', () {
       final allowance = WithdrawalAllowance.compute(
         realizedPnl: 50000,

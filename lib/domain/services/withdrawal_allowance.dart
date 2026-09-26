@@ -44,6 +44,13 @@ class WithdrawalAllowance {
     return v;
   }
 
+  /// Withdrawals beyond realized profit. A loss counts as zero profit.
+  double get excessOverRealized {
+    final base = realizedPnl > 0 ? realizedPnl : 0.0;
+    final v = withdrawnAllTime - base;
+    return v > 0 ? v : 0;
+  }
+
   static double totalInflows({
     required Iterable<Trade> openTrades,
     required Iterable<Trade> closedTrades,
