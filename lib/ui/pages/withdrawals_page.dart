@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:invest/config/app_config.dart';
+import 'package:flutter/services.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/services/withdrawal_allowance.dart';
@@ -9,12 +9,44 @@ import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
-import 'package:invest/ui/widgets/settings_ui.dart';
+import 'package:invest/ui/widgets/tg_percent_wheel.dart';
 import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 
-class WithdrawalsPage extends StatelessWidget {
+/// Economist desk for withdrawal policy, capacity, and ledger history.
+class WithdrawalsPage extends StatefulWidget {
   const WithdrawalsPage({super.key});
+
+  @override
+  State<WithdrawalsPage> createState() => _WithdrawalsPageState();
+}
+
+class _WithdrawalsPageState extends State<WithdrawalsPage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _enter;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _enter = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
+    _fade = CurvedAnimation(parent: _enter, curve: Curves.easeOutCubic);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.03),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _enter, curve: Curves.easeOutCubic));
+    _enter.forward();
+  }
+
+  @override
+  void dispose() {
+    _enter.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,41 +56,79 @@ class WithdrawalsPage extends StatelessWidget {
 
     return RefreshIndicator(
       onRefresh: () => state.refreshAll(),
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: shellPagePadding(extraForFab: state.canMutate),
-        children: [
-          _AvailableHero(
-            allowance: allowance,
-            canEdit: state.canMutate,
-            onEditAnnualPct: () => _editAnnualWithdrawalPct(context, state),
-          ),
-          const SizedBox(height: 12),
-          _AnnualPctSettingsCard(
-            annualPct: state.settings.annualWithdrawalPct,
-            canEdit: state.canMutate,
-            onEdit: () => _editAnnualWithdrawalPct(context, state),
-          ),
-          const SizedBox(height: 12),
-          _ProfitPair(allowance: allowance),
-          const SizedBox(height: 12),
-          _ProfitCoverage(allowance: allowance),
-          const SizedBox(height: 12),
-          _AnnualCard(allowance: allowance),
-          const SizedBox(height: 22),
-          _HistoryHead(count: history.length),
-          const SizedBox(height: 10),
-          if (history.isEmpty)
-            const _EmptyHistory()
-          else
-            for (var i = 0; i < history.length; i++) ...[
-              if (i > 0) const SizedBox(height: 8),
-              _WithdrawalTile(
-                item: history[i],
-                canEdit: state.canMutate,
+      child: FadeTransition(
+        opacity: _fade,
+        child: SlideTransition(
+          position: _slide,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: shellPagePadding(extraForFab: state.canMutate),
+            children: [
+              _StatusRibbon(
+                offline: state.offline,
+                count: history.length,
+                yearLabel: WithdrawalAllowance.yearCaption(
+                  allowance.yearKey,
+                  allowance.calendar,
+                ),
               ),
+              const SizedBox(height: 12),
+              _CapacityHero(
+                allowance: allowance,
+                canEdit: state.canMutate,
+                onEditAnnualPct: () => _editAnnualWithdrawalPct(context, state),
+              ),
+              const SizedBox(height: 20),
+              const _SectionLabel(
+                eyebrow: 'سیاست',
+                title: 'سقف برداشت سالانه',
+              ),
+              const SizedBox(height: 10),
+              _PolicyCard(
+                annualPct: state.settings.annualWithdrawalPct,
+                canEdit: state.canMutate,
+                onEdit: () => _editAnnualWithdrawalPct(context, state),
+              ),
+              const SizedBox(height: 20),
+              const _SectionLabel(
+                eyebrow: 'تراز',
+                title: 'سود و برداشت',
+              ),
+              const SizedBox(height: 10),
+              _BalanceLedger(allowance: allowance),
+              const SizedBox(height: 10),
+              _CoveragePanel(allowance: allowance),
+              const SizedBox(height: 10),
+              _AnnualQuotaPanel(allowance: allowance),
+              const SizedBox(height: 22),
+              _SectionLabel(
+                eyebrow: 'دفتر',
+                title: 'سابقه برداشت',
+                trailing: Text(
+                  '${history.length} ردیف',
+                  style: const TextStyle(
+                    color: AppTheme.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (history.isEmpty)
+                const _EmptyHistory()
+              else
+                for (var i = 0; i < history.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 8),
+                  _WithdrawalTile(
+                    item: history[i],
+                    canEdit: state.canMutate,
+                    rank: i + 1,
+                  ),
+                ],
+              const SizedBox(height: 28),
             ],
-        ],
+          ),
+        ),
       ),
     );
   }
@@ -74,17 +144,13 @@ Future<void> _editAnnualWithdrawalPct(
     );
     return;
   }
-  final picked = await showTgChoiceSheet<int>(
+  // Fire-and-forget: awaiting platform haptics can hang under widget tests.
+  HapticFeedback.selectionClick();
+  final picked = await showTgPercentWheel(
     context: context,
     title: 'سود سالانه قابل برداشت',
+    subtitle: 'چرخ را بچرخانید · ۱ تا ۱۰۰ درصد از ورودی',
     selected: state.settings.annualWithdrawalPct,
-    options: [
-      for (final pct in AppConfig.annualWithdrawalOptions)
-        (
-          value: pct,
-          label: AppSettings.annualWithdrawalLabel(pct),
-        ),
-    ],
   );
   if (picked == null || !context.mounted) return;
   if (picked == state.settings.annualWithdrawalPct) return;
@@ -92,17 +158,123 @@ Future<void> _editAnnualWithdrawalPct(
     await state.saveSettings(
       state.settings.copyWith(annualWithdrawalPct: picked),
     );
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'سقف ${AppSettings.annualWithdrawalLabel(picked)} روی سرور ذخیره شد',
+          ),
+        ),
+      );
+    }
   } catch (e) {
     if (context.mounted) showUserError(context, e);
   }
 }
 
-class _AvailableHero extends StatelessWidget {
-  const _AvailableHero({
+class _StatusRibbon extends StatelessWidget {
+  const _StatusRibbon({
+    required this.offline,
+    required this.count,
+    required this.yearLabel,
+  });
+
+  final bool offline;
+  final int count;
+  final String yearLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          offline ? Icons.cloud_off_outlined : Icons.account_balance_outlined,
+          size: 14,
+          color: offline ? AppTheme.negative : AppTheme.muted,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          offline ? 'آفلاین' : 'میز نقدینگی',
+          style: TextStyle(
+            color: offline ? AppTheme.negative : AppTheme.muted,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          '$yearLabel · $count برداشت',
+          style: const TextStyle(
+            color: AppTheme.muted,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({
+    required this.eyebrow,
+    required this.title,
+    this.trailing,
+  });
+
+  final String eyebrow;
+  final String title;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (trailing != null) ...[
+          trailing!,
+          const SizedBox(width: 10),
+        ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                eyebrow,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: AppTheme.muted.withValues(alpha: 0.9),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                title,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  color: AppTheme.title,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  height: 1.15,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CapacityHero extends StatelessWidget {
+  const _CapacityHero({
     required this.allowance,
     required this.canEdit,
     required this.onEditAnnualPct,
   });
+
   final WithdrawalAllowance allowance;
   final bool canEdit;
   final VoidCallback onEditAnnualPct;
@@ -114,63 +286,80 @@ class _AvailableHero extends StatelessWidget {
         WithdrawalAllowance.yearCaption(allowance.yearKey, allowance.calendar);
     final pctLabel = AppSettings.annualWithdrawalLabel(allowance.annualPct);
     final capped = allowance.remainingAnnual <= 1e-6 && allowance.annualCap > 0;
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
       decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
         gradient: const LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [Color(0xFF1A3A2C), Color(0xFF12201A)],
+          colors: [
+            Color(0xFF1C3F30),
+            Color(0xFF13251C),
+            Color(0xFF101C16),
+          ],
+          stops: [0, 0.55, 1],
         ),
-        borderRadius: BorderRadius.circular(22),
         border: Border.all(color: AppTheme.border),
       ),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              const Expanded(
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.bg.withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppTheme.border),
+                ),
                 child: Text(
-                  'مبلغ قابل برداشت',
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
+                  yearLabel,
+                  style: const TextStyle(
                     color: AppTheme.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Text(
-                yearLabel,
-                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+              const Spacer(),
+              const Text(
+                'ظرفیت قابل برداشت',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: AppTheme.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
             formatMoney(available),
             textAlign: TextAlign.right,
             style: TextStyle(
               color: available > 0 ? AppTheme.positive : AppTheme.title,
-              fontSize: 30,
+              fontSize: 32,
               fontWeight: FontWeight.w800,
-              height: 1.15,
+              height: 1.1,
             ),
           ),
           const SizedBox(height: 6),
           Text(
-            'سقف $pctLabel در $yearLabel',
+            'سقف سیاستی $pctLabel',
             textAlign: TextAlign.right,
             style: const TextStyle(color: AppTheme.muted, fontSize: 12),
           ),
           const SizedBox(height: 14),
           ClipRRect(
-            borderRadius: BorderRadius.circular(99),
+            borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: allowance.usedAnnualFraction,
-              minHeight: 8,
+              minHeight: 6,
               backgroundColor: AppTheme.border,
               color: capped ? AppTheme.negative : AppTheme.positive,
             ),
@@ -179,19 +368,21 @@ class _AvailableHero extends StatelessWidget {
           Text(
             allowance.annualCap <= 0
                 ? 'سقف سالانه صفر است؛ ورودی پرتفو ثبت نشده'
-                : 'برداشت امسال ${formatMoney(allowance.yearWithdrawn)} از ${formatMoney(allowance.annualCap)}',
+                : 'مصرف امسال ${formatMoney(allowance.yearWithdrawn)} از ${formatMoney(allowance.annualCap)}',
             textAlign: TextAlign.right,
             style: const TextStyle(color: AppTheme.muted, fontSize: 11),
           ),
+          const SizedBox(height: 4),
           Align(
             alignment: Alignment.centerRight,
-            child: TextButton(
+            child: TextButton.icon(
               onPressed: canEdit ? onEditAnnualPct : null,
+              icon: const Icon(Icons.tune_rounded, size: 16),
+              label: const Text('تنظیم درصد سالانه'),
               style: TextButton.styleFrom(
                 visualDensity: VisualDensity.compact,
                 padding: const EdgeInsets.symmetric(horizontal: 4),
               ),
-              child: const Text('تغییر درصد سالانه'),
             ),
           ),
         ],
@@ -200,8 +391,8 @@ class _AvailableHero extends StatelessWidget {
   }
 }
 
-class _AnnualPctSettingsCard extends StatelessWidget {
-  const _AnnualPctSettingsCard({
+class _PolicyCard extends StatelessWidget {
+  const _PolicyCard({
     required this.annualPct,
     required this.canEdit,
     required this.onEdit,
@@ -215,29 +406,43 @@ class _AnnualPctSettingsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: AppTheme.card,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(16),
       child: InkWell(
-        onTap: canEdit ? onEdit : null,
-        borderRadius: BorderRadius.circular(18),
+        onTap: canEdit
+            ? () {
+                HapticFeedback.selectionClick();
+                onEdit();
+              }
+            : null,
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: AppTheme.border),
           ),
           child: Row(
             children: [
               Icon(
-                Icons.chevron_left_rounded,
+                Icons.keyboard_arrow_down_rounded,
                 color: canEdit ? AppTheme.muted : AppTheme.border,
               ),
-              const SizedBox(width: 8),
-              Text(
-                AppSettings.annualWithdrawalLabel(annualPct),
-                style: const TextStyle(
-                  color: AppTheme.title,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
+              const SizedBox(width: 6),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.bg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.border),
+                ),
+                child: Text(
+                  AppSettings.annualWithdrawalShortLabel(annualPct),
+                  style: const TextStyle(
+                    color: AppTheme.positive,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -250,31 +455,17 @@ class _AnnualPctSettingsCard extends StatelessWidget {
                       textAlign: TextAlign.right,
                       style: TextStyle(
                         color: AppTheme.title,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w800,
                         fontSize: 13,
                       ),
                     ),
-                    SizedBox(height: 2),
+                    SizedBox(height: 3),
                     Text(
-                      'نسبت به کل ورودی پرتفو',
+                      'چرخ ۱ تا ۱۰۰٪ با ویبره · ذخیره روی سرور',
                       textAlign: TextAlign.right,
                       style: TextStyle(color: AppTheme.muted, fontSize: 11),
                     ),
                   ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF30D158).withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.savings_rounded,
-                  color: Color(0xFF30D158),
-                  size: 20,
                 ),
               ),
             ],
@@ -285,8 +476,8 @@ class _AnnualPctSettingsCard extends StatelessWidget {
   }
 }
 
-class _ProfitPair extends StatelessWidget {
-  const _ProfitPair({required this.allowance});
+class _BalanceLedger extends StatelessWidget {
+  const _BalanceLedger({required this.allowance});
   final WithdrawalAllowance allowance;
 
   @override
@@ -294,82 +485,29 @@ class _ProfitPair extends StatelessWidget {
     final excess = allowance.excessOverRealized;
     final profitTone =
         allowance.realizedPnl < 0 ? AppTheme.negative : AppTheme.positive;
-    return Row(
-      children: [
-        Expanded(
-          child: _MetricTile(
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Column(
+        children: [
+          _LedgerRow(
             label: 'سود تحقق‌یافته',
             value: formatMoney(allowance.realizedPnl),
             caption: 'سود بسته‌شده معاملات',
             tone: profitTone,
+            showDivider: true,
           ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _MetricTile(
+          _LedgerRow(
             label: 'اضافه برداشت',
             value: formatMoney(excess),
             caption: excess > 0
-                ? 'نسبت به سود تحقق‌یافته'
-                : 'در محدوده سود تحقق‌یافته',
+                ? 'فراتر از سود تحقق‌یافته'
+                : 'داخل محدوده سود تحقق‌یافته',
             tone: excess > 0 ? AppTheme.negative : AppTheme.muted,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({
-    required this.label,
-    required this.value,
-    required this.caption,
-    required this.tone,
-  });
-
-  final String label;
-  final String value;
-  final String caption;
-  final Color tone;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
-      decoration: BoxDecoration(
-        color: AppTheme.card,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            label,
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: AppTheme.muted,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            textAlign: TextAlign.right,
-            style: TextStyle(
-              color: tone,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              height: 1.25,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            caption,
-            textAlign: TextAlign.right,
-            style: const TextStyle(color: AppTheme.muted, fontSize: 10, height: 1.3),
+            showDivider: false,
           ),
         ],
       ),
@@ -377,8 +515,70 @@ class _MetricTile extends StatelessWidget {
   }
 }
 
-class _ProfitCoverage extends StatelessWidget {
-  const _ProfitCoverage({required this.allowance});
+class _LedgerRow extends StatelessWidget {
+  const _LedgerRow({
+    required this.label,
+    required this.value,
+    required this.caption,
+    required this.tone,
+    required this.showDivider,
+  });
+
+  final String label;
+  final String value;
+  final String caption;
+  final Color tone;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        border: showDivider
+            ? const Border(bottom: BorderSide(color: AppTheme.border))
+            : null,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: tone,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  caption,
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              color: AppTheme.title,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CoveragePanel extends StatelessWidget {
+  const _CoveragePanel({required this.allowance});
   final WithdrawalAllowance allowance;
 
   @override
@@ -392,14 +592,14 @@ class _ProfitCoverage extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
         color: AppTheme.card,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'برداشت نسبت به سود',
+            'پوشش برداشت نسبت به سود',
             textAlign: TextAlign.right,
             style: TextStyle(
               color: AppTheme.title,
@@ -448,9 +648,9 @@ class _CoverageBar extends StatelessWidget {
     }
     final rest = 1000 - green - red;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(99),
+      borderRadius: BorderRadius.circular(4),
       child: SizedBox(
-        height: 8,
+        height: 7,
         child: Row(
           children: [
             if (green > 0)
@@ -508,8 +708,8 @@ class _LegendDot extends StatelessWidget {
   }
 }
 
-class _AnnualCard extends StatelessWidget {
-  const _AnnualCard({required this.allowance});
+class _AnnualQuotaPanel extends StatelessWidget {
+  const _AnnualQuotaPanel({required this.allowance});
   final WithdrawalAllowance allowance;
 
   @override
@@ -519,14 +719,14 @@ class _AnnualCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
       decoration: BoxDecoration(
         color: AppTheme.card,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'سقف سالانه ($pct)',
+            'کوتای سالانه ($pct)',
             textAlign: TextAlign.right,
             style: const TextStyle(
               color: AppTheme.title,
@@ -564,7 +764,7 @@ class _AnnualCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _QuietStat(
-                  label: 'باقیمانده سقف سالانه',
+                  label: 'باقیمانده سقف',
                   value: formatMoney(allowance.remainingAnnual),
                 ),
               ),
@@ -587,7 +787,7 @@ class _QuietStat extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: AppTheme.bg,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -613,46 +813,6 @@ class _QuietStat extends StatelessWidget {
   }
 }
 
-class _HistoryHead extends StatelessWidget {
-  const _HistoryHead({required this.count});
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Expanded(
-          child: Text(
-            'سابقه برداشت',
-            textAlign: TextAlign.right,
-            style: TextStyle(
-              color: AppTheme.title,
-              fontWeight: FontWeight.w800,
-              fontSize: 14,
-            ),
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: AppTheme.card,
-            borderRadius: BorderRadius.circular(99),
-            border: Border.all(color: AppTheme.border),
-          ),
-          child: Text(
-            '$count',
-            style: const TextStyle(
-              color: AppTheme.muted,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _EmptyHistory extends StatelessWidget {
   const _EmptyHistory();
 
@@ -662,17 +822,26 @@ class _EmptyHistory extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
       decoration: BoxDecoration(
         color: AppTheme.card,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.border),
       ),
       child: const Column(
         children: [
-          Icon(Icons.receipt_long_outlined, color: AppTheme.muted, size: 28),
+          Icon(Icons.menu_book_outlined, color: AppTheme.muted, size: 28),
           SizedBox(height: 8),
           Text(
-            'هنوز برداشتی ثبت نشده',
+            'دفتر برداشت هنوز خالی است',
             textAlign: TextAlign.center,
-            style: TextStyle(color: AppTheme.muted),
+            style: TextStyle(
+              color: AppTheme.title,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            'اولین برداشت به‌عنوان ردیف دفتر ثبت می‌شود.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppTheme.muted, fontSize: 12),
           ),
         ],
       ),
@@ -688,7 +857,9 @@ Future<void> showRecordWithdrawalDialog(
   if (!state.canMutate) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.'),
+        content: Text(
+          'در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.',
+        ),
       ),
     );
     return;
@@ -849,9 +1020,15 @@ String _amountFieldText(double amount) {
 }
 
 class _WithdrawalTile extends StatelessWidget {
-  const _WithdrawalTile({required this.item, required this.canEdit});
+  const _WithdrawalTile({
+    required this.item,
+    required this.canEdit,
+    required this.rank,
+  });
+
   final Withdrawal item;
   final bool canEdit;
+  final int rank;
 
   Color get _statusColor => switch (item.status) {
         'rejected' => AppTheme.negative,
@@ -866,7 +1043,7 @@ class _WithdrawalTile extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: AppTheme.card,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppTheme.border),
       ),
       child: IntrinsicHeight(
@@ -874,87 +1051,97 @@ class _WithdrawalTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Container(
-              width: 4,
-              decoration: BoxDecoration(
-                color: _statusColor,
-                borderRadius: const BorderRadius.horizontal(
-                  right: Radius.circular(16),
-                ),
-              ),
+              width: 3,
+              color: _statusColor,
             ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
                 child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  formatMoney(item.amount),
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    color: AppTheme.title,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                  ),
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '#$rank',
+                          style: const TextStyle(
+                            color: AppTheme.muted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          formatMoney(item.amount),
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            color: AppTheme.title,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                          ),
+                        ),
+                        if (canEdit)
+                          IconButton(
+                            tooltip: 'ویرایش',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => showRecordWithdrawalDialog(
+                              context,
+                              existing: item,
+                            ),
+                            icon: const Icon(Icons.edit_outlined, size: 18),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            formatDisplayDate(item.createdAt, calendar),
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                              color: AppTheme.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _statusColor.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            item.statusLabel,
+                            style: TextStyle(
+                              color: _statusColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (item.note.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        item.note,
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                          color: AppTheme.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              if (canEdit)
-                IconButton(
-                  tooltip: 'ویرایش',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => showRecordWithdrawalDialog(
-                    context,
-                    existing: item,
-                  ),
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  formatDisplayDate(item.createdAt, calendar),
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(color: AppTheme.muted, fontSize: 12),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _statusColor.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(99),
-                ),
-                child: Text(
-                  item.statusLabel,
-                  style: TextStyle(
-                    color: _statusColor,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (item.note.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              item.note,
-              textAlign: TextAlign.right,
-              style: const TextStyle(color: AppTheme.muted, fontSize: 12),
             ),
           ],
-                ],
-              ),
-            ),
-          ),
-        ],
         ),
       ),
     );

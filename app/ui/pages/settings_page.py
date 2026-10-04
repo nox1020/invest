@@ -19,13 +19,15 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
 from app.bootstrap import AppContext
 from app.config import (
-    ANNUAL_WITHDRAWAL_OPTIONS,
+    ANNUAL_WITHDRAWAL_MAX,
+    ANNUAL_WITHDRAWAL_MIN,
     CALENDAR_LABELS,
     CALENDARS,
     CURRENCIES,
@@ -65,19 +67,6 @@ def _refresh_interval_label(sec: int) -> str:
         return f"{sec // 60} دقیقه"
     return f"{sec} ثانیه"
 
-
-def _annual_withdrawal_label(pct: int) -> str:
-    labels = {
-        5: "۵٪ از ورودی",
-        8: "۸٪ از ورودی",
-        10: "۱۰٪ از ورودی",
-        12: "۱۲٪ از ورودی",
-        15: "۱۵٪ از ورودی",
-        20: "۲۰٪ از ورودی",
-        25: "۲۵٪ از ورودی",
-        30: "۳۰٪ از ورودی",
-    }
-    return labels.get(pct, f"{pct}٪ از ورودی")
 
 
 class SettingsPage(QWidget):
@@ -146,10 +135,10 @@ class SettingsPage(QWidget):
         self.goal_roi.editingFinished.connect(self._auto_save)
         form.addRow(t("goal_roi"), self.goal_roi)
 
-        self.annual_withdrawal = QComboBox()
-        for pct in ANNUAL_WITHDRAWAL_OPTIONS:
-            self.annual_withdrawal.addItem(_annual_withdrawal_label(pct), pct)
-        self.annual_withdrawal.currentIndexChanged.connect(self._auto_save)
+        self.annual_withdrawal = QSpinBox()
+        self.annual_withdrawal.setRange(ANNUAL_WITHDRAWAL_MIN, ANNUAL_WITHDRAWAL_MAX)
+        self.annual_withdrawal.setSuffix(" ٪ از ورودی")
+        self.annual_withdrawal.valueChanged.connect(self._auto_save)
         form.addRow(t("annual_withdrawal_pct"), self.annual_withdrawal)
         annual_hint = QLabel(t("annual_withdrawal_hint"))
         annual_hint.setObjectName("mutedText")
@@ -291,7 +280,9 @@ class SettingsPage(QWidget):
             self.pt_url.setText(s.persiantoolbox_url)
             goal = s.goal_roi_pct
             self.goal_roi.setText("" if goal is None else str(goal))
-            self._set_combo_data(self.annual_withdrawal, s.annual_withdrawal_pct)
+            self.annual_withdrawal.setValue(
+                clamp_annual_withdrawal_pct(s.annual_withdrawal_pct)
+            )
             self._sync_price_controls_enabled()
             self._update_api_status_label()
             self._update_lock_ui()
@@ -389,10 +380,7 @@ class SettingsPage(QWidget):
             except ValueError:
                 return
 
-        annual_raw = self.annual_withdrawal.currentData()
-        annual_pct = clamp_annual_withdrawal_pct(
-            int(annual_raw) if annual_raw is not None else self.ctx.settings.annual_withdrawal_pct
-        )
+        annual_pct = clamp_annual_withdrawal_pct(self.annual_withdrawal.value())
 
         changed = (
             self.ctx.settings.calendar != new_calendar

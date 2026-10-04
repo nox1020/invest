@@ -8,7 +8,6 @@ from app.config import (
     ANNUAL_WITHDRAWAL_DEFAULT,
     ANNUAL_WITHDRAWAL_MAX,
     ANNUAL_WITHDRAWAL_MIN,
-    ANNUAL_WITHDRAWAL_OPTIONS,
     CALENDAR_JALALI,
     CURRENCY_TOMAN,
     DEFAULT_PERSIANTOOLBOX_URL,
@@ -73,10 +72,7 @@ def clamp_price_refresh_seconds(raw: int | None) -> int:
 
 def clamp_annual_withdrawal_pct(raw: int | None) -> int:
     n = ANNUAL_WITHDRAWAL_DEFAULT if raw is None else int(raw)
-    n = max(ANNUAL_WITHDRAWAL_MIN, min(n, ANNUAL_WITHDRAWAL_MAX))
-    if n in ANNUAL_WITHDRAWAL_OPTIONS:
-        return n
-    return min(ANNUAL_WITHDRAWAL_OPTIONS, key=lambda option: abs(option - n))
+    return max(ANNUAL_WITHDRAWAL_MIN, min(n, ANNUAL_WITHDRAWAL_MAX))
 
 
 def _resolve_gold_url(value: str | None) -> str:

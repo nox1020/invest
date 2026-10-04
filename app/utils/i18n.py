@@ -51,7 +51,7 @@ LABELS: dict[str, str] = {
     "all_severities": "همه سطوح",
     "goal_roi": "هدف بازده سالانه (٪)",
     "annual_withdrawal_pct": "سود سالانه قابل برداشت",
-    "annual_withdrawal_hint": "سقف برداشت سالانه نسبت به کل ورودی پرتفو",
+    "annual_withdrawal_hint": "سقف برداشت سالانه نسبت به کل ورودی پرتفو (۱ تا ۱۰۰٪)",
     "export_analytics": "خروجی تحلیل (Excel)",
     "export_analytics_csv": "خروجی تحلیل (CSV)",
     "add_asset": "افزودن دارایی",
