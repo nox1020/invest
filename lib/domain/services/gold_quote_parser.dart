@@ -119,6 +119,35 @@ class GoldQuoteParser {
     return t;
   }
 
+  /// Vinor/toolbox often store ~13–18M Toman/g (24k spot × wrong FX × 0.75).
+  /// Live Iranian 18k bazaar is far higher; reject those stale marks when a
+  /// free-market quote is available (or when the candidate is obviously low).
+  static bool isUnderstated18kToman(double? priceToman) {
+    if (priceToman == null || !priceToman.isFinite || priceToman <= 0) {
+      return true;
+    }
+    // Floor keeps a wide margin under today's ~26M bazaar 18k.
+    return priceToman < 20000000;
+  }
+
+  /// Prefer [freeMarket] whenever the remote/server mark looks understated.
+  static double? preferFreeMarketGold({
+    required double? freeMarket,
+    required double? remoteOrCached,
+  }) {
+    if (freeMarket != null &&
+        freeMarket > 0 &&
+        !isUnderstated18kToman(freeMarket)) {
+      return freeMarket;
+    }
+    if (remoteOrCached != null &&
+        remoteOrCached > 0 &&
+        !isUnderstated18kToman(remoteOrCached)) {
+      return remoteOrCached;
+    }
+    return freeMarket ?? remoteOrCached;
+  }
+
   static List? _marketsList(dynamic body) {
     if (body is List) return body;
     if (body is! Map) return null;

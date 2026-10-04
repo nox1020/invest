@@ -69,6 +69,33 @@ void main() {
     );
   });
 
+  test('preferFreeMarketGold rejects understated Vinor/toolbox marks', () {
+    expect(GoldQuoteParser.isUnderstated18kToman(13300000), isTrue);
+    expect(GoldQuoteParser.isUnderstated18kToman(17700000), isTrue);
+    expect(GoldQuoteParser.isUnderstated18kToman(26400000), isFalse);
+    expect(
+      GoldQuoteParser.preferFreeMarketGold(
+        freeMarket: 26422000,
+        remoteOrCached: 13313120,
+      ),
+      26422000,
+    );
+    expect(
+      GoldQuoteParser.preferFreeMarketGold(
+        freeMarket: null,
+        remoteOrCached: 13313120,
+      ),
+      13313120, // last resort only when free feeds fail
+    );
+    expect(
+      GoldQuoteParser.preferFreeMarketGold(
+        freeMarket: null,
+        remoteOrCached: 26422000,
+      ),
+      26422000,
+    );
+  });
+
   test('QuoteClients falls back from WallGold to TGJU', () async {
     var wallGoldHits = 0;
     final client = MockClient((request) async {

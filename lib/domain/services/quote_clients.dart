@@ -45,19 +45,21 @@ class QuoteClients {
     String? persianUrl,
   }) async {
     final configured = GoldQuoteParser.resolveConfiguredUrl(persianUrl);
-    final urls = <String>[
+    final urls = <String>{
       AppConfig.defaultGoldApiUrl,
-      AppConfig.defaultTgjuAjaxUrl,
-      if (configured != AppConfig.defaultGoldApiUrl &&
-          configured != AppConfig.defaultTgjuAjaxUrl)
-        configured,
-    ];
+      ...AppConfig.tgjuAjaxFallbackUrls,
+      if (!GoldQuoteParser.isStaleGoldUrl(configured)) configured,
+    }.toList();
 
     for (final rawUrl in urls) {
       final quote = await _fetchGoldFromUrl(rawUrl);
-      if (quote != null) {
-        return (price: quote.priceToman, change24h: quote.change24hPct);
+      if (quote == null) continue;
+      // Never accept understated toolbox-style marks as the live 18k price.
+      if (GoldQuoteParser.isUnderstated18kToman(quote.priceToman) &&
+          quote.source == 'persiantoolbox') {
+        continue;
       }
+      return (price: quote.priceToman, change24h: quote.change24hPct);
     }
     return (price: null, change24h: null);
   }
