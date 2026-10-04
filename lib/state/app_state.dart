@@ -72,6 +72,10 @@ class AppState extends ChangeNotifier {
   List<Trade> closedTrades = [];
   List<Withdrawal> withdrawals = [];
   bool _withdrawalsFromRemote = false;
+
+  /// True when withdrawals are stored in Vinor settings (`client_withdrawals`)
+  /// because the dedicated withdrawals API is unavailable.
+  bool _withdrawalsViaSettings = false;
   bool loading = true;
   bool refreshing = false;
   String? error;
@@ -428,6 +432,11 @@ class AppState extends ChangeNotifier {
     closedTrades = [];
     withdrawals = [];
     _withdrawalsFromRemote = false;
+    _withdrawalsViaSettings = false;
+    try {
+      await OfflineCacheStore.clearUserData();
+      await PriceAlertPrefs.clear();
+    } catch (_) {}
     if (appLockEnabled) {
       appUnlocked = false;
     }
@@ -501,6 +510,7 @@ class AppState extends ChangeNotifier {
       biometricUnlockEnabled = false;
     }
     notifyListeners();
+    await _pushUserExtrasToServer();
     return null;
   }
 
@@ -511,15 +521,18 @@ class AppState extends ChangeNotifier {
     appLockEnabled = true;
     appUnlocked = true;
     notifyListeners();
+    await _pushUserExtrasToServer();
   }
 
   Future<void> removeAppLock() async {
     await AppLockStore.saveHash('');
+    await AppLockStore.saveBiometricEnabled(false);
     appLockHash = null;
     appLockEnabled = false;
     biometricUnlockEnabled = false;
     appUnlocked = true;
     notifyListeners();
+    await _pushUserExtrasToServer();
   }
 
   Future<void> setBaseUrl(String url) async {
@@ -853,8 +866,8 @@ class AppState extends ChangeNotifier {
     await _session!.setApiVersion(server);
     if (stored != null && stored != server) {
       final prevRefresh = settings.autoRefreshSeconds;
-      settings = await remote!.fetchSettings();
-      await PriceAlertPrefs.overlayOnto(settings);
+      final bundle = await remote!.fetchSettings();
+      await _applyRemoteSettingsBundle(bundle, migrate: true);
       _normalizeGoldApiUrl();
       if (settings.autoRefreshSeconds != prevRefresh) {
         _startAutoRefreshTimer(immediate: false);
@@ -896,29 +909,26 @@ class AppState extends ChangeNotifier {
       ..goldTmnPerGram = prevGold
       ..wallexUrl = prevWallex
       ..persianToolboxUrl = prevPersian;
-    final keepAlerts = s.priceAlerts.map((e) => e.copy()).toList();
-    final keepProfit = s.profitAlerts.map((e) => e.copy()).toList();
-    final keepBg = s.notifyBackground;
-    final keepRefresh = s.autoRefreshSeconds;
-    final keepAnnualPct = s.annualWithdrawalPct;
     notifyListeners();
 
     if (useRemote && !offline) {
-      final saved = await remote!.saveSettings(settings);
-      settings = saved
-        ..usdtTmnRate = prevUsdt
-        ..goldTmnPerGram = prevGold
-        ..priceAlerts = keepAlerts
-        ..profitAlerts = keepProfit
-        ..notifyBackground = keepBg
-        ..autoRefreshSeconds = AppSettings.clampAutoRefreshSeconds(keepRefresh)
-        ..annualWithdrawalPct =
-            AppSettings.clampAnnualWithdrawalPct(keepAnnualPct);
+      final bundle = await remote!.saveSettings(
+        settings,
+        clientWithdrawals: _withdrawalsViaSettings ? withdrawals : null,
+        appLockHash: appLockHash ?? '',
+        appLockBiometric: biometricUnlockEnabled,
+      );
+      settings = bundle.settings;
       if (settings.wallexUrl.trim().isEmpty) {
         settings.wallexUrl = prevWallex;
       }
       if (settings.persianToolboxUrl.trim().isEmpty) {
         settings.persianToolboxUrl = prevPersian;
+      }
+      await _applyRemoteLockFromBundle(bundle);
+      if (bundle.hasClientWithdrawals && !_withdrawalsFromRemote) {
+        withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
+        _withdrawalsViaSettings = true;
       }
     }
     await _persistSettingsLocal(settings);
@@ -934,9 +944,94 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _persistSettingsLocal(AppSettings s) async {
+    await _ensureLocalSettingsRepo();
     final repo = settingsRepo;
     if (repo == null) return;
     await repo.saveMap(s.toStorageMap());
+  }
+
+  Future<void> _ensureLocalSettingsRepo() async {
+    if (settingsRepo != null) return;
+    try {
+      settingsRepo = SettingsRepository(await AppDatabase.instance.database);
+    } catch (_) {}
+  }
+
+  /// Push settings + lock + optional withdrawal mirror to Vinor.
+  Future<void> _pushUserExtrasToServer({
+    List<Withdrawal>? clientWithdrawals,
+  }) async {
+    if (!useRemote || offline || remote == null || readOnlyOffline) return;
+    try {
+      final bundle = await remote!.saveSettings(
+        settings,
+        clientWithdrawals: clientWithdrawals ??
+            (_withdrawalsViaSettings ? withdrawals : null),
+        appLockHash: appLockHash ?? '',
+        appLockBiometric: biometricUnlockEnabled,
+      );
+      settings = bundle.settings;
+      await _applyRemoteLockFromBundle(bundle);
+      await _persistSettingsLocal(settings);
+      await PriceAlertPrefs.saveFrom(settings);
+    } catch (_) {
+      // Best-effort sync; local state already updated.
+    }
+  }
+
+  Future<void> _applyRemoteSettingsBundle(
+    RemoteSettingsBundle bundle, {
+    required bool migrate,
+  }) async {
+    settings = bundle.settings;
+    final filledGaps = await PriceAlertPrefs.fillGapsOnto(settings);
+    await _applyRemoteLockFromBundle(bundle, migrateLocal: migrate);
+    await _persistSettingsLocal(settings);
+    await PriceAlertPrefs.saveFrom(settings);
+    await BackgroundPriceWorker.sync(settings);
+
+    final shouldMigrateLock = migrate &&
+        bundle.appLockHash == null &&
+        appLockHash != null &&
+        appLockHash!.trim().isNotEmpty;
+    if (migrate && (filledGaps || shouldMigrateLock)) {
+      await _pushUserExtrasToServer();
+    }
+  }
+
+  Future<void> _applyRemoteLockFromBundle(
+    RemoteSettingsBundle bundle, {
+    bool migrateLocal = false,
+  }) async {
+    if (bundle.appLockHash != null) {
+      final hash = bundle.appLockHash!.trim();
+      if (hash.isEmpty) {
+        await AppLockStore.saveHash('');
+        appLockHash = null;
+        appLockEnabled = false;
+        if (bundle.appLockBiometric == false || bundle.appLockBiometric == null) {
+          biometricUnlockEnabled = false;
+          await AppLockStore.saveBiometricEnabled(false);
+        }
+        appUnlocked = true;
+      } else {
+        await AppLockStore.saveHash(hash);
+        appLockHash = hash;
+        appLockEnabled = true;
+      }
+    } else if (!migrateLocal) {
+      // Key absent and not migrating — leave local lock as-is.
+    }
+
+    if (bundle.appLockBiometric != null) {
+      biometricUnlockEnabled = bundle.appLockBiometric!;
+      await AppLockStore.saveBiometricEnabled(biometricUnlockEnabled);
+      if (!appLockEnabled && biometricUnlockEnabled) {
+        biometricUnlockEnabled = false;
+        await AppLockStore.saveBiometricEnabled(false);
+      }
+    }
+    await refreshBiometricCapability();
   }
 
   /// Coalesced refresh — overlapping pulls merge into one run.
@@ -1031,10 +1126,11 @@ class AppState extends ChangeNotifier {
     if (checkApiVersion) {
       await _syncApiVersion();
     }
+    RemoteSettingsBundle? settingsBundle;
     if (fetchSettings) {
       final prevRefresh = settings.autoRefreshSeconds;
-      settings = await remote!.fetchSettings();
-      await PriceAlertPrefs.overlayOnto(settings);
+      settingsBundle = await remote!.fetchSettings();
+      await _applyRemoteSettingsBundle(settingsBundle, migrate: true);
       _normalizeGoldApiUrl();
       if (settings.autoRefreshSeconds != prevRefresh) {
         _startAutoRefreshTimer(immediate: false);
@@ -1046,7 +1142,7 @@ class AppState extends ChangeNotifier {
       svc.assets.listAll().then((v) => assets = v),
       svc.listOpen().then((v) => openTrades = v),
       svc.listClosed().then((v) => closedTrades = v),
-      _loadWithdrawals(remote: svc),
+      _loadWithdrawals(remote: svc, settingsBundle: settingsBundle),
     ]);
     await _overlayLiveMarks();
     lastSyncedAt = DateTime.now();
@@ -1062,16 +1158,37 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  Future<void> _loadWithdrawals({RemoteInvestService? remote}) async {
+  Future<void> _loadWithdrawals({
+    RemoteInvestService? remote,
+    RemoteSettingsBundle? settingsBundle,
+  }) async {
     if (remote != null) {
       final remoteItems = await remote.listWithdrawals();
       if (remoteItems != null) {
         withdrawals = remoteItems;
         _withdrawalsFromRemote = true;
+        _withdrawalsViaSettings = false;
         return;
       }
+
+      _withdrawalsFromRemote = false;
+      var bundle = settingsBundle;
+      bundle ??= await remote.fetchSettings();
+      if (bundle.hasClientWithdrawals) {
+        withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
+        _withdrawalsViaSettings = true;
+        return;
+      }
+
+      await _loadLocalWithdrawals();
+      if (withdrawals.isNotEmpty && useRemote && !offline && !readOnlyOffline) {
+        await _pushUserExtrasToServer(clientWithdrawals: withdrawals);
+        _withdrawalsViaSettings = true;
+      }
+      return;
     }
     _withdrawalsFromRemote = false;
+    _withdrawalsViaSettings = false;
     await _loadLocalWithdrawals();
   }
 
@@ -1102,6 +1219,7 @@ class AppState extends ChangeNotifier {
       if (created != null) {
         withdrawals = [created, ...withdrawals];
         _withdrawalsFromRemote = true;
+        _withdrawalsViaSettings = false;
         saved = true;
       }
     }
@@ -1109,6 +1227,10 @@ class AppState extends ChangeNotifier {
       final repo = await _localWithdrawals();
       await repo.create(Withdrawal(amount: amount, note: note.trim()));
       await _loadLocalWithdrawals();
+      if (useRemote && !offline && remote != null) {
+        await _pushUserExtrasToServer(clientWithdrawals: withdrawals);
+        _withdrawalsViaSettings = true;
+      }
     }
     await _persistWithdrawalCache();
     notifyListeners();
@@ -1157,10 +1279,14 @@ class AppState extends ChangeNotifier {
     if (!saved) {
       final repo = await _localWithdrawals();
       await repo.update(updated);
-      if (_withdrawalsFromRemote) {
+      if (_withdrawalsFromRemote || _withdrawalsViaSettings) {
         _replaceWithdrawal(updated);
       } else {
         await _loadLocalWithdrawals();
+      }
+      if (!_withdrawalsFromRemote && useRemote && !offline && remote != null) {
+        await _pushUserExtrasToServer(clientWithdrawals: withdrawals);
+        _withdrawalsViaSettings = true;
       }
     }
     await _persistWithdrawalCache();
@@ -1293,10 +1419,14 @@ class AppState extends ChangeNotifier {
     try {
       final snap = await PriceAlertPrefs.loadSnapshot();
       if (snap != null) {
-        await PriceAlertPrefs.overlayOnto(settings);
-      } else {
-        await PriceAlertPrefs.saveFrom(settings);
+        // Online: never overwrite server prefs; only fill gaps for migration.
+        if (useRemote && !offline) {
+          await PriceAlertPrefs.fillGapsOnto(settings);
+        } else {
+          await PriceAlertPrefs.overlayOnto(settings);
+        }
       }
+      await PriceAlertPrefs.saveFrom(settings);
       _normalizeGoldApiUrl();
       await BackgroundPriceWorker.sync(settings);
     } catch (_) {}
@@ -1533,6 +1663,7 @@ class AppState extends ChangeNotifier {
         payload.trades.where((t) => t.status == AppConfig.tradeClosed).toList();
     withdrawals = List<Withdrawal>.from(payload.withdrawals);
     _withdrawalsFromRemote = false;
+    _withdrawalsViaSettings = false;
     liveUsdt = settings.usdtTmnRate;
     liveGold = settings.goldTmnPerGram;
 
@@ -1575,7 +1706,12 @@ class AppState extends ChangeNotifier {
 
   Future<void> _rebuildRemoteFromBackup(BackupPayload payload) async {
     final svc = remote!;
-    await svc.saveSettings(payload.settings);
+    await svc.saveSettings(
+      payload.settings,
+      clientWithdrawals: payload.withdrawals,
+      appLockHash: payload.appLockHash ?? '',
+      appLockBiometric: payload.biometricUnlockEnabled,
+    );
 
     // Clear existing remote portfolio (closed → open → assets).
     final existingClosed = await svc.listClosed();
@@ -1688,14 +1824,23 @@ class AppState extends ChangeNotifier {
       );
     }
 
+    var withdrawalsApiOk = false;
     for (final w in payload.withdrawals) {
       try {
-        await svc.createWithdrawal(amount: w.amount, note: w.note);
+        final created =
+            await svc.createWithdrawal(amount: w.amount, note: w.note);
+        if (created != null) withdrawalsApiOk = true;
       } catch (_) {}
     }
 
-    // Ensure settings stick after portfolio rebuild.
-    await svc.saveSettings(payload.settings);
+    // Ensure settings stick after portfolio rebuild (and mirror withdrawals
+    // when the dedicated API is unavailable).
+    await svc.saveSettings(
+      payload.settings,
+      clientWithdrawals: withdrawalsApiOk ? null : payload.withdrawals,
+      appLockHash: payload.appLockHash ?? '',
+      appLockBiometric: payload.biometricUnlockEnabled,
+    );
   }
 }
 

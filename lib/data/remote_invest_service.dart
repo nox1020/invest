@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/domain/models/app_settings.dart';
@@ -6,6 +8,8 @@ import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/iran_inflation.dart';
 import 'package:invest/domain/models/metrics.dart';
+import 'package:invest/domain/models/price_alert.dart';
+import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
@@ -111,12 +115,18 @@ class RemoteInvestService implements InvestMutations {
     return _tradesFrom(data);
   }
 
-  Future<AppSettings> fetchSettings() async {
+  Future<RemoteSettingsBundle> fetchSettings() async {
     final data = await _api.get('/invest/api/v1/settings');
-    return _settingsFrom(Map<String, dynamic>.from(data['settings'] as Map));
+    return _bundleFrom(Map<String, dynamic>.from(data['settings'] as Map));
   }
 
-  Future<AppSettings> saveSettings(AppSettings s) async {
+  /// Persist full user prefs to Vinor (typed fields + extras in settings bag).
+  Future<RemoteSettingsBundle> saveSettings(
+    AppSettings s, {
+    List<Withdrawal>? clientWithdrawals,
+    String? appLockHash,
+    bool? appLockBiometric,
+  }) async {
     final body = <String, dynamic>{
       'calendar': s.calendar,
       'currency': s.currency,
@@ -128,8 +138,11 @@ class RemoteInvestService implements InvestMutations {
       'notify_trades': s.notifyTrades,
       'notify_withdrawals': s.notifyWithdrawals,
       'notify_price_moves': s.notifyPriceMoves,
+      'notify_background': s.notifyBackground,
       'price_refresh_seconds': s.autoRefreshSeconds,
       'annual_withdrawal_pct': s.annualWithdrawalPct,
+      'price_alerts': s.priceAlerts.map((e) => e.toJson()).toList(),
+      'profit_alerts': s.profitAlerts.map((e) => e.toJson()).toList(),
     };
     if (s.wallexUrl.trim().isNotEmpty) {
       body['wallex_markets_url'] = s.wallexUrl.trim();
@@ -143,12 +156,34 @@ class RemoteInvestService implements InvestMutations {
     if (s.goldTmnPerGram != null) {
       body['gold_tmn_per_gram'] = s.goldTmnPerGram;
     }
+    if (appLockHash != null) {
+      body[AppConfig.settingAppLockHash] = appLockHash;
+    }
+    if (appLockBiometric != null) {
+      body[AppConfig.settingAppLockBiometric] = appLockBiometric;
+    }
+    if (clientWithdrawals != null) {
+      body[AppConfig.settingClientWithdrawals] = clientWithdrawals
+          .map(
+            (w) => {
+              'id': w.id,
+              'amount': w.amount,
+              'note': w.note,
+              'status': w.status,
+              'created_at': w.createdAt,
+            },
+          )
+          .toList();
+    }
     final data = await _api.put('/invest/api/v1/settings', body: body);
-    final saved =
-        _settingsFrom(Map<String, dynamic>.from(data['settings'] as Map));
-    saved.usdtTmnRate = s.usdtTmnRate ?? saved.usdtTmnRate;
-    saved.goldTmnPerGram = s.goldTmnPerGram ?? saved.goldTmnPerGram;
-    return saved;
+    final bundle =
+        _bundleFrom(Map<String, dynamic>.from(data['settings'] as Map));
+    return bundle.mergePreserving(
+      sent: s,
+      clientWithdrawals: clientWithdrawals,
+      appLockHash: appLockHash,
+      appLockBiometric: appLockBiometric,
+    );
   }
 
   Future<({double? usdt, double? gold})> fetchQuotes() async {
@@ -479,58 +514,8 @@ class RemoteInvestService implements InvestMutations {
         .toList();
   }
 
-  AppSettings _settingsFrom(Map<String, dynamic> s) {
-    bool on(dynamic v, {bool d = true}) {
-      if (v == null) return d;
-      if (v is bool) return v;
-      return v.toString() == '1' || v.toString().toLowerCase() == 'true';
-    }
-
-    double? rate(dynamic v) {
-      if (v == null) return null;
-      if (v is num) return v.toDouble();
-      return double.tryParse('$v');
-    }
-
-    final raw = s['raw'] is Map
-        ? Map<String, dynamic>.from(s['raw'] as Map)
-        : const <String, dynamic>{};
-
-    return AppSettings(
-      calendar: (s['calendar'] as String?) ?? AppConfig.calendarJalali,
-      currency: (s['currency'] as String?) ?? AppConfig.currencyToman,
-      theme: (s['theme'] as String?) ?? AppConfig.themeDark,
-      livePricesEnabled: on(s['live_prices_enabled']),
-      usdtApiEnabled: on(s['usdt_api_enabled']),
-      goldApiEnabled: on(s['gold_api_enabled']),
-      wallexUrl: (s['wallex_markets_url'] as String?)?.trim().isNotEmpty == true
-          ? (s['wallex_markets_url'] as String)
-          : AppConfig.defaultWallexUrl,
-      persianToolboxUrl:
-          (s['persiantoolbox_url'] as String?)?.trim().isNotEmpty == true
-              ? (s['persiantoolbox_url'] as String)
-              : AppConfig.defaultPersianToolboxUrl,
-      usdtTmnRate: rate(s['usdt_tmn_rate'] ?? raw['usdt_tmn_rate']),
-      goldTmnPerGram: rate(s['gold_tmn_per_gram'] ?? raw['gold_tmn_per_gram']),
-      notificationsEnabled: on(
-        s['notifications_enabled'] ?? raw['notifications_enabled'],
-      ),
-      notifyTrades: on(s['notify_trades'] ?? raw['notify_trades']),
-      notifyWithdrawals:
-          on(s['notify_withdrawals'] ?? raw['notify_withdrawals']),
-      notifyPriceMoves:
-          on(s['notify_price_moves'] ?? raw['notify_price_moves']),
-      autoRefreshSeconds: AppSettings.parseAutoRefreshSeconds(
-        s['price_refresh_seconds'] ??
-            raw['price_refresh_seconds'] ??
-            s['auto_refresh_seconds'] ??
-            raw['auto_refresh_seconds'],
-      ),
-      annualWithdrawalPct: AppSettings.parseAnnualWithdrawalPct(
-        s['annual_withdrawal_pct'] ?? raw['annual_withdrawal_pct'],
-      ),
-    );
-  }
+  RemoteSettingsBundle _bundleFrom(Map<String, dynamic> s) =>
+      RemoteSettingsBundle.fromApiMap(s);
 
   static double _num(dynamic v) => CommodityQuote.numOf(v) ?? 0;
 
@@ -571,4 +556,193 @@ class MarketIndexRemoteBundle {
   bool get hasAnyPrice =>
       essentials.any((q) => q.price != null) ||
       wallexMarkets.any((q) => q.price != null);
+}
+
+/// Settings payload from Vinor including extras older servers may echo only in
+/// `raw` (alerts, app lock, client withdrawal mirror).
+class RemoteSettingsBundle {
+  const RemoteSettingsBundle({
+    required this.settings,
+    this.presentKeys = const {},
+    this.clientWithdrawals = const [],
+    this.hasClientWithdrawals = false,
+    this.appLockHash,
+    this.appLockBiometric,
+  });
+
+  final AppSettings settings;
+  final Set<String> presentKeys;
+  final List<Withdrawal> clientWithdrawals;
+  final bool hasClientWithdrawals;
+  final String? appLockHash;
+  final bool? appLockBiometric;
+
+  factory RemoteSettingsBundle.fromApiMap(Map<String, dynamic> s) {
+    bool on(dynamic v, {bool d = true}) {
+      if (v == null) return d;
+      if (v is bool) return v;
+      if (v is num) return v != 0;
+      final t = v.toString().trim().toLowerCase();
+      return t == '1' || t == 'true' || t == 'yes' || t == 'on';
+    }
+
+    double? rate(dynamic v) {
+      if (v == null) return null;
+      if (v is num) return v.toDouble();
+      return double.tryParse('$v'.trim().replaceAll(',', ''));
+    }
+
+    final raw = s['raw'] is Map
+        ? Map<String, dynamic>.from(s['raw'] as Map)
+        : const <String, dynamic>{};
+
+    dynamic pick(String key) => s.containsKey(key) ? s[key] : raw[key];
+
+    bool hasKey(String key) => s.containsKey(key) || raw.containsKey(key);
+
+    final present = <String>{
+      for (final k in s.keys) k.toString(),
+      for (final k in raw.keys) k.toString(),
+    };
+
+    final settings = AppSettings(
+      calendar: (s['calendar'] as String?) ?? AppConfig.calendarJalali,
+      currency: (s['currency'] as String?) ?? AppConfig.currencyToman,
+      theme: (s['theme'] as String?) ?? AppConfig.themeDark,
+      livePricesEnabled: on(s['live_prices_enabled']),
+      usdtApiEnabled: on(s['usdt_api_enabled']),
+      goldApiEnabled: on(s['gold_api_enabled']),
+      wallexUrl: (s['wallex_markets_url'] as String?)?.trim().isNotEmpty == true
+          ? (s['wallex_markets_url'] as String)
+          : AppConfig.defaultWallexUrl,
+      persianToolboxUrl:
+          (s['persiantoolbox_url'] as String?)?.trim().isNotEmpty == true
+              ? (s['persiantoolbox_url'] as String)
+              : AppConfig.defaultPersianToolboxUrl,
+      usdtTmnRate: rate(s['usdt_tmn_rate'] ?? raw['usdt_tmn_rate']),
+      goldTmnPerGram: rate(s['gold_tmn_per_gram'] ?? raw['gold_tmn_per_gram']),
+      notificationsEnabled: on(
+        s['notifications_enabled'] ?? raw['notifications_enabled'],
+      ),
+      notifyTrades: on(s['notify_trades'] ?? raw['notify_trades']),
+      notifyWithdrawals:
+          on(s['notify_withdrawals'] ?? raw['notify_withdrawals']),
+      notifyPriceMoves:
+          on(s['notify_price_moves'] ?? raw['notify_price_moves']),
+      notifyBackground: hasKey(AppConfig.settingNotifyBackground)
+          ? on(pick(AppConfig.settingNotifyBackground))
+          : true,
+      autoRefreshSeconds: AppSettings.parseAutoRefreshSeconds(
+        s['price_refresh_seconds'] ??
+            raw['price_refresh_seconds'] ??
+            s['auto_refresh_seconds'] ??
+            raw['auto_refresh_seconds'],
+      ),
+      annualWithdrawalPct: AppSettings.parseAnnualWithdrawalPct(
+        s['annual_withdrawal_pct'] ?? raw['annual_withdrawal_pct'],
+      ),
+      priceAlerts: PriceAlertList.parse(pick(AppConfig.settingPriceAlerts)),
+      profitAlerts: ProfitAlertList.parse(pick(AppConfig.settingProfitAlerts)),
+    );
+
+    final lockRaw = pick(AppConfig.settingAppLockHash);
+    final String? appLockHash = !hasKey(AppConfig.settingAppLockHash)
+        ? null
+        : lockRaw == null || '$lockRaw'.trim().isEmpty
+            ? ''
+            : '$lockRaw'.trim();
+
+    bool? appLockBiometric;
+    if (hasKey(AppConfig.settingAppLockBiometric)) {
+      appLockBiometric = on(pick(AppConfig.settingAppLockBiometric), d: false);
+    }
+
+    final clientWithdrawals = _parseClientWithdrawals(
+      pick(AppConfig.settingClientWithdrawals),
+    );
+
+    return RemoteSettingsBundle(
+      settings: settings,
+      presentKeys: present,
+      clientWithdrawals: clientWithdrawals,
+      hasClientWithdrawals: hasKey(AppConfig.settingClientWithdrawals),
+      appLockHash: appLockHash,
+      appLockBiometric: appLockBiometric,
+    );
+  }
+
+  static List<Withdrawal> _parseClientWithdrawals(dynamic raw) {
+    dynamic value = raw;
+    if (value is String) {
+      final t = value.trim();
+      if (t.isEmpty) return const [];
+      try {
+        value = jsonDecode(t);
+      } catch (_) {
+        return const [];
+      }
+    }
+    if (value is! List) return const [];
+    final out = <Withdrawal>[];
+    for (final e in value) {
+      if (e is! Map) continue;
+      try {
+        out.add(Withdrawal.fromMap(Map<String, Object?>.from(e)));
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  /// When the PUT response omits extras the client just sent, keep the sent
+  /// values so UI / local cache stay correct even on older backends.
+  RemoteSettingsBundle mergePreserving({
+    required AppSettings sent,
+    List<Withdrawal>? clientWithdrawals,
+    String? appLockHash,
+    bool? appLockBiometric,
+  }) {
+    final merged = settings.copyWith(
+      usdtTmnRate: sent.usdtTmnRate ?? settings.usdtTmnRate,
+      goldTmnPerGram: sent.goldTmnPerGram ?? settings.goldTmnPerGram,
+      notifyBackground: presentKeys.contains(AppConfig.settingNotifyBackground)
+          ? settings.notifyBackground
+          : sent.notifyBackground,
+      priceAlerts: presentKeys.contains(AppConfig.settingPriceAlerts)
+          ? settings.priceAlerts
+          : sent.priceAlerts,
+      profitAlerts: presentKeys.contains(AppConfig.settingProfitAlerts)
+          ? settings.profitAlerts
+          : sent.profitAlerts,
+      autoRefreshSeconds: presentKeys.contains('price_refresh_seconds') ||
+              presentKeys.contains('auto_refresh_seconds')
+          ? settings.autoRefreshSeconds
+          : sent.autoRefreshSeconds,
+      annualWithdrawalPct:
+          presentKeys.contains(AppConfig.settingAnnualWithdrawalPct)
+              ? settings.annualWithdrawalPct
+              : sent.annualWithdrawalPct,
+    );
+    if (merged.wallexUrl.trim().isEmpty && sent.wallexUrl.trim().isNotEmpty) {
+      merged.wallexUrl = sent.wallexUrl;
+    }
+    if (merged.persianToolboxUrl.trim().isEmpty &&
+        sent.persianToolboxUrl.trim().isNotEmpty) {
+      merged.persianToolboxUrl = sent.persianToolboxUrl;
+    }
+
+    return RemoteSettingsBundle(
+      settings: merged,
+      presentKeys: presentKeys,
+      clientWithdrawals: hasClientWithdrawals
+          ? this.clientWithdrawals
+          : (clientWithdrawals ?? this.clientWithdrawals),
+      hasClientWithdrawals: hasClientWithdrawals || clientWithdrawals != null,
+      appLockHash: presentKeys.contains(AppConfig.settingAppLockHash)
+          ? this.appLockHash
+          : (appLockHash ?? this.appLockHash),
+      appLockBiometric: presentKeys.contains(AppConfig.settingAppLockBiometric)
+          ? this.appLockBiometric
+          : (appLockBiometric ?? this.appLockBiometric),
+    );
+  }
 }

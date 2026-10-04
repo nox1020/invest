@@ -36,6 +36,7 @@ class PriceAlertPrefs {
     );
   }
 
+  /// Legacy full overwrite — prefer [fillGapsOnto] once server holds alerts.
   static Future<void> overlayOnto(AppSettings s) async {
     final snap = await loadSnapshot();
     if (snap == null) return;
@@ -50,6 +51,34 @@ class PriceAlertPrefs {
     if (snap.hasProfitAlerts) {
       s.profitAlerts = snap.profitAlerts.map((e) => e.copy()).toList();
     }
+  }
+
+  /// Apply device-local prefs only where the server payload left a gap.
+  ///
+  /// Returns true when any local value was adopted (caller may re-push).
+  static Future<bool> fillGapsOnto(AppSettings s) async {
+    final snap = await loadSnapshot();
+    if (snap == null) return false;
+    var changed = false;
+    if (s.priceAlerts.isEmpty && snap.alerts.isNotEmpty) {
+      s.priceAlerts = snap.alerts.map((e) => e.copy()).toList();
+      changed = true;
+    }
+    if (s.profitAlerts.isEmpty &&
+        snap.hasProfitAlerts &&
+        snap.profitAlerts.isNotEmpty) {
+      s.profitAlerts = snap.profitAlerts.map((e) => e.copy()).toList();
+      changed = true;
+    }
+    return changed;
+  }
+
+  static Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(snapshotKey);
+    await prefs.remove(latchKey);
+    await prefs.remove(profitLatchKey);
+    await prefs.remove(positionsKey);
   }
 
   static Future<PriceAlertSnapshot?> loadSnapshot() async {
