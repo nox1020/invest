@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/domain/services/quote_clients.dart';
 
 class MarketIndexBundle {
   const MarketIndexBundle({
@@ -29,19 +30,27 @@ class CommodityIndexService {
   Future<MarketIndexBundle> fetchAll({
     String? wallexUrl,
     String? marketUrl,
+    String? goldUrl,
   }) async {
     final wallexUrlResolved = wallexUrl?.isNotEmpty == true
         ? wallexUrl!
         : AppConfig.defaultWallexUrl;
 
-    final results = await Future.wait<Map<String, dynamic>?>([
+    final goldFuture = QuoteClients(client: _client).fetchGoldToman(
+      persianUrl: goldUrl,
+    );
+    final results = await Future.wait([
       _fetchPersianMarket(marketUrl),
       _fetchWallexPayload(wallexUrlResolved),
+      goldFuture,
     ]);
-    final market = results[0];
-    final wallex = results[1];
+    final market = results[0] as Map<String, dynamic>?;
+    final wallex = results[1] as Map<String, dynamic>?;
+    final gold = results[2] as ({double? price, double? change24h});
 
-    final essentials = alignDerivedQuotes(_buildEssentials(market, wallex));
+    final essentials = alignDerivedQuotes(
+      _buildEssentials(market, wallex, goldQuote: gold),
+    );
     final wallexMarkets = _parseWallexTmnMarkets(wallex);
 
     return MarketIndexBundle(
@@ -54,15 +63,21 @@ class CommodityIndexService {
   Future<List<CommodityQuote>> fetch({
     String? wallexUrl,
     String? marketUrl,
+    String? goldUrl,
   }) async {
-    final bundle = await fetchAll(wallexUrl: wallexUrl, marketUrl: marketUrl);
+    final bundle = await fetchAll(
+      wallexUrl: wallexUrl,
+      marketUrl: marketUrl,
+      goldUrl: goldUrl,
+    );
     return bundle.essentials;
   }
 
   List<CommodityQuote> _buildEssentials(
     Map<String, dynamic>? market,
-    Map<String, dynamic>? wallex,
-  ) {
+    Map<String, dynamic>? wallex, {
+    ({double? price, double? change24h})? goldQuote,
+  }) {
     final usdt = _usdtFromWallex(wallex);
     final units = _asMap(market?['units']);
     final iranUnit = '${units?['iranCurrency'] ?? 'IRR'}'.toUpperCase();
@@ -88,13 +103,17 @@ class CommodityIndexService {
     double? fxChange(String code) =>
         _num(market?['currencies']?[code]?['change24h']);
 
-    final goldRaw = _num(market?['gold']?['pricePerGram']);
-    final goldSpot =
-        goldRaw != null && goldRaw > 0 ? _toToman(goldRaw, goldUnit) : null;
-    // Spot/CoinGecko gold is 24k; the index shows طلای ۱۸ عیار.
-    final goldToman =
-        goldSpot != null ? goldSpot * k18GoldPurity : null;
-    final goldChange = _num(market?['gold']?['change24h']);
+    // Prefer free bazaar 18k feeds (WallGold / TGJU). Toolbox gold is 24k spot
+    // on a non-free-market FX and understates Iranian 18k by a wide margin.
+    double? goldToman = goldQuote?.price;
+    double? goldChange = goldQuote?.change24h;
+    if (goldToman == null || goldToman <= 0) {
+      final goldRaw = _num(market?['gold']?['pricePerGram']);
+      final goldSpot =
+          goldRaw != null && goldRaw > 0 ? _toToman(goldRaw, goldUnit) : null;
+      goldToman = goldSpot != null ? goldSpot * k18GoldPurity : null;
+      goldChange = _num(market?['gold']?['change24h']);
+    }
 
     final btcUsd = _num(market?['crypto']?['BTC']?['priceUSD']);
     final ethUsd = _num(market?['crypto']?['ETH']?['priceUSD']);

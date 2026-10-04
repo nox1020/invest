@@ -34,6 +34,23 @@ void main() {
           headers: {'content-type': 'application/json'},
         );
       }
+      if (host.contains('wallgold')) {
+        return http.Response(
+          jsonEncode({
+            'result': [
+              {
+                'symbol': 'GLD_18C_750TMN',
+                'marketCap': {
+                  'lastPrice': '26422000',
+                  '24hChangePrice': '0.02',
+                },
+              },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
       if (host.contains('wallex')) {
         return http.Response(
           jsonEncode({
@@ -110,10 +127,11 @@ void main() {
     final eur = bundle.essentials.firstWhere((q) => q.id == 'eur');
     expect(eur.price, closeTo(92000 / 0.861, 0.1));
 
-    // Spot 20,869,399.2 IRR → Toman /10 → 18k ×0.75.
+    // Free WallGold 18k feed wins over understated toolbox spot.
     final gold = bundle.essentials.firstWhere((q) => q.id == 'gold');
     expect(gold.unit, 'toman_per_gram');
-    expect(gold.price, closeTo(20869399.2 / 10 * 0.75, 0.1));
+    expect(gold.price, closeTo(26422000, 0.1));
+    expect(gold.change24h, closeTo(2.0, 1e-9));
     expect(gold.goldKarat, 18);
 
     final coin = bundle.essentials.firstWhere((q) => q.id == 'coin');

@@ -105,6 +105,7 @@ class BackgroundPriceMonitor {
       wallexUrl: snap.wallexUrl.trim().isEmpty
           ? AppConfig.defaultWallexUrl
           : snap.wallexUrl,
+      goldUrl: snap.persianToolboxUrl,
     );
     final prices = PriceAlertEngine.pricesFrom(
       quotes: [...bundle.essentials, ...bundle.wallexMarkets],

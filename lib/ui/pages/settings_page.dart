@@ -546,7 +546,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 icon: Icons.diamond_rounded,
                 iconColor: const Color(0xFFFF9500),
                 title: 'API طلا',
-                subtitle: 'PersianToolbox',
+                subtitle: 'وال‌گلد / TGJU (رایگان)',
                 value: s.goldApiEnabled,
                 onChanged: canEdit && s.livePricesEnabled
                     ? (v) => _persist(
