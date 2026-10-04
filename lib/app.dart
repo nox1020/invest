@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:invest/config/app_config.dart';
+import 'package:invest/data/notification_inbox_store.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
 import 'package:invest/ui/pages/app_lock_page.dart';
 import 'package:invest/ui/pages/login_page.dart';
+import 'package:invest/ui/pages/notifications_page.dart';
 import 'package:invest/ui/widgets/app_logo.dart';
 import 'package:invest/ui/pages/commodity_index_page.dart';
 import 'package:invest/ui/pages/trades_hub_page.dart';
@@ -76,6 +78,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    NotificationInboxStore.ensureHydrated();
   }
 
   @override
@@ -91,25 +94,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _refreshAll(AppState state) async {
-    if (state.offline) {
-      final ok = await state.tryGoOnline();
-      if (!ok && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('هنوز آفلاین هستید — داده‌های ذخیره‌شده نمایش داده می‌شود'),
-          ),
-        );
-      }
-      if (index == HomeTabs.index) {
-        await state.refreshCommodityIndex(force: true);
-      }
-      return;
-    }
-    await state.refreshAll();
-    if (index == HomeTabs.index) {
-      await state.refreshCommodityIndex(force: true);
-    }
+  void _openNotifications() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const NotificationsPage(),
+      ),
+    );
   }
 
   Widget? _floatingActionButton(BuildContext context) {
@@ -175,10 +165,19 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               )
             : null,
         actions: [
-          IconButton(
-            tooltip: state.offline ? 'تلاش برای اتصال' : 'بروزرسانی',
-            onPressed: updating ? null : () => _refreshAll(state),
-            icon: const Icon(Icons.refresh),
+          ValueListenableBuilder<int>(
+            valueListenable: NotificationInboxStore.unreadCount,
+            builder: (context, unread, _) {
+              return IconButton(
+                tooltip: 'اعلان‌ها',
+                onPressed: _openNotifications,
+                icon: Badge(
+                  isLabelVisible: unread > 0,
+                  label: Text(unread > 99 ? '99+' : '$unread'),
+                  child: const Icon(Icons.notifications_outlined),
+                ),
+              );
+            },
           ),
         ],
       ),
