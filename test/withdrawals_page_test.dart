@@ -28,6 +28,18 @@ void main() {
           buyPrice: 1000000,
         ),
       ]
+      // Allowance reads Σ closed.realizedPnl (not lagging metrics).
+      ..closedTrades = [
+        Trade(
+          assetId: 1,
+          status: AppConfig.tradeClosed,
+          quantity: 1,
+          buyPrice: 0,
+          sellPrice: 400000,
+          realizedPnl: 400000,
+          sellDate: '2026-03-01',
+        ),
+      ]
       ..metrics = const DashboardMetrics(
         totalValue: 1200000,
         totalPnl: 200000,
@@ -35,7 +47,7 @@ void main() {
         realizedPnl: 400000,
         unrealizedPnl: 0,
         openCount: 1,
-        closedCount: 0,
+        closedCount: 1,
         yearRealizedPnl: 400000,
         yearKey: '2026',
         goldFund: GoldFundMetrics(
