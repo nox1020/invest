@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/services/withdrawal_allowance.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
-import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
+import 'package:invest/ui/widgets/settings_ui.dart';
 import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 
@@ -27,7 +28,17 @@ class WithdrawalsPage extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: shellPagePadding(extraForFab: state.canMutate),
         children: [
-          _AvailableHero(allowance: allowance),
+          _AvailableHero(
+            allowance: allowance,
+            canEdit: state.canMutate,
+            onEditAnnualPct: () => _editAnnualWithdrawalPct(context, state),
+          ),
+          const SizedBox(height: 12),
+          _AnnualPctSettingsCard(
+            annualPct: state.settings.annualWithdrawalPct,
+            canEdit: state.canMutate,
+            onEdit: () => _editAnnualWithdrawalPct(context, state),
+          ),
           const SizedBox(height: 12),
           _ProfitPair(allowance: allowance),
           const SizedBox(height: 12),
@@ -53,9 +64,48 @@ class WithdrawalsPage extends StatelessWidget {
   }
 }
 
+Future<void> _editAnnualWithdrawalPct(
+  BuildContext context,
+  AppState state,
+) async {
+  if (!state.canMutate) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('در حالت آفلاین ذخیره ممکن نیست')),
+    );
+    return;
+  }
+  final picked = await showTgChoiceSheet<int>(
+    context: context,
+    title: 'سود سالانه قابل برداشت',
+    selected: state.settings.annualWithdrawalPct,
+    options: [
+      for (final pct in AppConfig.annualWithdrawalOptions)
+        (
+          value: pct,
+          label: AppSettings.annualWithdrawalLabel(pct),
+        ),
+    ],
+  );
+  if (picked == null || !context.mounted) return;
+  if (picked == state.settings.annualWithdrawalPct) return;
+  try {
+    await state.saveSettings(
+      state.settings.copyWith(annualWithdrawalPct: picked),
+    );
+  } catch (e) {
+    if (context.mounted) showUserError(context, e);
+  }
+}
+
 class _AvailableHero extends StatelessWidget {
-  const _AvailableHero({required this.allowance});
+  const _AvailableHero({
+    required this.allowance,
+    required this.canEdit,
+    required this.onEditAnnualPct,
+  });
   final WithdrawalAllowance allowance;
+  final bool canEdit;
+  final VoidCallback onEditAnnualPct;
 
   @override
   Widget build(BuildContext context) {
@@ -136,15 +186,100 @@ class _AvailableHero extends StatelessWidget {
           Align(
             alignment: Alignment.centerRight,
             child: TextButton(
-              onPressed: () => openHomeTab(context, HomeTabs.settings),
+              onPressed: canEdit ? onEditAnnualPct : null,
               style: TextButton.styleFrom(
                 visualDensity: VisualDensity.compact,
                 padding: const EdgeInsets.symmetric(horizontal: 4),
               ),
-              child: const Text('تغییر درصد در تنظیمات'),
+              child: const Text('تغییر درصد سالانه'),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AnnualPctSettingsCard extends StatelessWidget {
+  const _AnnualPctSettingsCard({
+    required this.annualPct,
+    required this.canEdit,
+    required this.onEdit,
+  });
+
+  final int annualPct;
+  final bool canEdit;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.card,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: canEdit ? onEdit : null,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppTheme.border),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.chevron_left_rounded,
+                color: canEdit ? AppTheme.muted : AppTheme.border,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                AppSettings.annualWithdrawalLabel(annualPct),
+                style: const TextStyle(
+                  color: AppTheme.title,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'سود سالانه قابل برداشت',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        color: AppTheme.title,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'نسبت به کل ورودی پرتفو',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(color: AppTheme.muted, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF30D158).withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.savings_rounded,
+                  color: Color(0xFF30D158),
+                  size: 20,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -77,6 +77,10 @@ class AppState extends ChangeNotifier {
   /// True when withdrawals are stored in Vinor settings (`client_withdrawals`)
   /// because the dedicated withdrawals API is unavailable.
   bool _withdrawalsViaSettings = false;
+
+  /// Set after withdrawals have been loaded/restored this session so settings
+  /// pushes cannot wipe the server mirror with an empty default list.
+  bool _withdrawalsHydrated = false;
   bool loading = true;
   bool refreshing = false;
   String? error;
@@ -293,6 +297,7 @@ class AppState extends ChangeNotifier {
     openTrades = snap.openTrades;
     closedTrades = snap.closedTrades;
     withdrawals = snap.withdrawals;
+    _withdrawalsHydrated = true;
     liveUsdt = snap.liveUsdt ?? settings.usdtTmnRate;
     liveGold = snap.liveGold ?? settings.goldTmnPerGram;
     lastSyncedAt = snap.savedAt;
@@ -434,6 +439,7 @@ class AppState extends ChangeNotifier {
     withdrawals = [];
     _withdrawalsFromRemote = false;
     _withdrawalsViaSettings = false;
+    _withdrawalsHydrated = false;
     try {
       await OfflineCacheStore.clearUserData();
       await PriceAlertPrefs.clear();
@@ -916,7 +922,9 @@ class AppState extends ChangeNotifier {
     if (useRemote && !offline) {
       final bundle = await remote!.saveSettings(
         settings,
-        clientWithdrawals: _withdrawalsViaSettings ? withdrawals : null,
+        // Mirror withdrawals once hydrated so annual-% edits cannot drop
+        // server-side history (dedicated API may be absent).
+        clientWithdrawals: _withdrawalsHydrated ? withdrawals : null,
         appLockHash: appLockHash ?? '',
         appLockBiometric: biometricUnlockEnabled,
       );
@@ -962,13 +970,14 @@ class AppState extends ChangeNotifier {
   /// Push settings + lock + optional withdrawal mirror to Vinor.
   Future<void> _pushUserExtrasToServer({
     List<Withdrawal>? clientWithdrawals,
+    bool rethrowErrors = false,
   }) async {
     if (!useRemote || offline || remote == null || readOnlyOffline) return;
     try {
       final bundle = await remote!.saveSettings(
         settings,
         clientWithdrawals: clientWithdrawals ??
-            (_withdrawalsViaSettings ? withdrawals : null),
+            (_withdrawalsHydrated ? withdrawals : null),
         appLockHash: appLockHash ?? '',
         appLockBiometric: biometricUnlockEnabled,
       );
@@ -976,8 +985,9 @@ class AppState extends ChangeNotifier {
       await _applyRemoteLockFromBundle(bundle);
       await _persistSettingsLocal(settings);
       await PriceAlertPrefs.saveFrom(settings);
-    } catch (_) {
-      // Best-effort sync; local state already updated.
+    } catch (e) {
+      // Best-effort for background migrate; mutations pass [rethrowErrors].
+      if (rethrowErrors) rethrow;
     }
   }
 
@@ -1164,34 +1174,92 @@ class AppState extends ChangeNotifier {
     RemoteInvestService? remote,
     RemoteSettingsBundle? settingsBundle,
   }) async {
-    if (remote != null) {
-      final remoteItems = await remote.listWithdrawals();
-      if (remoteItems != null) {
-        withdrawals = remoteItems;
-        _withdrawalsFromRemote = true;
-        _withdrawalsViaSettings = false;
+    try {
+      if (remote != null) {
+        final remoteItems = await remote.listWithdrawals();
+        // Non-empty dedicated API is authoritative.
+        if (remoteItems != null && remoteItems.isNotEmpty) {
+          withdrawals = remoteItems;
+          _withdrawalsFromRemote = true;
+          _withdrawalsViaSettings = false;
+          return;
+        }
+
+        _withdrawalsFromRemote = false;
+        var bundle = settingsBundle;
+        bundle ??= await remote.fetchSettings();
+        if (bundle.hasClientWithdrawals && bundle.clientWithdrawals.isNotEmpty) {
+          withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
+          _withdrawalsViaSettings = true;
+          // Heal empty dedicated API from the settings mirror when present.
+          if (remoteItems != null &&
+              remoteItems.isEmpty &&
+              useRemote &&
+              !offline &&
+              !readOnlyOffline) {
+            await _migrateWithdrawalsToRemoteApi(withdrawals);
+          }
+          return;
+        }
+
+        await _loadLocalWithdrawals();
+        if (withdrawals.isNotEmpty && useRemote && !offline && !readOnlyOffline) {
+          if (remoteItems != null) {
+            await _migrateWithdrawalsToRemoteApi(withdrawals);
+          } else {
+            await _pushUserExtrasToServer(clientWithdrawals: withdrawals);
+            _withdrawalsViaSettings = true;
+          }
+        } else if (remoteItems != null) {
+          // Dedicated API exists and both server + local are empty.
+          withdrawals = remoteItems;
+          _withdrawalsFromRemote = true;
+          _withdrawalsViaSettings = false;
+        } else if (bundle.hasClientWithdrawals) {
+          withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
+          _withdrawalsViaSettings = true;
+        }
         return;
       }
-
       _withdrawalsFromRemote = false;
-      var bundle = settingsBundle;
-      bundle ??= await remote.fetchSettings();
-      if (bundle.hasClientWithdrawals) {
-        withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
-        _withdrawalsViaSettings = true;
-        return;
-      }
-
+      _withdrawalsViaSettings = false;
       await _loadLocalWithdrawals();
-      if (withdrawals.isNotEmpty && useRemote && !offline && !readOnlyOffline) {
-        await _pushUserExtrasToServer(clientWithdrawals: withdrawals);
-        _withdrawalsViaSettings = true;
-      }
+    } finally {
+      _withdrawalsHydrated = true;
+    }
+  }
+
+  /// Push local/settings withdrawals through the dedicated API when available,
+  /// falling back to the settings mirror so nothing is lost after restore.
+  Future<void> _migrateWithdrawalsToRemoteApi(List<Withdrawal> items) async {
+    if (remote == null || items.isEmpty) return;
+    var apiOk = false;
+    final created = <Withdrawal>[];
+    for (final w in items) {
+      try {
+        final item = await remote!.createWithdrawal(
+          amount: w.amount,
+          note: w.note,
+          createdAt: w.createdAt,
+          status: w.status,
+        );
+        if (item != null) {
+          apiOk = true;
+          created.add(item);
+        }
+      } catch (_) {}
+    }
+    if (apiOk && created.length == items.length) {
+      withdrawals = created;
+      _withdrawalsFromRemote = true;
+      _withdrawalsViaSettings = false;
+      // Keep a settings mirror so backups/older clients still see history.
+      await _pushUserExtrasToServer(clientWithdrawals: items);
       return;
     }
+    await _pushUserExtrasToServer(clientWithdrawals: items);
+    _withdrawalsViaSettings = true;
     _withdrawalsFromRemote = false;
-    _withdrawalsViaSettings = false;
-    await _loadLocalWithdrawals();
   }
 
   Future<void> _loadLocalWithdrawals() async {
@@ -1206,6 +1274,7 @@ class AppState extends ChangeNotifier {
   Future<void> recordWithdrawal({
     required double amount,
     String note = '',
+    String? createdAt,
   }) async {
     if (!canMutate) {
       throw StateError(
@@ -1216,24 +1285,42 @@ class AppState extends ChangeNotifier {
     }
     var saved = false;
     if (useRemote && !offline && remote != null) {
-      final created =
-          await remote!.createWithdrawal(amount: amount, note: note);
+      final created = await remote!.createWithdrawal(
+        amount: amount,
+        note: note,
+        createdAt: createdAt,
+      );
       if (created != null) {
         withdrawals = [created, ...withdrawals];
         _withdrawalsFromRemote = true;
         _withdrawalsViaSettings = false;
         saved = true;
+        // Mirror into settings so backups and older Vinor builds keep history.
+        await _pushUserExtrasToServer(
+          clientWithdrawals: withdrawals,
+          rethrowErrors: true,
+        );
       }
     }
     if (!saved) {
       final repo = await _localWithdrawals();
-      await repo.create(Withdrawal(amount: amount, note: note.trim()));
+      await repo.create(
+        Withdrawal(
+          amount: amount,
+          note: note.trim(),
+          createdAt: (createdAt ?? '').trim(),
+        ),
+      );
       await _loadLocalWithdrawals();
       if (useRemote && !offline && remote != null) {
-        await _pushUserExtrasToServer(clientWithdrawals: withdrawals);
+        await _pushUserExtrasToServer(
+          clientWithdrawals: withdrawals,
+          rethrowErrors: true,
+        );
         _withdrawalsViaSettings = true;
       }
     }
+    _withdrawalsHydrated = true;
     await _persistWithdrawalCache();
     notifyListeners();
     await emitLocalAlert(
@@ -1276,6 +1363,10 @@ class AppState extends ChangeNotifier {
       if (result != null) {
         _replaceWithdrawal(result);
         saved = true;
+        await _pushUserExtrasToServer(
+          clientWithdrawals: withdrawals,
+          rethrowErrors: true,
+        );
       }
     }
     if (!saved) {
@@ -1286,11 +1377,17 @@ class AppState extends ChangeNotifier {
       } else {
         await _loadLocalWithdrawals();
       }
-      if (!_withdrawalsFromRemote && useRemote && !offline && remote != null) {
-        await _pushUserExtrasToServer(clientWithdrawals: withdrawals);
+      // Dedicated update missing/failed — settings mirror is the server store.
+      if (useRemote && !offline && remote != null) {
+        await _pushUserExtrasToServer(
+          clientWithdrawals: withdrawals,
+          rethrowErrors: true,
+        );
         _withdrawalsViaSettings = true;
+        _withdrawalsFromRemote = false;
       }
     }
+    _withdrawalsHydrated = true;
     await _persistWithdrawalCache();
     notifyListeners();
   }
@@ -1665,22 +1762,50 @@ class AppState extends ChangeNotifier {
         payload.trades.where((t) => t.status == AppConfig.tradeClosed).toList();
     withdrawals = List<Withdrawal>.from(payload.withdrawals);
     _withdrawalsFromRemote = false;
-    _withdrawalsViaSettings = false;
+    _withdrawalsViaSettings = payload.withdrawals.isNotEmpty;
+    _withdrawalsHydrated = true;
     liveUsdt = settings.usdtTmnRate;
     liveGold = settings.goldTmnPerGram;
 
     if (remotePushed) {
       await refreshAll(
         includeQuotes: false,
-        fetchSettings: false,
+        fetchSettings: true,
         checkApiVersion: false,
       );
+      // Never let a refresh drop restored withdrawals.
+      if (withdrawals.isEmpty && payload.withdrawals.isNotEmpty) {
+        withdrawals = List<Withdrawal>.from(payload.withdrawals);
+        await _pushUserExtrasToServer(
+          clientWithdrawals: withdrawals,
+          rethrowErrors: true,
+        );
+        _withdrawalsViaSettings = true;
+        _withdrawalsFromRemote = false;
+      }
     } else if (!useRemote) {
       await refreshAll(
         includeQuotes: false,
         fetchSettings: true,
         checkApiVersion: false,
       );
+      withdrawals = List<Withdrawal>.from(payload.withdrawals);
+    } else if (payload.withdrawals.isNotEmpty) {
+      // Offline / read-only remote: keep restored history in local DB + cache.
+      final repo = await _localWithdrawals();
+      for (final w in payload.withdrawals) {
+        try {
+          if (w.id != null) {
+            await repo.update(w);
+          }
+        } catch (_) {}
+      }
+      await _loadLocalWithdrawals();
+      if (withdrawals.isEmpty) {
+        withdrawals = List<Withdrawal>.from(payload.withdrawals);
+      }
+      _withdrawalsViaSettings = false;
+      _withdrawalsFromRemote = false;
     }
 
     // Always re-apply backed-up settings last so a server refresh cannot drop them.
@@ -1697,6 +1822,7 @@ class AppState extends ChangeNotifier {
     await BackgroundPriceWorker.sync(settings);
     liveUsdt = settings.usdtTmnRate ?? liveUsdt;
     liveGold = settings.goldTmnPerGram ?? liveGold;
+    await _persistWithdrawalCache();
     notifyListeners();
 
     return BackupRestoreReport(
@@ -1708,6 +1834,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> _rebuildRemoteFromBackup(BackupPayload payload) async {
     final svc = remote!;
+    // Always seed settings mirror first so withdrawals survive even if the
+    // dedicated API is missing or only partially accepts create calls.
     await svc.saveSettings(
       payload.settings,
       clientWithdrawals: payload.withdrawals,
@@ -1826,23 +1954,35 @@ class AppState extends ChangeNotifier {
       );
     }
 
-    var withdrawalsApiOk = false;
+    var createdCount = 0;
     for (final w in payload.withdrawals) {
       try {
-        final created =
-            await svc.createWithdrawal(amount: w.amount, note: w.note);
-        if (created != null) withdrawalsApiOk = true;
+        final created = await svc.createWithdrawal(
+          amount: w.amount,
+          note: w.note,
+          createdAt: w.createdAt,
+          status: w.status,
+        );
+        if (created != null) createdCount++;
       } catch (_) {}
     }
 
-    // Ensure settings stick after portfolio rebuild (and mirror withdrawals
-    // when the dedicated API is unavailable).
+    // Always keep the settings mirror: dedicated API may omit created_at or
+    // only accept a subset of rows after restore.
     await svc.saveSettings(
       payload.settings,
-      clientWithdrawals: withdrawalsApiOk ? null : payload.withdrawals,
+      clientWithdrawals: payload.withdrawals,
       appLockHash: payload.appLockHash ?? '',
       appLockBiometric: payload.biometricUnlockEnabled,
     );
+    if (createdCount == payload.withdrawals.length &&
+        payload.withdrawals.isNotEmpty) {
+      _withdrawalsFromRemote = true;
+      _withdrawalsViaSettings = false;
+    } else if (payload.withdrawals.isNotEmpty) {
+      _withdrawalsFromRemote = false;
+      _withdrawalsViaSettings = true;
+    }
   }
 }
 
