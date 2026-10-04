@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:invest/data/notification_inbox_store.dart';
 
 /// Local (device) notifications for trades, withdrawals, and price alerts.
 class NotificationService {
@@ -120,6 +121,13 @@ class NotificationService {
       NotificationKind.general => 'عمومی',
     };
     final nid = id ?? (++_seq) % 100000;
+    try {
+      await NotificationInboxStore.add(
+        title: title,
+        body: body,
+        kind: kind,
+      );
+    } catch (_) {}
     await _plugin.show(
       nid,
       title,

@@ -5,6 +5,7 @@ import 'package:invest/config/app_config.dart';
 import 'package:invest/data/app_lock_store.dart';
 import 'package:invest/data/app_database.dart';
 import 'package:invest/data/invest_api_client.dart';
+import 'package:invest/data/notification_inbox_store.dart';
 import 'package:invest/data/offline_cache_store.dart';
 import 'package:invest/data/remote_invest_service.dart';
 import 'package:invest/data/repositories.dart';
@@ -436,6 +437,7 @@ class AppState extends ChangeNotifier {
     try {
       await OfflineCacheStore.clearUserData();
       await PriceAlertPrefs.clear();
+      await NotificationInboxStore.clear();
     } catch (_) {}
     if (appLockEnabled) {
       appUnlocked = false;
