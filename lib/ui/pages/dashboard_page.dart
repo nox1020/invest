@@ -286,26 +286,36 @@ class _HeroNetWorth extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
-              Text(
-                formatCompactToman(snap.marketValue),
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  color: AppTheme.title,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  height: 1.15,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Text(
+                  formatMoney(snap.marketValue),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: AppTheme.title,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    height: 1.15,
+                  ),
                 ),
               ),
               if (usd != null) ...[
                 const SizedBox(height: 4),
-                Text(
-                  formatUsd(usd, compact: true),
-                  textAlign: TextAlign.right,
-                  textDirection: TextDirection.ltr,
-                  style: const TextStyle(
-                    color: Color(0xFFE8C547),
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    formatUsd(usd),
+                    textAlign: TextAlign.right,
+                    textDirection: TextDirection.ltr,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      color: Color(0xFFE8C547),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ],
