@@ -118,6 +118,15 @@ class OfflineCacheStore {
     return snap != null;
   }
 
+  /// Drop all offline user snapshots (call on logout).
+  static Future<void> clearUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_keySnapshot);
+    await prefs.remove(_keyCommodities);
+    await prefs.remove(_keyWallex);
+    await prefs.remove(_keyInflation);
+  }
+
   static Future<void> saveCommodities(
     List<CommodityQuote> quotes, {
     List<CommodityQuote> wallexMarkets = const [],

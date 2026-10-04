@@ -43,6 +43,13 @@ class AppConfig {
   static const settingPriceAlerts = 'price_alerts';
   static const settingProfitAlerts = 'profit_alerts';
 
+  /// PIN / password hash synced via Vinor settings (cross-device).
+  static const settingAppLockHash = 'app_lock_hash';
+  static const settingAppLockBiometric = 'app_lock_biometric';
+
+  /// Withdrawals mirrored into settings when `/withdrawals` API is missing.
+  static const settingClientWithdrawals = 'client_withdrawals';
+
   /// Shared with the desktop `price_refresh_seconds` key.
   static const settingAutoRefreshSeconds = 'price_refresh_seconds';
   static const defaultAutoRefreshSeconds = 5;
