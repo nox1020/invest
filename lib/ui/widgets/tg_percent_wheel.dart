@@ -227,7 +227,16 @@ class _TgPercentWheelSheetState extends State<_TgPercentWheelSheet> {
                   child: ElevatedButton(
                     onPressed: () {
                       HapticFeedback.lightImpact();
-                      Navigator.pop(context, _value);
+                      // Prefer the controller's settled item — `_value` can lag
+                      // while the wheel is still flinging.
+                      final index = _controller.hasClients
+                          ? _controller.selectedItem
+                          : (_value - widget.min);
+                      final pct = (widget.min + index).clamp(
+                        widget.min,
+                        widget.max,
+                      );
+                      Navigator.pop(context, pct);
                     },
                     child: const Text('تأیید'),
                   ),

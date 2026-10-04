@@ -900,9 +900,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> saveSettings(AppSettings s) async {
     if (readOnlyOffline) {
-      error = 'در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.';
-      notifyListeners();
-      return;
+      throw StateError(
+        'در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.',
+      );
     }
     final prevUsdt = s.usdtTmnRate ?? settings.usdtTmnRate;
     final prevGold = s.goldTmnPerGram ?? settings.goldTmnPerGram;
@@ -911,46 +911,77 @@ class AppState extends ChangeNotifier {
     final prevPersian = s.persianToolboxUrl.trim().isNotEmpty
         ? s.persianToolboxUrl
         : settings.persianToolboxUrl;
+    final sentAnnualPct =
+        AppSettings.clampAnnualWithdrawalPct(s.annualWithdrawalPct);
 
     settings = s
       ..usdtTmnRate = prevUsdt
       ..goldTmnPerGram = prevGold
       ..wallexUrl = prevWallex
-      ..persianToolboxUrl = prevPersian;
+      ..persianToolboxUrl = prevPersian
+      ..annualWithdrawalPct = sentAnnualPct;
     notifyListeners();
 
-    if (useRemote && !offline) {
-      final bundle = await remote!.saveSettings(
-        settings,
-        // Mirror withdrawals once hydrated so annual-% edits cannot drop
-        // server-side history (dedicated API may be absent).
-        clientWithdrawals: _withdrawalsHydrated ? withdrawals : null,
-        appLockHash: appLockHash ?? '',
-        appLockBiometric: biometricUnlockEnabled,
-      );
-      settings = bundle.settings;
-      if (settings.wallexUrl.trim().isEmpty) {
-        settings.wallexUrl = prevWallex;
-      }
-      if (settings.persianToolboxUrl.trim().isEmpty) {
-        settings.persianToolboxUrl = prevPersian;
-      }
-      await _applyRemoteLockFromBundle(bundle);
-      if (bundle.hasClientWithdrawals && !_withdrawalsFromRemote) {
-        withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
-        _withdrawalsViaSettings = true;
+    Object? remoteError;
+    if (useRemote && !offline && remote != null) {
+      try {
+        final bundle = await remote!.saveSettings(
+          settings,
+          // Mirror withdrawals once hydrated so annual-% edits cannot drop
+          // server-side history (dedicated API may be absent).
+          clientWithdrawals: _withdrawalsHydrated ? withdrawals : null,
+          appLockHash: appLockHash ?? '',
+          appLockBiometric: biometricUnlockEnabled,
+        );
+        settings = bundle.settings;
+        // Re-assert the percent we wrote — response/raw may still carry the
+        // previous server value on older backends.
+        settings.annualWithdrawalPct = sentAnnualPct;
+        if (settings.wallexUrl.trim().isEmpty) {
+          settings.wallexUrl = prevWallex;
+        }
+        if (settings.persianToolboxUrl.trim().isEmpty) {
+          settings.persianToolboxUrl = prevPersian;
+        }
+        await _applyRemoteLockFromBundle(bundle);
+        if (bundle.hasClientWithdrawals && !_withdrawalsFromRemote) {
+          withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
+          _withdrawalsViaSettings = true;
+        }
+      } catch (e) {
+        remoteError = e;
       }
     }
+    // Always persist locally so the wheel choice survives even if Vinor lags.
     await _persistSettingsLocal(settings);
     await PriceAlertPrefs.saveFrom(settings);
     await BackgroundPriceWorker.sync(settings);
     notifyListeners();
     _startAutoRefreshTimer(immediate: false);
+    if (remoteError != null) {
+      throw remoteError;
+    }
     await refreshAll(
       includeQuotes: false,
       fetchSettings: false,
       checkApiVersion: false,
     );
+    // Refresh must not drop the percent we just saved.
+    if (settings.annualWithdrawalPct != sentAnnualPct) {
+      settings.annualWithdrawalPct = sentAnnualPct;
+      await _persistSettingsLocal(settings);
+      await PriceAlertPrefs.saveFrom(settings);
+      notifyListeners();
+    }
+  }
+
+  /// Saves only the annual withdrawal policy percent (1–100) to memory,
+  /// local store, and Vinor settings.
+  Future<void> saveAnnualWithdrawalPct(int pct) async {
+    final next = settings.copyWith(
+      annualWithdrawalPct: AppSettings.clampAnnualWithdrawalPct(pct),
+    );
+    await saveSettings(next);
   }
 
   Future<void> _persistSettingsLocal(AppSettings s) async {

@@ -153,16 +153,24 @@ Future<void> _editAnnualWithdrawalPct(
     selected: state.settings.annualWithdrawalPct,
   );
   if (picked == null || !context.mounted) return;
-  if (picked == state.settings.annualWithdrawalPct) return;
-  try {
-    await state.saveSettings(
-      state.settings.copyWith(annualWithdrawalPct: picked),
+  final pct = AppSettings.clampAnnualWithdrawalPct(picked);
+  if (pct == state.settings.annualWithdrawalPct) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'سقف همان ${AppSettings.annualWithdrawalLabel(pct)} است',
+        ),
+      ),
     );
+    return;
+  }
+  try {
+    await state.saveAnnualWithdrawalPct(pct);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'سقف ${AppSettings.annualWithdrawalLabel(picked)} روی سرور ذخیره شد',
+            'سقف ${AppSettings.annualWithdrawalLabel(state.settings.annualWithdrawalPct)} ذخیره شد',
           ),
         ),
       );

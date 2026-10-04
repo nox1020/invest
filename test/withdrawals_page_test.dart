@@ -149,6 +149,49 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('۱۰۰٪'), findsWidgets);
+
+    await tester.tap(find.text('تأیید'));
+    await tester.pumpAndSettle();
+    // Confirm must return the controller's settled item (100), not a stale
+    // mid-fling `_value`.
+    expect(find.text('open'), findsOneWidget);
+  });
+
+  testWidgets('confirming the percent wheel returns the settled item',
+      (tester) async {
+    int? picked;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                picked = await showTgPercentWheel(
+                  context: context,
+                  title: 'سود سالانه قابل برداشت',
+                  selected: 10,
+                );
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 800));
+
+    final wheel = tester.widget<ListWheelScrollView>(
+      find.byType(ListWheelScrollView),
+    );
+    final controller = wheel.controller as FixedExtentScrollController;
+    controller.jumpToItem(36); // 1 + 36 = 37
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(find.text('تأیید'));
+    await tester.pumpAndSettle();
+    expect(picked, 37);
   });
 
   testWidgets('withdrawal dialog opens when nothing is withdrawable',
