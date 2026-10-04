@@ -1240,32 +1240,11 @@ class AppState extends ChangeNotifier {
       await _overlayLiveMarks();
       metrics = await portfolio!.getMetrics(calendar: settings.calendar);
       await _loadLocalWithdrawals();
+      _withdrawalsHydrated = true;
       await portfolio!.recordSnapshot();
       lastSyncedAt = DateTime.now();
     } finally {
       _holdUiNotifications = false;
-    }
-  }
-
-  Future<void> _loadWithdrawals({
-    RemoteInvestService? remote,
-    RemoteSettingsBundle? settingsBundle,
-  }) async {
-    try {
-      if (remote != null) {
-        final remoteItems = await remote.listWithdrawals();
-        await _applyWithdrawalsAfterFetch(
-          remote: remote,
-          remoteItems: remoteItems,
-          settingsBundle: settingsBundle,
-        );
-        return;
-      }
-      _withdrawalsFromRemote = false;
-      _withdrawalsViaSettings = false;
-      await _loadLocalWithdrawals();
-    } finally {
-      _withdrawalsHydrated = true;
     }
   }
 
@@ -1274,51 +1253,52 @@ class AppState extends ChangeNotifier {
     required List<Withdrawal>? remoteItems,
     RemoteSettingsBundle? settingsBundle,
   }) async {
-    // Non-empty dedicated API is authoritative.
-    if (remoteItems != null && remoteItems.isNotEmpty) {
-      withdrawals = remoteItems;
-      _withdrawalsFromRemote = true;
-      _withdrawalsViaSettings = false;
-      _withdrawalsHydrated = true;
-      return;
-    }
-
-    _withdrawalsFromRemote = false;
-    var bundle = settingsBundle;
-    bundle ??= await remote.fetchSettings();
-    if (bundle.hasClientWithdrawals && bundle.clientWithdrawals.isNotEmpty) {
-      withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
-      _withdrawalsViaSettings = true;
-      // Heal empty dedicated API from the settings mirror when present.
-      if (remoteItems != null &&
-          remoteItems.isEmpty &&
-          useRemote &&
-          !offline &&
-          !readOnlyOffline) {
-        await _migrateWithdrawalsToRemoteApi(withdrawals);
+    try {
+      // Non-empty dedicated API is authoritative.
+      if (remoteItems != null && remoteItems.isNotEmpty) {
+        withdrawals = remoteItems;
+        _withdrawalsFromRemote = true;
+        _withdrawalsViaSettings = false;
+        return;
       }
-      _withdrawalsHydrated = true;
-      return;
-    }
 
-    await _loadLocalWithdrawals();
-    if (withdrawals.isNotEmpty && useRemote && !offline && !readOnlyOffline) {
-      if (remoteItems != null) {
-        await _migrateWithdrawalsToRemoteApi(withdrawals);
-      } else {
-        await _pushUserExtrasToServer(clientWithdrawals: withdrawals);
+      _withdrawalsFromRemote = false;
+      var bundle = settingsBundle;
+      bundle ??= await remote.fetchSettings();
+      if (bundle.hasClientWithdrawals && bundle.clientWithdrawals.isNotEmpty) {
+        withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
+        _withdrawalsViaSettings = true;
+        // Heal empty dedicated API from the settings mirror when present.
+        if (remoteItems != null &&
+            remoteItems.isEmpty &&
+            useRemote &&
+            !offline &&
+            !readOnlyOffline) {
+          await _migrateWithdrawalsToRemoteApi(withdrawals);
+        }
+        return;
+      }
+
+      await _loadLocalWithdrawals();
+      if (withdrawals.isNotEmpty && useRemote && !offline && !readOnlyOffline) {
+        if (remoteItems != null) {
+          await _migrateWithdrawalsToRemoteApi(withdrawals);
+        } else {
+          await _pushUserExtrasToServer(clientWithdrawals: withdrawals);
+          _withdrawalsViaSettings = true;
+        }
+      } else if (remoteItems != null) {
+        // Dedicated API exists and both server + local are empty.
+        withdrawals = remoteItems;
+        _withdrawalsFromRemote = true;
+        _withdrawalsViaSettings = false;
+      } else if (bundle.hasClientWithdrawals) {
+        withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
         _withdrawalsViaSettings = true;
       }
-    } else if (remoteItems != null) {
-      // Dedicated API exists and both server + local are empty.
-      withdrawals = remoteItems;
-      _withdrawalsFromRemote = true;
-      _withdrawalsViaSettings = false;
-    } else if (bundle.hasClientWithdrawals) {
-      withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
-      _withdrawalsViaSettings = true;
+    } finally {
+      _withdrawalsHydrated = true;
     }
-    _withdrawalsHydrated = true;
   }
 
   /// Push local/settings withdrawals through the dedicated API when available,
