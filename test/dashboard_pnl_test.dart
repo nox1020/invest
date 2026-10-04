@@ -41,7 +41,7 @@ void main() {
     expect(pnl.totalUsd == 2e8 / usdt, isFalse);
   });
 
-  test('realized USD uses registered buy vs live sell conversion', () {
+  test('realized USD uses registered buy vs sell FX (live fallback)', () {
     final closed = [
       Trade(
         assetId: 1,
@@ -69,15 +69,35 @@ void main() {
     expect(pnl.yearRealizedUsd, closeTo(0, 1e-6));
   });
 
-  test('totalPnlPct uses total PnL over open cost', () {
+  test('totalPnlPct uses lifetime invested when closed lots present', () {
     final assets = [
       Asset(id: 1, name: 'A', quantity: 1, avgBuyPrice: 100, currentPrice: 120),
     ];
+    final open = [
+      Trade(
+        assetId: 1,
+        status: AppConfig.tradeOpen,
+        quantity: 1,
+        buyPrice: 100,
+      ),
+    ];
+    final closed = [
+      Trade(
+        assetId: 1,
+        status: AppConfig.tradeClosed,
+        quantity: 1,
+        buyPrice: 100,
+        sellPrice: 130,
+        realizedPnl: 30,
+      ),
+    ];
     final pct = DashboardCurrencyPnl.totalPnlPct(
-      totalPnl: 50, // e.g. 20 unrealized + 30 realized
+      totalPnl: 50, // 20 unrealized + 30 realized
       assets: assets,
-      openTrades: const [],
+      openTrades: open,
+      closedTrades: closed,
     );
-    expect(pct, closeTo(50, 1e-9));
+    // invested = 100 open + 100 closed = 200 → 50/200 = 25%
+    expect(pct, closeTo(25, 1e-9));
   });
 }

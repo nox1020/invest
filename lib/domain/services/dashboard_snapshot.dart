@@ -4,7 +4,10 @@ import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/dashboard_pnl.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/services/trade_service.dart';
+import 'package:invest/domain/models/asset_meta.dart';
+import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/utils/dates.dart';
+import 'package:invest/domain/utils/gold_purity.dart';
 import 'package:invest/domain/utils/money.dart';
 
 const _eps = 1e-9;
@@ -120,12 +123,14 @@ class DashboardSnapshot {
     for (final t in openTrades) {
       if (t.quantity <= _eps) continue;
       openLots++;
-      if (TradeService.isGoldAsset(
-        t.assetName,
-        t.assetSymbol,
-        notesById[t.assetId] ?? '',
-      )) {
-        goldG += t.quantity;
+      final notes = notesById[t.assetId] ?? '';
+      if (TradeService.isGoldAsset(t.assetName, t.assetSymbol, notes)) {
+        // Report 18k-equivalent grams so mixed karat lots stay comparable.
+        final frac = parseGoldPurityFraction(
+              parseAssetNotes(notes).meta.purity,
+            ) ??
+            k18GoldPurity;
+        goldG += t.quantity * (frac / k18GoldPurity);
       }
     }
 

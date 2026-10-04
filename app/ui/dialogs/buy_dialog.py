@@ -117,6 +117,7 @@ class BuyDialog(QDialog):
                     asset.symbol,
                     usdt_tmn=self._usdt_tmn,
                     gold_tmn=self._gold_tmn,
+                    notes=asset.notes or "",
                 )
                 px = live or asset.current_price or asset.avg_buy_price
                 self.buy_price.setValue(px)

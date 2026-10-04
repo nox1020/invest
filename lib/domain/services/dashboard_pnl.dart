@@ -5,10 +5,11 @@ import 'package:invest/domain/utils/dates.dart';
 
 /// USD PnL for the dashboard that respects registered buy USD.
 ///
-/// Unrealized: live mark USD − registered open cost USD.
-/// Realized: sell proceeds / live USDT − registered buy USD (fee in Toman
-/// only). Returns null when USD coverage is incomplete so the UI does not
-/// invent a live FX of Toman PnL.
+/// Unrealized: live mark USD − registered open cost USD (incl. buy fee / FX).
+/// Realized: sell proceeds / sell-time FX − registered buy USD cost. Sell FX
+/// prefers `[sell_fx]` locked at close; live USDT is only a legacy fallback.
+/// Returns null when USD coverage is incomplete so the UI does not invent a
+/// live FX of Toman PnL.
 class DashboardCurrencyPnl {
   const DashboardCurrencyPnl({
     this.unrealizedUsd,
@@ -56,22 +57,36 @@ class DashboardCurrencyPnl {
     );
   }
 
-  /// Percent of [totalPnl] vs current open cost basis (inventory).
+  /// Percent of [totalPnl] vs lifetime invested (open + closed buy costs).
+  ///
+  /// Matches Vinor/Python `lifetime_invested` so a fully closed book still
+  /// reports ROI against the capital that produced the realized PnL.
   static double totalPnlPct({
     required double totalPnl,
     required List<Asset> assets,
     required List<Trade> openTrades,
+    List<Trade> closedTrades = const [],
   }) {
-    final holdings = HoldingMetrics.activeHoldings(
-      assets: assets,
-      openTrades: openTrades,
-    );
-    final cost = holdings.fold<double>(0, (s, h) => s + h.metrics.costBasis);
-    if (cost.abs() < 1e-12) return 0;
-    return totalPnl / cost * 100;
+    var invested = 0.0;
+    for (final t in openTrades) {
+      invested += t.buyCost;
+    }
+    for (final t in closedTrades) {
+      invested += t.buyCost;
+    }
+    if (invested.abs() < 1e-12) {
+      final holdings = HoldingMetrics.activeHoldings(
+        assets: assets,
+        openTrades: openTrades,
+      );
+      invested =
+          holdings.fold<double>(0, (s, h) => s + h.metrics.costBasis);
+    }
+    if (invested.abs() < 1e-12) return 0;
+    return totalPnl / invested * 100;
   }
 
-  /// Percent of total USD PnL vs registered open USD cost (+ closed buy USD).
+  /// Percent of total USD PnL vs registered lifetime USD cost (fees via FX).
   static double? totalUsdPnlPct({
     required double? totalUsdPnl,
     required List<Asset> assets,
@@ -90,9 +105,9 @@ class DashboardCurrencyPnl {
       costUsd += c;
     }
     for (final t in closedTrades) {
-      final u = t.buyPriceUsd;
-      if (u == null || u <= 0) return null;
-      costUsd += t.quantity * u;
+      final c = t.buyCostUsd;
+      if (c == null) return null;
+      costUsd += c;
     }
     if (costUsd.abs() < 1e-12) return 0;
     return totalUsdPnl / costUsd * 100;
@@ -100,17 +115,18 @@ class DashboardCurrencyPnl {
 }
 
 double? _closedPnlUsd(Iterable<Trade> trades, double? usdtTmn) {
-  if (usdtTmn == null || usdtTmn <= 0) return null;
   var sum = 0.0;
   var saw = false;
   for (final t in trades) {
     saw = true;
-    final buyUsd = t.buyPriceUsd;
-    if (buyUsd == null || buyUsd <= 0) return null;
+    final buyCost = t.buyCostUsd;
+    if (buyCost == null) return null;
     final sell = t.sellPrice;
     if (sell == null || sell <= 0) return null;
+    final sellFx = t.sellUsdTmn ?? usdtTmn;
+    if (sellFx == null || sellFx <= 0) return null;
     final sellNet = t.quantity * sell - t.sellFee;
-    sum += sellNet / usdtTmn - t.quantity * buyUsd;
+    sum += sellNet / sellFx - buyCost;
   }
   return saw ? sum : 0.0;
 }

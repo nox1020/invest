@@ -10,6 +10,7 @@ import 'package:invest/domain/services/invest_mutations.dart';
 import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
+import 'package:invest/domain/utils/gold_purity.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -51,19 +52,22 @@ class TradeService implements InvestMutations {
     };
     final all = [...await trades.listOpen(), ...await trades.listClosed()];
     for (final t in all) {
-      if (!isGoldAsset(
-        t.assetName,
-        t.assetSymbol,
-        notesById[t.assetId] ?? '',
-      )) {
+      final notes = notesById[t.assetId] ?? '';
+      if (!isGoldAsset(t.assetName, t.assetSymbol, notes)) {
         continue;
       }
       final qty = t.quantity;
       if (qty <= _eps) continue;
+      // 18k-equivalent grams so mixed karat inventory stays comparable.
+      final frac = parseGoldPurityFraction(
+            parseAssetNotes(notes).meta.purity,
+          ) ??
+          k18GoldPurity;
+      final grams18k = qty * (frac / k18GoldPurity);
       if (t.isClosed) {
-        closedG += qty;
+        closedG += grams18k;
       } else {
-        openG += qty;
+        openG += grams18k;
       }
     }
     double clean(double v) =>
@@ -237,6 +241,7 @@ class TradeService implements InvestMutations {
     String? sellDate,
     String sellNote = '',
     double? quantity,
+    double? sellUsdTmn,
   }) async {
     final trade = await trades.get(tradeId);
     if (trade == null) throw ArgumentError('معامله یافت نشد.');
@@ -260,8 +265,10 @@ class TradeService implements InvestMutations {
       throw ArgumentError('تاریخ فروش نمی‌تواند قبل از تاریخ خرید باشد.');
     }
 
+    final packedNote = encodeSellNoteFx(fx: sellUsdTmn, note: sellNote);
+
     if (closeQty >= trade.quantity - _eps) {
-      return _closeFull(trade, asset, sellPrice, sellFee, sellD, sellNote);
+      return _closeFull(trade, asset, sellPrice, sellFee, sellD, packedNote);
     }
     return _closePartial(
       trade,
@@ -270,7 +277,7 @@ class TradeService implements InvestMutations {
       sellPrice,
       sellFee,
       sellD,
-      sellNote,
+      packedNote,
     );
   }
 
@@ -307,7 +314,8 @@ class TradeService implements InvestMutations {
       ..holdingDays = holdingDays(trade.buyDate, sellDate);
     await trades.update(trade);
     final synced = await _syncInventory(asset.id!);
-    synced.currentPrice = sellPrice;
+    // Keep prior mark (live quote path updates prices). Do not stamp sell
+    // print onto remaining inventory — matches Vinor/Python close.
     await assets.update(synced);
     return (await trades.get(trade.id!))!;
   }
@@ -361,7 +369,6 @@ class TradeService implements InvestMutations {
       ..buyFee = buyFeeRemain;
     await trades.update(trade);
     final synced = await _syncInventory(asset.id!);
-    synced.currentPrice = sellPrice;
     await assets.update(synced);
     return closed;
   }
