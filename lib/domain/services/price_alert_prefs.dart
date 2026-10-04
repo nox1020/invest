@@ -70,6 +70,15 @@ class PriceAlertPrefs {
       s.profitAlerts = snap.profitAlerts.map((e) => e.copy()).toList();
       changed = true;
     }
+    // Heal annual % when the device has a saved policy and the server echo
+    // still looks like the unset default (common on older Vinor builds).
+    if (snap.hasAnnualWithdrawalPct &&
+        snap.annualWithdrawalPct != s.annualWithdrawalPct &&
+        s.annualWithdrawalPct == AppConfig.defaultAnnualWithdrawalPct &&
+        snap.annualWithdrawalPct != AppConfig.defaultAnnualWithdrawalPct) {
+      s.annualWithdrawalPct = snap.annualWithdrawalPct;
+      changed = true;
+    }
     return changed;
   }
 

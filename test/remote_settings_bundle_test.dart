@@ -94,4 +94,16 @@ void main() {
     expect(bundle.appLockHash, '');
     expect(bundle.appLockBiometric, isFalse);
   });
+
+  test('mergePreserving keeps sent annual withdrawal pct over stale raw', () {
+    final sent = AppSettings(annualWithdrawalPct: 37);
+    final response = RemoteSettingsBundle.fromApiMap({
+      'calendar': 'jalali',
+      'annual_withdrawal_pct': 10,
+      'raw': {'annual_withdrawal_pct': '10'},
+    });
+
+    final merged = response.mergePreserving(sent: sent);
+    expect(merged.settings.annualWithdrawalPct, 37);
+  });
 }

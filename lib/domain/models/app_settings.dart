@@ -83,14 +83,9 @@ class AppSettings {
 
   static int clampAnnualWithdrawalPct(int? raw) {
     final n = raw ?? AppConfig.defaultAnnualWithdrawalPct;
-    final c = n.clamp(
+    return n.clamp(
       AppConfig.minAnnualWithdrawalPct,
       AppConfig.maxAnnualWithdrawalPct,
-    );
-    const opts = AppConfig.annualWithdrawalOptions;
-    if (opts.contains(c)) return c;
-    return opts.reduce(
-      (a, b) => (a - c).abs() <= (b - c).abs() ? a : b,
     );
   }
 
@@ -105,17 +100,15 @@ class AppSettings {
 
   static String annualWithdrawalShortLabel(int pct) {
     final p = clampAnnualWithdrawalPct(pct);
-    return switch (p) {
-      5 => '۵٪',
-      8 => '۸٪',
-      10 => '۱۰٪',
-      12 => '۱۲٪',
-      15 => '۱۵٪',
-      20 => '۲۰٪',
-      25 => '۲۵٪',
-      30 => '۳۰٪',
-      _ => '$p٪',
-    };
+    return '${_persianInt(p)}٪';
+  }
+
+  static String _persianInt(int n) {
+    const digits = '۰۱۲۳۴۵۶۷۸۹';
+    return n.toString().split('').map((c) {
+      final i = int.tryParse(c);
+      return i == null ? c : digits[i];
+    }).join();
   }
 
   static String autoRefreshLabel(int seconds) {

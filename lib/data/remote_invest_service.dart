@@ -724,10 +724,9 @@ class RemoteSettingsBundle {
               presentKeys.contains('auto_refresh_seconds')
           ? settings.autoRefreshSeconds
           : sent.autoRefreshSeconds,
-      annualWithdrawalPct:
-          presentKeys.contains(AppConfig.settingAnnualWithdrawalPct)
-              ? settings.annualWithdrawalPct
-              : sent.annualWithdrawalPct,
+      // Always keep the value we just PUT. Older Vinor builds may leave a
+      // stale `annual_withdrawal_pct` in `raw` without applying the update.
+      annualWithdrawalPct: sent.annualWithdrawalPct,
     );
     if (merged.wallexUrl.trim().isEmpty && sent.wallexUrl.trim().isNotEmpty) {
       merged.wallexUrl = sent.wallexUrl;

@@ -61,8 +61,9 @@ class AppConfig {
   static const settingAnnualWithdrawalPct = 'annual_withdrawal_pct';
   static const defaultAnnualWithdrawalPct = 10;
   static const minAnnualWithdrawalPct = 1;
-  static const maxAnnualWithdrawalPct = 50;
-  static const annualWithdrawalOptions = [5, 8, 10, 12, 15, 20, 25, 30];
+  static const maxAnnualWithdrawalPct = 100;
+  /// Common presets (wheel still allows every integer from min..max).
+  static const annualWithdrawalOptions = [5, 8, 10, 12, 15, 20, 25, 30, 40, 50];
 
   static const defaultWallexUrl = 'https://api.wallex.ir/v1/markets';
   static const defaultMarketUrl = 'https://persiantoolbox.ir/api/market';
