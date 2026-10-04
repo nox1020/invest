@@ -7,7 +7,6 @@ import 'package:invest/ui/pages/dashboard_page.dart';
 import 'package:invest/ui/pages/app_lock_page.dart';
 import 'package:invest/ui/pages/login_page.dart';
 import 'package:invest/ui/pages/notifications_page.dart';
-import 'package:invest/ui/widgets/app_logo.dart';
 import 'package:invest/ui/pages/commodity_index_page.dart';
 import 'package:invest/ui/pages/trades_hub_page.dart';
 import 'package:invest/ui/pages/withdrawals_page.dart';
@@ -146,17 +145,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       appBar: AppBar(
         centerTitle: false,
         titleSpacing: 16,
-        title: Row(
-          children: [
-            const AppMark(size: 26),
-            const SizedBox(width: 10),
-            Expanded(
-              child: ConnectionStatusTitle(
-                pageTitle: titles[index],
-                status: connectionStatus,
-              ),
-            ),
-          ],
+        title: ConnectionStatusTitle(
+          pageTitle: titles[index],
+          status: connectionStatus,
         ),
         flexibleSpace: updating
             ? const Align(
