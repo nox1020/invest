@@ -59,7 +59,20 @@ class AppConfig {
 
   static const defaultWallexUrl = 'https://api.wallex.ir/v1/markets';
   static const defaultMarketUrl = 'https://persiantoolbox.ir/api/market';
-  static const defaultPersianToolboxUrl = defaultMarketUrl;
+
+  /// Free Iranian 18k gold (Toman/gram) — WallGold public markets.
+  static const defaultGoldApiUrl = 'https://api.wallgold.ir/api/v1/markets';
+
+  /// Free TGJU ajax feeds used as gold fallback (tried in order).
+  static const defaultTgjuAjaxUrl = 'https://call1.tgju.org/ajax.json';
+  static const tgjuAjaxFallbackUrls = [
+    'https://call1.tgju.org/ajax.json',
+    'https://call2.tgju.org/ajax.json',
+    'https://call3.tgju.org/ajax.json',
+  ];
+
+  /// Settings key `persiantoolbox_url` now defaults to the free gold feed.
+  static const defaultPersianToolboxUrl = defaultGoldApiUrl;
 
   static const Map<String, String> defaultSettings = {
     settingCalendar: calendarJalali,

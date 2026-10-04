@@ -31,6 +31,7 @@ import 'package:invest/domain/services/price_alert_prefs.dart';
 import 'package:invest/domain/services/profit_alert_engine.dart';
 import 'package:invest/domain/services/background_price_worker.dart';
 import 'package:invest/domain/services/quote_clients.dart';
+import 'package:invest/domain/services/gold_quote_parser.dart';
 import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/domain/services/invest_mutations.dart';
@@ -281,6 +282,7 @@ class AppState extends ChangeNotifier {
     if (settings.persianToolboxUrl.isEmpty) {
       settings.persianToolboxUrl = AppConfig.defaultPersianToolboxUrl;
     }
+    _normalizeGoldApiUrl();
     metrics = snap.metrics;
     assets = snap.assets;
     openTrades = snap.openTrades;
@@ -567,8 +569,26 @@ class AppState extends ChangeNotifier {
           if (remoteBundle != null &&
               (remoteBundle.hasAnyPrice || remoteBundle.inflation != null)) {
             if (remoteBundle.hasAnyPrice) {
+              var essentials = remoteBundle.essentials;
+              // Vinor index gold is often understated toolbox spot — patch 18k.
+              final freeGold = await _fetchFreeMarketGold();
+              if (freeGold?.price != null) {
+                essentials = [
+                  for (final q in essentials)
+                    if (q.id == 'gold')
+                      q.copyWith(
+                        price: freeGold!.price,
+                        change24h: freeGold.change24h,
+                        goldKarat: 18,
+                        unit: 'toman_per_gram',
+                        clearChange: freeGold.change24h == null,
+                      )
+                    else
+                      q,
+                ];
+              }
               await _applyIndexBundle(
-                essentials: remoteBundle.essentials,
+                essentials: essentials,
                 wallex: remoteBundle.wallexMarkets,
                 inflation: remoteBundle.inflation,
                 updatedAt: remoteBundle.updatedAt ?? DateTime.now(),
@@ -605,6 +625,7 @@ class AppState extends ChangeNotifier {
         wallexUrl: settings.wallexUrl.isEmpty
             ? AppConfig.defaultWallexUrl
             : settings.wallexUrl,
+        goldUrl: settings.persianToolboxUrl,
       );
       if (bundle.hasAnyPrice) {
         IranInflationSnapshot? inflation = iranInflation;
@@ -724,6 +745,7 @@ class AppState extends ChangeNotifier {
       }
       if (q.id == 'gold' && q.price != null && q.price! > 0) {
         liveGold = q.price;
+        settings.goldTmnPerGram = q.price;
       }
     }
     await _overlayLiveMarks(persistLocal: true);
@@ -833,6 +855,7 @@ class AppState extends ChangeNotifier {
       final prevRefresh = settings.autoRefreshSeconds;
       settings = await remote!.fetchSettings();
       await PriceAlertPrefs.overlayOnto(settings);
+      _normalizeGoldApiUrl();
       if (settings.autoRefreshSeconds != prevRefresh) {
         _startAutoRefreshTimer(immediate: false);
       }
@@ -842,6 +865,16 @@ class AppState extends ChangeNotifier {
   Future<void> _loadLocalSettings() async {
     final map = await settingsRepo!.loadAll();
     settings = AppSettings.fromStorageMap(map);
+    _normalizeGoldApiUrl();
+  }
+
+  /// Migrate dead / understated gold feeds to the free 18k WallGold default.
+  void _normalizeGoldApiUrl() {
+    final current = settings.persianToolboxUrl.trim();
+    final resolved = GoldQuoteParser.resolveConfiguredUrl(current);
+    if (resolved != current) {
+      settings.persianToolboxUrl = resolved;
+    }
   }
 
   Future<void> saveSettings(AppSettings s) async {
@@ -1002,6 +1035,7 @@ class AppState extends ChangeNotifier {
       final prevRefresh = settings.autoRefreshSeconds;
       settings = await remote!.fetchSettings();
       await PriceAlertPrefs.overlayOnto(settings);
+      _normalizeGoldApiUrl();
       if (settings.autoRefreshSeconds != prevRefresh) {
         _startAutoRefreshTimer(immediate: false);
       }
@@ -1178,43 +1212,44 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _syncLiveQuotes() async {
-    if (useRemote && !offline) {
-      final q = await remote!.fetchQuotes();
-      if (q.usdt != null) {
-        liveUsdt = q.usdt;
-        settings.usdtTmnRate = q.usdt;
-      }
-      if (q.gold != null) {
-        liveGold = q.gold;
-        settings.goldTmnPerGram = q.gold;
-      }
-      await _overlayLiveMarks();
-      await _dispatchPriceAlerts();
-      return;
+    quotes ??= QuoteClients();
+
+    double? remoteUsdt;
+    double? remoteGold;
+    if (useRemote && !offline && remote != null) {
+      try {
+        final q = await remote!.fetchQuotes();
+        remoteUsdt = q.usdt;
+        remoteGold = q.gold;
+      } catch (_) {}
     }
 
-    if (trades == null || quotes == null) return;
-
-    double? usdt;
-    double? gold;
+    double? localUsdt;
+    double? localGold;
     final tasks = <Future<void>>[];
     if (settings.usdtApiEnabled) {
       tasks.add(() async {
-        usdt = await quotes!.fetchUsdtToman(wallexUrl: settings.wallexUrl);
+        localUsdt = await quotes!.fetchUsdtToman(wallexUrl: settings.wallexUrl);
       }());
     }
     if (settings.goldApiEnabled) {
+      // Always hit free bazaar feeds — Vinor gold is often understated toolbox spot.
       tasks.add(() async {
         final g = await quotes!
             .fetchGoldToman(persianUrl: settings.persianToolboxUrl);
-        gold = g.price;
+        localGold = g.price;
       }());
     }
     if (tasks.isNotEmpty) {
       await Future.wait(tasks);
     }
-    final fetchedUsdt = usdt;
-    final fetchedGold = gold;
+
+    final fetchedUsdt = localUsdt ?? remoteUsdt;
+    final fetchedGold = GoldQuoteParser.preferFreeMarketGold(
+      freeMarket: localGold,
+      remoteOrCached: remoteGold ?? settings.goldTmnPerGram,
+    );
+
     if (fetchedUsdt != null) {
       liveUsdt = fetchedUsdt;
       settings.usdtTmnRate = fetchedUsdt;
@@ -1225,15 +1260,33 @@ class AppState extends ChangeNotifier {
       settings.goldTmnPerGram = fetchedGold;
       await settingsRepo?.set(AppConfig.settingGoldTmn, fetchedGold.toString());
     }
-    await trades!.applyLivePrices(
-      usdtTmn: fetchedUsdt ?? settings.usdtTmnRate,
-      goldTmn: fetchedGold ?? settings.goldTmnPerGram,
-      updateUsdt: settings.usdtApiEnabled,
-      updateGold: settings.goldApiEnabled,
-      quotes: [...commodityIndex, ...wallexMarkets],
-    );
+
+    if (!useRemote && trades != null) {
+      await trades!.applyLivePrices(
+        usdtTmn: fetchedUsdt ?? settings.usdtTmnRate,
+        goldTmn: fetchedGold ?? settings.goldTmnPerGram,
+        updateUsdt: settings.usdtApiEnabled,
+        updateGold: settings.goldApiEnabled,
+        quotes: [...commodityIndex, ...wallexMarkets],
+      );
+    }
     await _overlayLiveMarks();
     await _dispatchPriceAlerts();
+  }
+
+  /// Replace شاخص / live gold with the free 18k bazaar feed when Vinor is stale.
+  Future<({double? price, double? change24h})?> _fetchFreeMarketGold() async {
+    if (!settings.goldApiEnabled) return null;
+    quotes ??= QuoteClients();
+    try {
+      final g = await quotes!
+          .fetchGoldToman(persianUrl: settings.persianToolboxUrl);
+      if (g.price == null || g.price! <= 0) return null;
+      if (GoldQuoteParser.isUnderstated18kToman(g.price)) return null;
+      return g;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _loadPriceAlertRuntime() async {
@@ -1244,6 +1297,7 @@ class AppState extends ChangeNotifier {
       } else {
         await PriceAlertPrefs.saveFrom(settings);
       }
+      _normalizeGoldApiUrl();
       await BackgroundPriceWorker.sync(settings);
     } catch (_) {}
   }

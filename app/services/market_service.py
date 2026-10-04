@@ -1,4 +1,4 @@
-"""Live market quotes from PersianToolbox (gold, etc.)."""
+"""Live gold quotes from free Iranian 18k feeds (WallGold / TGJU)."""
 
 from __future__ import annotations
 
@@ -8,16 +8,21 @@ import time
 import urllib.request
 from dataclasses import dataclass
 
-from app.config import DEFAULT_PERSIANTOOLBOX_URL
+from app.config import (
+    DEFAULT_GOLD_API_URL,
+    DEFAULT_MARKET_URL,
+    DEFAULT_TGJU_AJAX_URL,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_SECONDS = 60
+WALLGOLD_SYMBOL = "GLD_18C_750TMN"
 
 
 @dataclass
 class GoldQuote:
-    """Gold price per gram in Tomans."""
+    """Gold price per gram in Tomans (Iranian 18k)."""
 
     price_toman: float
     change_24h: float | None
@@ -29,8 +34,121 @@ class GoldQuote:
         return max(0.0, time.time() - self.fetched_at)
 
 
+def _as_float(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace(",", "").replace("٬", "")
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def parse_wallgold_gold(payload) -> GoldQuote | None:
+    markets = None
+    if isinstance(payload, list):
+        markets = payload
+    elif isinstance(payload, dict):
+        if isinstance(payload.get("result"), list):
+            markets = payload["result"]
+        elif isinstance(payload.get("data"), list):
+            markets = payload["data"]
+    if not markets:
+        return None
+    for item in markets:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("symbol") or "").upper() != WALLGOLD_SYMBOL:
+            continue
+        cap = item.get("marketCap") if isinstance(item.get("marketCap"), dict) else item
+        price = _as_float(cap.get("lastPrice")) or _as_float(cap.get("lastBuyPrice"))
+        if price is None or price <= 0:
+            return None
+        raw_change = _as_float(cap.get("24hChangePrice"))
+        if raw_change is None:
+            change = None
+        elif abs(raw_change) <= 1:
+            change = raw_change * 100.0
+        else:
+            change = raw_change
+        return GoldQuote(
+            price_toman=price,
+            change_24h=change,
+            source="wallgold",
+            fetched_at=time.time(),
+        )
+    return None
+
+
+def parse_tgju_gold(payload) -> GoldQuote | None:
+    if not isinstance(payload, dict):
+        return None
+    current = payload.get("current")
+    if not isinstance(current, dict):
+        return None
+    geram = current.get("geram18")
+    if not isinstance(geram, dict):
+        return None
+    irr = _as_float(geram.get("p"))
+    if irr is None or irr <= 0:
+        return None
+    return GoldQuote(
+        price_toman=irr / 10.0,
+        change_24h=_as_float(geram.get("dp")),
+        source="tgju",
+        fetched_at=time.time(),
+    )
+
+
+def parse_persiantoolbox_gold(payload, *, assume_24k_spot: bool = True) -> GoldQuote | None:
+    if not isinstance(payload, dict):
+        return None
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    gold = data.get("gold") if isinstance(data, dict) else None
+    if not isinstance(gold, dict):
+        return None
+    price = _as_float(gold.get("pricePerGram"))
+    if price is None or price <= 0:
+        return None
+    units = data.get("units") if isinstance(data.get("units"), dict) else {}
+    unit = str(units.get("goldPricePerGram") or "IRR").upper()
+    if "IRR" in unit or "RIAL" in unit or "RLS" in unit:
+        price = price / 10.0
+    if assume_24k_spot:
+        price = price * 0.75
+    change = _as_float(gold.get("change24h"))
+    return GoldQuote(
+        price_toman=price,
+        change_24h=change,
+        source="persiantoolbox",
+        fetched_at=time.time(),
+    )
+
+
+def is_stale_gold_url(url: str | None) -> bool:
+    text = (url or "").strip().lower()
+    if not text:
+        return True
+    if "api.persiantoolbox.com" in text:
+        return True
+    if "persiantoolbox.ir" in text and "/market" in text:
+        return True
+    return False
+
+
+def resolve_gold_api_url(url: str | None) -> str:
+    text = (url or "").strip()
+    if is_stale_gold_url(text):
+        return DEFAULT_GOLD_API_URL
+    return text
+
+
 class MarketService:
-    """Fetch gold (and related) quotes from PersianToolbox."""
+    """Fetch Iranian 18k gold quotes from free public feeds."""
 
     def __init__(
         self,
@@ -39,7 +157,7 @@ class MarketService:
         api_url: str | None = None,
     ) -> None:
         self._cache_seconds = cache_seconds
-        self.api_url = api_url or DEFAULT_PERSIANTOOLBOX_URL
+        self.api_url = resolve_gold_api_url(api_url or DEFAULT_GOLD_API_URL)
         self._gold: GoldQuote | None = None
         self._last_error: str | None = None
         self._raw: dict | None = None
@@ -79,7 +197,7 @@ class MarketService:
         price_toman: float,
         *,
         change_24h: float | None = None,
-        source: str = "persiantoolbox",
+        source: str = "wallgold",
     ) -> None:
         """Apply gold quote fetched off-thread (call from UI thread only)."""
         if price_toman > 0:
@@ -117,48 +235,50 @@ class MarketService:
         return {"gold_toman": self.get_gold_toman(force=force)}
 
     def _fetch_gold(self) -> GoldQuote | None:
-        try:
-            data = self._http_get_json(self.api_url)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("PersianToolbox fetch failed: %s", exc)
-            self._last_error = str(exc)
-            return None
+        configured = resolve_gold_api_url(self.api_url)
+        urls: list[str] = [DEFAULT_GOLD_API_URL, DEFAULT_TGJU_AJAX_URL]
+        if configured not in urls:
+            urls.append(configured)
+        # Keep legacy toolbox market as a distant last resort.
+        if DEFAULT_MARKET_URL not in urls:
+            urls.append(DEFAULT_MARKET_URL)
 
-        if not data.get("ok", True):
-            self._last_error = "PersianToolbox ok=false"
-            return None
+        errors: list[str] = []
+        for url in urls:
+            try:
+                data = self._http_get_json(url)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{url}: {exc}")
+                continue
+            host = url.lower()
+            if "wallgold" in host:
+                quote = parse_wallgold_gold(data)
+            elif "tgju" in host:
+                quote = parse_tgju_gold(data)
+            elif "persiantoolbox" in host:
+                quote = parse_persiantoolbox_gold(data)
+            else:
+                quote = (
+                    parse_wallgold_gold(data)
+                    or parse_tgju_gold(data)
+                    or parse_persiantoolbox_gold(data)
+                )
+            if quote is not None:
+                if isinstance(data, dict):
+                    self._raw = data
+                return quote
+            errors.append(f"{url}: unrecognized gold payload")
 
-        payload = data.get("data") or data
-        self._raw = payload if isinstance(payload, dict) else None
-        gold = (payload or {}).get("gold") or {}
-        raw_price = gold.get("pricePerGram")
-        if raw_price is None:
-            self._last_error = "gold.pricePerGram missing"
-            return None
+        self._last_error = "; ".join(errors) if errors else "gold fetch failed"
+        logger.debug("Gold fetch failed: %s", self._last_error)
+        return None
 
-        units = (payload or {}).get("units") or {}
-        unit = str(units.get("goldPricePerGram", "IRR")).upper()
-        price = float(raw_price)
-        # API documents gold in IRR; app stores toman (1 toman = 10 rial).
-        if unit in ("IRR", "RIAL", "RLS"):
-            price_toman = price / 10.0
-        else:
-            price_toman = price
-
-        change = gold.get("change24h")
-        return GoldQuote(
-            price_toman=price_toman,
-            change_24h=float(change) if change is not None else None,
-            source="persiantoolbox",
-            fetched_at=time.time(),
-        )
-
-    def _http_get_json(self, url: str) -> dict:
+    def _http_get_json(self, url: str) -> dict | list:
         req = urllib.request.Request(
             url,
             headers={
                 "User-Agent": "V+/1.0",
-                "Accept": "application/json",
+                "Accept": "application/json, text/plain, */*",
             },
             method="GET",
         )
