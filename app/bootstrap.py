@@ -84,7 +84,9 @@ class AppContext:
         self.fx.markets_url = s.wallex_markets_url
         self.fx.cache_seconds = float(s.price_refresh_seconds)
         self.market.enabled = live and s.gold_api_enabled
-        self.market.api_url = s.persiantoolbox_url
+        from app.services.market_service import resolve_gold_api_url
+
+        self.market.api_url = resolve_gold_api_url(s.persiantoolbox_url)
         self.market.cache_seconds = float(s.price_refresh_seconds)
 
     def persist_live_quotes(self) -> None:

@@ -38,7 +38,11 @@ SETTING_NOTIFY_PRICE_MOVES = "notify_price_moves"
 
 # Live price API defaults
 DEFAULT_WALLEX_MARKETS_URL = "https://api.wallex.ir/v1/markets"
-DEFAULT_PERSIANTOOLBOX_URL = "https://persiantoolbox.ir/api/market"
+DEFAULT_GOLD_API_URL = "https://api.wallgold.ir/api/v1/markets"
+DEFAULT_TGJU_AJAX_URL = "https://call1.tgju.org/ajax.json"
+# Legacy market bundle (FX/crypto). Gold itself uses DEFAULT_GOLD_API_URL.
+DEFAULT_PERSIANTOOLBOX_URL = DEFAULT_GOLD_API_URL
+DEFAULT_MARKET_URL = "https://persiantoolbox.ir/api/market"
 PRICE_REFRESH_OPTIONS = (5, 10, 15, 30, 60, 120, 300)
 PRICE_REFRESH_DEFAULT = 5
 PRICE_REFRESH_MIN = 5

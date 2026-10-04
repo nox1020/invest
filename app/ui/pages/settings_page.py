@@ -163,7 +163,7 @@ class SettingsPage(QWidget):
         # --- Price APIs ---
         self.chk_live = QCheckBox("فعال‌سازی دریافت آنلاین قیمت‌ها")
         self.chk_usdt = QCheckBox("نرخ تتر / دلار از Wallex")
-        self.chk_gold = QCheckBox("قیمت طلا از PersianToolbox")
+        self.chk_gold = QCheckBox("قیمت طلا ۱۸ عیار (وال‌گلد / TGJU رایگان)")
         self.chk_gold_auto = QCheckBox(
             "به‌روزرسانی خودکار قیمت دارایی‌های طلا و تتر/دلار"
         )
@@ -209,7 +209,7 @@ class SettingsPage(QWidget):
         api_form.addRow(self.chk_gold_auto)
         api_form.addRow("بازه بروزرسانی", self.refresh_combo)
         api_form.addRow("آدرس Wallex", self.wallex_url)
-        api_form.addRow("آدرس PersianToolbox", self.pt_url)
+        api_form.addRow("آدرس API طلا", self.pt_url)
         api_btns = QHBoxLayout()
         api_btns.addWidget(self.btn_test_apis)
         api_btns.addWidget(self.btn_reset_urls)
@@ -217,7 +217,7 @@ class SettingsPage(QWidget):
         api_form.addRow(api_btns)
         api_form.addRow(self.api_status)
         api_hint = QLabel(
-            "تتر: Wallex (بازار ایران) — طلا: PersianToolbox (قیمت هر گرم)."
+            "تتر: Wallex — طلا ۱۸ عیار: وال‌گلد (رایگان) با پشتیبان TGJU."
         )
         api_hint.setObjectName("mutedText")
         api_hint.setWordWrap(True)
@@ -419,8 +419,12 @@ class SettingsPage(QWidget):
             return
         self._sync_price_controls_enabled()
         s = self.ctx.settings
+        from app.services.market_service import resolve_gold_api_url
+
         wallex = self.wallex_url.text().strip() or DEFAULT_WALLEX_MARKETS_URL
-        pt = self.pt_url.text().strip() or DEFAULT_PERSIANTOOLBOX_URL
+        pt = resolve_gold_api_url(
+            self.pt_url.text().strip() or DEFAULT_PERSIANTOOLBOX_URL
+        )
         refresh = self.refresh_combo.currentData()
         refresh_sec = clamp_price_refresh_seconds(
             int(refresh) if refresh else s.price_refresh_seconds

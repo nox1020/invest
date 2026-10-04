@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:invest/config/app_config.dart';
+import 'package:invest/domain/services/gold_quote_parser.dart';
 
 class QuoteClients {
   QuoteClients({http.Client? client}) : _client = client ?? http.Client();
@@ -13,7 +14,7 @@ class QuoteClients {
         ? wallexUrl!
         : AppConfig.defaultWallexUrl);
     try {
-      final res = await _client.get(url).timeout(const Duration(seconds: 8));
+      final res = await _client.get(url).timeout(const Duration(seconds: 12));
       if (res.statusCode != 200) return null;
       final body = jsonDecode(res.body);
       // Wallex markets payload: result.symbols.USDTTMN or similar
@@ -37,34 +38,56 @@ class QuoteClients {
     return null;
   }
 
+  /// Iranian 18k gold Toman/gram from free public feeds.
+  ///
+  /// Order: WallGold → TGJU → optional configured URL (toolbox / override).
   Future<({double? price, double? change24h})> fetchGoldToman({
     String? persianUrl,
   }) async {
-    final url = Uri.parse(persianUrl?.isNotEmpty == true
-        ? persianUrl!
-        : AppConfig.defaultPersianToolboxUrl);
-    try {
-      final res = await _client.get(url).timeout(const Duration(seconds: 8));
-      if (res.statusCode != 200) return (price: null, change24h: null);
-      final body = jsonDecode(res.body);
-      if (body is Map) {
-        final payload = body['data'] is Map ? body['data'] as Map : body;
-        final gold = payload['gold'];
-        if (gold is Map) {
-          var price = double.tryParse('${gold['pricePerGram']}');
-          final units = payload['units'] ?? body['units'];
-          final unit = units is Map
-              ? '${units['goldPricePerGram'] ?? 'IRR'}'.toUpperCase()
-              : 'IRR';
-          // API often IRR; app uses toman (÷10)
-          if (price != null && price > 0 && unit.contains('IRR')) {
-            price = price / 10.0;
-          }
-          final change = double.tryParse('${gold['change24h']}');
-          return (price: price, change24h: change);
-        }
+    final configured = GoldQuoteParser.resolveConfiguredUrl(persianUrl);
+    final urls = <String>[
+      AppConfig.defaultGoldApiUrl,
+      AppConfig.defaultTgjuAjaxUrl,
+      if (configured != AppConfig.defaultGoldApiUrl &&
+          configured != AppConfig.defaultTgjuAjaxUrl)
+        configured,
+    ];
+
+    for (final rawUrl in urls) {
+      final quote = await _fetchGoldFromUrl(rawUrl);
+      if (quote != null) {
+        return (price: quote.priceToman, change24h: quote.change24hPct);
       }
-    } catch (_) {}
+    }
     return (price: null, change24h: null);
+  }
+
+  Future<GoldQuoteParse?> _fetchGoldFromUrl(String rawUrl) async {
+    try {
+      final res = await _client
+          .get(
+            Uri.parse(rawUrl),
+            headers: const {
+              'Accept': 'application/json, text/plain, */*',
+              'User-Agent': 'V+/1.0',
+            },
+          )
+          .timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) return null;
+      final body = jsonDecode(res.body);
+      final host = Uri.parse(rawUrl).host.toLowerCase();
+      if (host.contains('wallgold')) {
+        return GoldQuoteParser.fromWallGold(body);
+      }
+      if (host.contains('tgju')) {
+        return GoldQuoteParser.fromTgju(body);
+      }
+      if (host.contains('persiantoolbox')) {
+        return GoldQuoteParser.fromPersianToolbox(body);
+      }
+      return GoldQuoteParser.fromAny(body);
+    } catch (_) {
+      return null;
+    }
   }
 }

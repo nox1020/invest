@@ -31,6 +31,7 @@ import 'package:invest/domain/services/price_alert_prefs.dart';
 import 'package:invest/domain/services/profit_alert_engine.dart';
 import 'package:invest/domain/services/background_price_worker.dart';
 import 'package:invest/domain/services/quote_clients.dart';
+import 'package:invest/domain/services/gold_quote_parser.dart';
 import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/domain/services/invest_mutations.dart';
@@ -281,6 +282,7 @@ class AppState extends ChangeNotifier {
     if (settings.persianToolboxUrl.isEmpty) {
       settings.persianToolboxUrl = AppConfig.defaultPersianToolboxUrl;
     }
+    _normalizeGoldApiUrl();
     metrics = snap.metrics;
     assets = snap.assets;
     openTrades = snap.openTrades;
@@ -605,6 +607,7 @@ class AppState extends ChangeNotifier {
         wallexUrl: settings.wallexUrl.isEmpty
             ? AppConfig.defaultWallexUrl
             : settings.wallexUrl,
+        goldUrl: settings.persianToolboxUrl,
       );
       if (bundle.hasAnyPrice) {
         IranInflationSnapshot? inflation = iranInflation;
@@ -833,6 +836,7 @@ class AppState extends ChangeNotifier {
       final prevRefresh = settings.autoRefreshSeconds;
       settings = await remote!.fetchSettings();
       await PriceAlertPrefs.overlayOnto(settings);
+      _normalizeGoldApiUrl();
       if (settings.autoRefreshSeconds != prevRefresh) {
         _startAutoRefreshTimer(immediate: false);
       }
@@ -842,6 +846,16 @@ class AppState extends ChangeNotifier {
   Future<void> _loadLocalSettings() async {
     final map = await settingsRepo!.loadAll();
     settings = AppSettings.fromStorageMap(map);
+    _normalizeGoldApiUrl();
+  }
+
+  /// Migrate dead / understated gold feeds to the free 18k WallGold default.
+  void _normalizeGoldApiUrl() {
+    final current = settings.persianToolboxUrl.trim();
+    final resolved = GoldQuoteParser.resolveConfiguredUrl(current);
+    if (resolved != current) {
+      settings.persianToolboxUrl = resolved;
+    }
   }
 
   Future<void> saveSettings(AppSettings s) async {
@@ -1002,6 +1016,7 @@ class AppState extends ChangeNotifier {
       final prevRefresh = settings.autoRefreshSeconds;
       settings = await remote!.fetchSettings();
       await PriceAlertPrefs.overlayOnto(settings);
+      _normalizeGoldApiUrl();
       if (settings.autoRefreshSeconds != prevRefresh) {
         _startAutoRefreshTimer(immediate: false);
       }
@@ -1244,6 +1259,7 @@ class AppState extends ChangeNotifier {
       } else {
         await PriceAlertPrefs.saveFrom(settings);
       }
+      _normalizeGoldApiUrl();
       await BackgroundPriceWorker.sync(settings);
     } catch (_) {}
   }

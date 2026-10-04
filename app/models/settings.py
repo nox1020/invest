@@ -79,6 +79,12 @@ def clamp_annual_withdrawal_pct(raw: int | None) -> int:
     return min(ANNUAL_WITHDRAWAL_OPTIONS, key=lambda option: abs(option - n))
 
 
+def _resolve_gold_url(value: str | None) -> str:
+    from app.services.market_service import resolve_gold_api_url
+
+    return resolve_gold_api_url(value or DEFAULT_PERSIANTOOLBOX_URL)
+
+
 @dataclass
 class AppSettings:
     """Runtime application preferences."""
@@ -130,9 +136,8 @@ class AppSettings:
                 merged.get(SETTING_WALLEX_URL, DEFAULT_WALLEX_MARKETS_URL).strip()
                 or DEFAULT_WALLEX_MARKETS_URL
             ),
-            persiantoolbox_url=(
-                merged.get(SETTING_PERSIANTOOLBOX_URL, DEFAULT_PERSIANTOOLBOX_URL).strip()
-                or DEFAULT_PERSIANTOOLBOX_URL
+            persiantoolbox_url=_resolve_gold_url(
+                merged.get(SETTING_PERSIANTOOLBOX_URL, DEFAULT_PERSIANTOOLBOX_URL)
             ),
             goal_roi_pct=_as_optional_float(merged.get(SETTING_GOAL_ROI_PCT)),
             annual_withdrawal_pct=annual_pct,
