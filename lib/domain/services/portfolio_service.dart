@@ -26,13 +26,19 @@ class PortfolioService {
     final stats = await trades.closedStats();
     final realized = stats['total_pnl'] ?? 0;
     final totalPnl = unrealized + realized;
-    // Match absolute total PnL (includes realized), not unrealized-only %.
-    final totalPnlPct =
-        totalCost > 0 ? totalPnl / totalCost * 100 : 0.0;
+    // Lifetime invested (open + closed buy costs) — matches Vinor ROI.
+    final closedLots = await trades.listClosed();
+    final openLots = await trades.listOpen();
+    final invested = [
+      ...openLots,
+      ...closedLots,
+    ].fold<double>(0, (s, t) => s + t.buyCost);
+    final denom = invested > 0 ? invested : totalCost;
+    final totalPnlPct = denom > 0 ? totalPnl / denom * 100 : 0.0;
 
     final yearKey = yearPeriodKey(todayIso(), calendar);
     var yearRealized = 0.0;
-    for (final t in await trades.listClosed()) {
+    for (final t in closedLots) {
       if (t.sellDate == null || t.realizedPnl == null) continue;
       if (yearPeriodKey(t.sellDate!, calendar) == yearKey) {
         yearRealized += t.realizedPnl!;
@@ -63,9 +69,16 @@ class PortfolioService {
     for (final row in rows) {
       final date = (row['date'] as String?) ?? '';
       if (date.isEmpty || date == today) continue;
+      final day = date.length >= 10 ? date.substring(0, 10) : date;
+      // Match Vinor: only trust snapshots captured on the same calendar day
+      // (or legacy rows without created_at). Skip backfilled reconstructions.
+      final created = (row['created_at'] as String?) ?? '';
+      final createdDay =
+          created.length >= 10 ? created.substring(0, 10) : created;
+      if (createdDay.isNotEmpty && createdDay != day) continue;
       points.add(
         SeriesPoint(
-          date: date.length >= 10 ? date.substring(0, 10) : date,
+          date: day,
           value: (row['total_value'] as num?)?.toDouble() ?? 0,
         ),
       );

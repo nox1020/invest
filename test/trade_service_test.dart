@@ -62,6 +62,7 @@ void main() {
       tradeId: open.first.id!,
       sellPrice: 31000000,
       quantity: 4,
+      sellUsdTmn: 60000,
     );
 
     final m = await service.goldFundMetrics();
@@ -72,6 +73,12 @@ void main() {
 
     final refreshed = await service.assets.get(asset.id!);
     expect(refreshed!.quantity, 6);
+    // Remaining inventory keeps prior mark, not the sell print.
+    expect(refreshed.currentPrice, 30000000);
+
+    final closed = await service.trades.listClosed();
+    expect(closed.single.sellNote, contains('[sell_fx:60000]'));
+    expect(closed.single.sellUsdTmn, closeTo(60000, 1e-9));
   });
 
   test('gold fund ignores non-gold', () async {

@@ -38,7 +38,7 @@ class HoldingMetrics {
   final double? avgBuyUsdTmn;
   final double costBasis;
 
-  /// Total registered USD cost (`Σ qty·buyPriceUsd`) when coverage is complete.
+  /// Total registered USD cost (`Σ buyCostUsd`, fees via buy FX) when complete.
   final double? costBasisUsd;
   final double marketValue;
   final double unrealizedPnl;
@@ -117,17 +117,26 @@ class HoldingMetrics {
     double? avgUsd;
     double? costUsd;
     var usdQty = 0.0;
-    var usdCost = 0.0;
+    var usdUnitCost = 0.0;
+    var usdCostWithFees = 0.0;
+    var usdComplete = true;
     for (final t in lots) {
+      final lotCost = t.buyCostUsd;
       final u = t.buyPriceUsd;
-      if (u == null || u <= 0) continue;
+      if (lotCost == null || u == null || u <= 0) {
+        usdComplete = false;
+        continue;
+      }
       usdQty += t.quantity;
-      usdCost += t.quantity * u;
+      usdUnitCost += t.quantity * u;
+      usdCostWithFees += lotCost;
     }
-    if (usdQty > _eps && (qty - usdQty).abs() <= _eps) {
-      // Only when every open lot has a registered USD unit price.
-      avgUsd = usdCost / usdQty;
-      costUsd = usdCost;
+    if (usdComplete &&
+        usdQty > _eps &&
+        (qty - usdQty).abs() <= _eps) {
+      // Unit avg excludes fees; cost basis includes buy fee / buy FX.
+      avgUsd = usdUnitCost / usdQty;
+      costUsd = usdCostWithFees;
     }
     // Do not fall back to meta when open lots exist but USD coverage is partial.
 

@@ -50,6 +50,7 @@ abstract class InvestMutations {
     String? sellDate,
     String sellNote = '',
     double? quantity,
+    double? sellUsdTmn,
   });
 
   Future<void> deleteClosedTrade(int tradeId);

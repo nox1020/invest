@@ -157,15 +157,23 @@ class AppState extends ChangeNotifier {
       .where((w) => w.status != 'rejected')
       .fold<double>(0, (s, w) => s + w.amount);
 
-  WithdrawalAllowance get withdrawalAllowance => WithdrawalAllowance.compute(
-        realizedPnl: metrics?.realizedPnl ?? 0,
-        openTrades: openTrades,
-        closedTrades: closedTrades,
-        withdrawals: withdrawals,
-        annualPct: settings.annualWithdrawalPct,
-        calendar: settings.calendar,
-        yearKey: metrics?.yearKey,
-      );
+  WithdrawalAllowance get withdrawalAllowance {
+    // Prefer Σ closed lots so allowance matches the dashboard realized ledger
+    // even when remote metrics lag local closed trades.
+    final realized = closedTrades.fold<double>(
+      0,
+      (s, t) => s + (t.realizedPnl ?? 0),
+    );
+    return WithdrawalAllowance.compute(
+      realizedPnl: realized,
+      openTrades: openTrades,
+      closedTrades: closedTrades,
+      withdrawals: withdrawals,
+      annualPct: settings.annualWithdrawalPct,
+      calendar: settings.calendar,
+      yearKey: metrics?.yearKey,
+    );
+  }
 
   double get withdrawableAmount => withdrawalAllowance.available;
 
@@ -2022,7 +2030,8 @@ class AppState extends ChangeNotifier {
         sellFee: t.sellFee,
         quantity: t.quantity,
         sellDate: t.sellDate,
-        sellNote: t.sellNote,
+        sellNote: t.sellNoteDisplay,
+        sellUsdTmn: t.sellUsdTmn,
       );
     }
 

@@ -264,7 +264,9 @@ class PortfolioAnalyticsService:
                     dates.append(t.sell_date[:10])
             dates.sort()
             holding = [
-                t.holding_days for t in asset_trades if t.is_closed and t.holding_days
+                t.holding_days
+                for t in asset_trades
+                if t.is_closed and t.holding_days is not None
             ]
             avg_hold = sum(holding) / len(holding) if holding else 0.0
 

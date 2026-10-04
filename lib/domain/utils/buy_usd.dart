@@ -2,10 +2,15 @@
 ///
 /// Format: `[buy_usd:12.34] [buy_fx:100000]` prefixes, then free-text note.
 /// `buy_fx` is Toman per 1 USD (the dollar's Toman price on the buy date).
+///
+/// Sell FX is packed into `sell_note` as `[sell_fx:100000]` so realized USD
+/// PnL stays locked after close instead of floating with live USDT.
 final _buyUsdRe =
     RegExp(r'\[buy_usd:([0-9]+(?:\.[0-9]+)?)\]\s*', caseSensitive: false);
 final _buyFxRe =
     RegExp(r'\[buy_fx:([0-9]+(?:\.[0-9]+)?)\]\s*', caseSensitive: false);
+final _sellFxRe =
+    RegExp(r'\[sell_fx:([0-9]+(?:\.[0-9]+)?)\]\s*', caseSensitive: false);
 
 ({double? usd, double? fx, String note}) parseBuyNoteUsd(String? raw) {
   var text = (raw ?? '').trim();
@@ -77,4 +82,32 @@ double? resolveBuyUsdTmn({
 }) {
   if (storedFx != null && storedFx > 0) return storedFx;
   return impliedBuyUsdTmn(buyToman: buyToman, buyUsd: buyUsd);
+}
+
+({double? fx, String note}) parseSellNoteFx(String? raw) {
+  var text = (raw ?? '').trim();
+  if (text.isEmpty) return (fx: null, note: '');
+  double? fx;
+  final fm = _sellFxRe.firstMatch(text);
+  if (fm != null) {
+    fx = double.tryParse(fm.group(1)!);
+    text = text.replaceFirst(_sellFxRe, '').trim();
+  }
+  return (fx: fx, note: text);
+}
+
+String encodeSellNoteFx({double? fx, String note = ''}) {
+  final free = parseSellNoteFx(note).note.trim();
+  final parts = <String>[];
+  if (fx != null && fx > 0) {
+    parts.add('[sell_fx:${_packNum(fx)}]');
+  }
+  if (free.isNotEmpty) parts.add(free);
+  return parts.join(' ');
+}
+
+double? readSellUsdTmn(String? sellNote) {
+  final fx = parseSellNoteFx(sellNote).fx;
+  if (fx == null || fx <= 0) return null;
+  return fx;
 }

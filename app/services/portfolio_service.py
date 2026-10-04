@@ -300,8 +300,7 @@ class PortfolioService:
         return trusted
 
     def _event_value_by_date(self) -> dict[str, float]:
-        """Portfolio value at end of each buy/sell date (current mark-to-market)."""
-        assets = {a.id: a for a in self.assets.list_all() if a.id is not None}
+        """Portfolio value at end of each buy/sell date (lot cost basis)."""
         open_trades = self.trades.list_open()
         closed_trades = self.trades.list_closed()
         all_trades = open_trades + closed_trades
@@ -333,9 +332,10 @@ class PortfolioService:
 
             value = 0.0
             for lot in open_lots.values():
-                asset = assets.get(lot.asset_id)
-                price = asset.current_price if asset else lot.buy_price
-                value += float(lot.quantity) * float(price)
+                # Historical reconstruction must not mark past days at today's
+                # live price (that collapses day PnL to ~0). Use lot cost.
+                price = float(lot.buy_price)
+                value += float(lot.quantity) * price
             points[date_str] = value
 
         return points

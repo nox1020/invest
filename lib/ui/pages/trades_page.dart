@@ -540,6 +540,7 @@ Future<void> showSellTradeDialog(BuildContext context, Trade trade) async {
       sellFee: double.tryParse(feeCtrl.text) ?? 0,
       quantity: double.parse(qtyCtrl.text),
       sellDate: sellDate,
+      sellUsdTmn: state.liveUsdt ?? state.settings.usdtTmnRate,
     );
     await state.refresh();
     await state.emitLocalAlert(

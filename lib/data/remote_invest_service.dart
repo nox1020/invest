@@ -407,11 +407,12 @@ class RemoteInvestService implements InvestMutations {
     String? sellDate,
     String sellNote = '',
     double? quantity,
+    double? sellUsdTmn,
   }) async {
     final body = <String, dynamic>{
       'sell_price': sellPrice,
       'sell_fee': sellFee,
-      'sell_note': sellNote,
+      'sell_note': encodeSellNoteFx(fx: sellUsdTmn, note: sellNote),
     };
     if (sellDate != null) body['sell_date'] = sellDate;
     if (quantity != null) body['quantity'] = quantity;

@@ -4,6 +4,8 @@ from app.services.trade_service import TradeService
 def test_is_gold_asset_includes_18k_bullion_name() -> None:
     assert TradeService.is_gold_asset("طلای ۱۸ عیار", "")
     assert TradeService.is_gold_asset("طلا", "GOLD")
+    assert TradeService.is_gold_asset("آبشده", "", "[kind:gold]")
+    assert not TradeService.is_gold_asset("آبشده", "", "[kind:crypto]")
     assert not TradeService.is_gold_asset("سکه طلا", "COIN")
     assert not TradeService.is_gold_asset("عیار - 200", "AYAR200")
     assert not TradeService.is_gold_asset("بیت‌کوین", "BTC")

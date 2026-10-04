@@ -60,11 +60,24 @@ class Trade {
 
   double get buyCost => quantity * buyPrice + buyFee;
 
+  /// Registered USD cost including buy fee converted at buy FX when known.
   double? get buyCostUsd {
     final u = buyPriceUsd;
     if (u == null || u <= 0) return null;
-    return quantity * u;
+    var cost = quantity * u;
+    if (buyFee.abs() > 1e-12) {
+      final fx = resolvedBuyUsdTmn;
+      if (fx == null || fx <= 0) return null;
+      cost += buyFee / fx;
+    }
+    return cost;
   }
+
+  /// Toman-per-USD rate locked at sell time (`[sell_fx:…]` in [sellNote]).
+  double? get sellUsdTmn => readSellUsdTmn(sellNote);
+
+  /// Free-text sell note without the `[sell_fx:…]` marker.
+  String get sellNoteDisplay => parseSellNoteFx(sellNote).note;
 
   double get markPrice =>
       isOpen ? currentPrice : (sellPrice ?? currentPrice);

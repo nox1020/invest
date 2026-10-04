@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 
@@ -13,6 +14,11 @@ from app.repositories.trade_repo import TradeRepository
 from app.services.portfolio_service import PortfolioService
 from app.utils import calc
 from app.utils.dates import today_iso
+from app.utils.gold_purity import (
+    grams_to_18k_equivalent,
+    purity_from_notes,
+    scale_gold_price_from_18k,
+)
 
 _EPS = 1e-9
 
@@ -285,21 +291,24 @@ class TradeService:
         return asset
 
     @staticmethod
-    def is_gold_asset(name: str, symbol: str = "") -> bool:
+    def is_gold_asset(name: str, symbol: str = "", notes: str = "") -> bool:
         """True for per-gram bullion assets (not coins / ayar pieces)."""
         sym = (symbol or "").strip().upper()
         nm = (name or "").strip()
-        if sym in {"GOLD", "XAU", "GERAM", "GRAM"}:
-            return True
         if sym.startswith("AYAR"):
             return False
         if "سکه" in nm:
             return False
+        kind_m = re.search(r"\[kind:([a-z]+)\]", notes or "", re.IGNORECASE)
+        if kind_m:
+            return kind_m.group(1).lower() == "gold"
+        if sym in {"GOLD", "XAU", "GERAM", "GRAM"}:
+            return True
         return "طلا" in nm or "gold" in nm.lower()
 
     def gold_fund_metrics(self) -> GoldFundMetrics:
         """
-        Aggregate gold grams from buy/sell lots.
+        Aggregate gold grams from buy/sell lots (18k-equivalent).
 
         وارد  = مجموع گرم خریداری‌شده در تاریخچهٔ فعلی (لات باز + بسته)
         خارج  = مجموع گرم فروخته‌شده (لات‌های بسته‌شدهٔ باقی‌مانده)
@@ -307,25 +316,35 @@ class TradeService:
 
         حذف معاملهٔ بسته از تاریخچه، وارد/خارج را هم کم می‌کند.
         """
+        notes_by_id = {
+            a.id: (a.notes or "")
+            for a in self.assets.list_all()
+            if a.id is not None
+        }
         open_g = 0.0
         closed_g = 0.0
         for trade in self.trades.list_open() + self.trades.list_closed():
-            if not self.is_gold_asset(trade.asset_name, trade.asset_symbol):
+            notes = notes_by_id.get(trade.asset_id, "")
+            if not self.is_gold_asset(trade.asset_name, trade.asset_symbol, notes):
                 continue
             qty = float(trade.quantity or 0.0)
             if qty <= _EPS:
                 continue
+            grams = grams_to_18k_equivalent(qty, purity_from_notes(notes))
             if trade.is_closed:
-                closed_g += qty
+                closed_g += grams
             else:
-                open_g += qty
+                open_g += grams
 
         # موجودی از دارایی‌ها (باید با لات‌های باز یکی باشد)
         holding_assets = 0.0
         for asset in self.assets.list_all():
-            if not self.is_gold_asset(asset.name, asset.symbol):
+            notes = asset.notes or ""
+            if not self.is_gold_asset(asset.name, asset.symbol, notes):
                 continue
-            holding_assets += float(asset.quantity or 0.0)
+            holding_assets += grams_to_18k_equivalent(
+                float(asset.quantity or 0.0), purity_from_notes(notes)
+            )
 
         # لات‌های باز منبع حقیقت جریان‌اند؛ اگر دارایی کمی اختلاف float داشت،
         # موجودی را از لات‌ها می‌گیریم تا وارد − خارج = موجودی دقیق بماند.
@@ -368,10 +387,11 @@ class TradeService:
         *,
         usdt_tmn: float | None = None,
         gold_tmn: float | None = None,
+        notes: str = "",
     ) -> float | None:
         """Return live toman price per unit for gold/USDT assets when available."""
-        if TradeService.is_gold_asset(name, symbol) and gold_tmn and gold_tmn > 0:
-            return float(gold_tmn)
+        if TradeService.is_gold_asset(name, symbol, notes) and gold_tmn and gold_tmn > 0:
+            return scale_gold_price_from_18k(float(gold_tmn), purity_from_notes(notes))
         if TradeService.is_usdt_asset(name, symbol) and usdt_tmn and usdt_tmn > 0:
             return float(usdt_tmn)
         return None
@@ -388,6 +408,7 @@ class TradeService:
         Push live dollar/gold rates into matching assets' current_price.
 
         Portfolio value, unrealized PnL, and charts then use these rates.
+        Gold marks scale from the 18k index by asset purity meta (Flutter parity).
         """
         updated_usdt = 0
         updated_gold = 0
@@ -395,9 +416,12 @@ class TradeService:
             for asset in self.assets.list_all():
                 new_price: float | None = None
                 kind: str | None = None
-                if update_gold and self.is_gold_asset(asset.name, asset.symbol):
+                notes = asset.notes or ""
+                if update_gold and self.is_gold_asset(asset.name, asset.symbol, notes):
                     if gold_tmn and gold_tmn > 0:
-                        new_price = float(gold_tmn)
+                        new_price = scale_gold_price_from_18k(
+                            float(gold_tmn), purity_from_notes(notes)
+                        )
                         kind = "gold"
                     else:
                         continue
