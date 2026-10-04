@@ -16,8 +16,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Dedupe parallel runs for the same commit (PR head sha or push sha).
     concurrency:
-      group: android-apk-${{ github.ref }}
+      group: android-apk-${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
       cancel-in-progress: true
     permissions:
       actions: read

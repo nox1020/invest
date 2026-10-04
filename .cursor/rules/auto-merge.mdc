@@ -11,7 +11,7 @@ After a feature branch PR is ready:
 
 1. Ensure CI on the PR head is green (subscribe and wait; fix failures if needed).
 2. Mark draft PRs ready for review when implementation + tests are done.
-3. Merge into the preferred base (`main`) with a normal merge commit (`gh pr merge --merge`).
-4. If merge conflicts appear after another merge landed first, update the branch from `main`, resolve, push, wait for CI, then merge.
+3. When GitHub reports `CLEAN` / `MERGEABLE`, merge with `gh pr merge --merge` **without** first merging `main` into the feature branch and pushing again.
+4. Only if the PR is conflicted: update from `main`, resolve, **one** push, wait for CI, then merge.
 5. Do not force-push `main`/`master`. Do not merge with failing required checks.
 6. After merge, briefly confirm; no need to ask whether to merge next time.
