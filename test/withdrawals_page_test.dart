@@ -82,7 +82,10 @@ void main() {
     expect(find.text('سقف سالانه (۱۰٪)'), findsOneWidget);
     expect(find.text('برداشت امسال'), findsOneWidget);
     expect(find.text('باقیمانده سقف سالانه'), findsOneWidget);
-    expect(find.text('تغییر درصد در تنظیمات'), findsOneWidget);
+    expect(find.text('تغییر درصد سالانه'), findsOneWidget);
+    expect(find.text('سود سالانه قابل برداشت'), findsOneWidget);
+    expect(find.text('نسبت به کل ورودی پرتفو'), findsOneWidget);
+    expect(find.text('تغییر درصد در تنظیمات'), findsNothing);
     expect(find.text('انجام‌شده'), findsOneWidget);
     expect(find.text('بانک'), findsOneWidget);
     expect(find.text('20,000 تومان'), findsWidgets);

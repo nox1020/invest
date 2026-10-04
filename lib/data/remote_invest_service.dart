@@ -478,12 +478,19 @@ class RemoteInvestService implements InvestMutations {
   Future<Withdrawal?> createWithdrawal({
     required double amount,
     String note = '',
+    String? createdAt,
+    String? status,
   }) async {
     try {
-      final data = await _api.post('/invest/api/v1/withdrawals', body: {
+      final body = <String, Object?>{
         'amount': amount,
         'note': note,
-      });
+      };
+      final when = (createdAt ?? '').trim();
+      if (when.isNotEmpty) body['created_at'] = when;
+      final st = (status ?? '').trim();
+      if (st.isNotEmpty) body['status'] = st;
+      final data = await _api.post('/invest/api/v1/withdrawals', body: body);
       final item = data['item'];
       if (item is Map) {
         return Withdrawal.fromMap(Map<String, Object?>.from(item));
@@ -491,8 +498,8 @@ class RemoteInvestService implements InvestMutations {
       return Withdrawal(
         amount: amount,
         note: note,
-        status: 'completed',
-        createdAt: nowIso(),
+        status: st.isEmpty ? 'completed' : st,
+        createdAt: when.isEmpty ? nowIso() : when,
       );
     } on InvestApiException catch (e) {
       if (e.statusCode == 404 || e.errorCode == 'not_found') return null;
