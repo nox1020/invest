@@ -91,8 +91,9 @@ flutter run
 
 - **ورود:** `/auth/request-otp` + `/auth/verify-otp` (همان OTP وینور)
 - **داده:** `/invest/api/v1/*` روی `https://vinor.ir` (قابل تغییر در تنظیمات)
-- **تست واحد محلی:** `test/trade_service_test.dart` (SQLite in-memory)
-- **CI خودکار:** با هر آپدیت بک‌اند در repo [vinor](https://github.com/nox1020/vinor) (مسیر `invest/**`)، workflow وینور `repository_dispatch` می‌فرستد و `.github/workflows/android.yml` اینجا APK می‌سازد
+- **تست واحد محلی:** `flutter test` و برای دسکتاپ `python -m pytest`
+- **CI خودکار (`.github/workflows/android.yml`):** `flutter analyze` → `flutter test` → `python -m pytest` → APK
+- **تریگر بک‌اند:** با آپدیت [vinor](https://github.com/nox1020/vinor) مسیر `invest/**`، `repository_dispatch` همین workflow را برای ساخت APK اجرا می‌کند
 
 ## Packaging / انتشار
 

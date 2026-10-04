@@ -1,6 +1,7 @@
 name: Android APK
 
-# CI: analyze, test, release APK
+# CI (aligned with README + .cursor/install.sh):
+#   flutter pub get -> analyze -> flutter test -> pytest -> release APK
 # Also triggered by vinor backend updates (repository_dispatch).
 on:
   push:
@@ -154,7 +155,11 @@ jobs:
           flutter doctor -v
 
       - name: Pub get
-        run: flutter pub get
+        run: |
+          set -euo pipefail
+          flutter pub get
+          # flutter pub get may rewrite analysis_options.yaml; keep the repo copy.
+          git checkout -- analysis_options.yaml
 
       - name: Analyze
         run: |
@@ -166,8 +171,11 @@ jobs:
           text = pathlib.Path("analyze.log").read_text(errors="replace")
           print("--- analyze tail ---")
           print("\n".join(text.splitlines()[-60:]))
+          # Flutter uses U+2022 bullet; also accept ASCII hyphen if mangled.
+          sep = "[\u2022\\-]"
           pat = re.compile(
-              r"^\s*(error|warning)\s*[•\-]\s*(.+?)\s*[•\-]\s*([^:\s]+):(\d+):(\d+)\s*[•\-]\s*(\S+)\s*$",
+              rf"^\s*(error|warning)\s*{sep}\s*(.+?)\s*{sep}\s*"
+              rf"([^:\s]+):(\d+):(\d+)\s*{sep}\s*(\S+)\s*$",
               re.M,
           )
           for m in pat.finditer(text):
@@ -178,8 +186,54 @@ jobs:
           PY
           exit $code
 
-      - name: Test
-        run: flutter test
+      - name: Flutter test
+        run: |
+          set +e
+          flutter test --reporter expanded 2>&1 | tee test.log
+          code=${PIPESTATUS[0]}
+          python3 - <<PY
+          import pathlib
+          code = int("""$code""")
+          lines = pathlib.Path("test.log").read_text(errors="replace").splitlines()
+          keys = (
+              "FAILED",
+              "Expected:",
+              "Test failed",
+              "EXCEPTION",
+              "overflowed",
+              "Which:",
+              "Error:",
+          )
+          interesting = [ln for ln in lines if any(k in ln for k in keys)]
+          blob = "\n".join((interesting or lines)[-25:])
+          safe = blob.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+          print("--- flutter test tail ---")
+          print("\n".join(lines[-40:]))
+          if code != 0:
+              print(f"::error title=flutter test::{safe[:3500]}")
+          PY
+          exit "$code"
+
+      - name: Upload Flutter test log
+        if: failure() && hashFiles('test.log') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-test-log
+          path: test.log
+          if-no-files-found: ignore
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Python test
+        run: |
+          set -euo pipefail
+          python -m pip install -U pip
+          pip install -r requirements.txt -r requirements-dev.txt
+          python -m pytest
 
       - name: Build APK
         id: apk
