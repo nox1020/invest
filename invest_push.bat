@@ -85,6 +85,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+rem Push once. Skip if this commit is already on the remote.
+for /f "delims=" %%h in ('git rev-parse HEAD') do set "LOCAL_HEAD=%%h"
+for /f "delims=" %%h in ('git rev-parse origin/%BRANCH% 2^>nul') do set "REMOTE_HEAD=%%h"
+if /I "%LOCAL_HEAD%"=="%REMOTE_HEAD%" (
+  echo [V+] این commit قبلاً push شده — push تکراری انجام نشد.
+  pause
+  exit /b 0
+)
+
 echo [V+] push...
 git push -u origin %BRANCH%
 if errorlevel 1 (

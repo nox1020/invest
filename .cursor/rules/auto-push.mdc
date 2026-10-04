@@ -7,19 +7,33 @@ alwaysApply: true
 
 Never ask the user for permission to commit, push, or fix CI — just do it.
 
-After completing implementation work in this repo:
+## One push per change (hard rule)
+
+Each logical change set must result in **exactly one** `git push` to the feature branch:
+
+1. Finish the implementation and local checks/tests first.
+2. Make **one** commit (or squash local WIP into one commit).
+3. `git push -u origin <branch>` **once**.
+4. Create/update the PR after that single push.
+5. Do **not** push a pre-test revision and then push again after tests unless the tests required real code edits.
+6. Do **not** `git merge origin/main` + push just to “refresh” a CLEAN/MERGEABLE PR — merge with `gh pr merge` instead.
+7. A second push is allowed only when there is a **new** commit that fixes CI failure or a real merge conflict.
+
+Network retries on a failed push are fine; never issue a second successful push for the same commit.
+
+## After completing implementation work
 
 1. Commit relevant changes with a short message (why, not just what).
-2. Push to `origin` on the current branch immediately — do not wait for the user to ask.
+2. Push to `origin` on the current branch once — do not wait for the user to ask.
 3. Never force-push to `main`/`master`.
 4. Never commit secrets (`.env`, `*.jks`, `key.properties`, credentials).
-5. If push fails (auth/network), say so clearly and stop.
+5. If push fails (auth/network), retry with backoff; if still failing, say so clearly and stop.
 
 ## GitHub Actions
 
 Whenever the user mentions CI/Actions failures, or after a push that may trigger workflows:
 
-1. Check the latest workflow runs on GitHub (`gh run list` / Actions URL).
+1. Subscribe/wait for the run (do not busy-poll).
 2. If a run failed, fetch failing logs, fix root causes in code or workflow.
-3. Commit and push the fix without waiting to be asked.
-4. Repeat until the latest run on `main` is green (or report a blocker you cannot fix).
+3. Commit and push the fix **once**, without waiting to be asked.
+4. Repeat until the latest run on the branch/`main` is green (or report a blocker you cannot fix).
