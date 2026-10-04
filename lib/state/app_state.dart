@@ -115,7 +115,20 @@ class AppState extends ChangeNotifier {
   bool _autoRefreshBusy = false;
   int _autoRefreshTicks = 0;
 
+  /// When true, [notifyListeners] is a no-op so a half-applied portfolio
+  /// fetch (server marks before live overlay) cannot flash the NAV card.
+  bool _holdUiNotifications = false;
+
+  @visibleForTesting
+  set debugHoldUiNotifications(bool value) => _holdUiNotifications = value;
+
   bool get canMutate => authenticated && !readOnlyOffline;
+
+  @override
+  void notifyListeners() {
+    if (_holdUiNotifications) return;
+    super.notifyListeners();
+  }
 
   List<SeriesPoint> get capitalGrowthSeries {
     final holdings = HoldingMetrics.activeHoldings(
@@ -1124,14 +1137,7 @@ class AppState extends ChangeNotifier {
           checkApiVersion: plan.checkApiVersion,
         );
       } else if (!useRemote) {
-        assets = await trades!.assets.listAll();
-        openTrades = await trades!.trades.listOpen();
-        closedTrades = await trades!.trades.listClosed();
-        await _overlayLiveMarks();
-        metrics = await portfolio!.getMetrics(calendar: settings.calendar);
-        await _loadLocalWithdrawals();
-        await portfolio!.recordSnapshot();
-        lastSyncedAt = DateTime.now();
+        await _publishLocalPortfolio();
       }
       error = null;
       await _dispatchProfitAlerts();
@@ -1180,25 +1186,65 @@ class AppState extends ChangeNotifier {
       }
     }
     final svc = remote!;
-    await Future.wait<void>([
-      svc.fetchDashboard(settings.calendar).then((v) => metrics = v),
-      svc.assets.listAll().then((v) => assets = v),
-      svc.listOpen().then((v) => openTrades = v),
-      svc.listClosed().then((v) => closedTrades = v),
-      _loadWithdrawals(remote: svc, settingsBundle: settingsBundle),
-    ]);
-    await _overlayLiveMarks();
-    lastSyncedAt = DateTime.now();
-    await OfflineCacheStore.savePortfolio(
-      settings: settings,
-      metrics: metrics!,
-      assets: assets,
-      openTrades: openTrades,
-      closedTrades: closedTrades,
-      withdrawals: withdrawals,
-      liveUsdt: liveUsdt,
-      liveGold: liveGold,
-    );
+    // Fetch into locals first, then publish + overlay under a UI hold so a
+    // concurrent index tick cannot rebuild the dashboard on bare server marks.
+    final dashF = svc.fetchDashboard(settings.calendar);
+    final assetsF = svc.assets.listAll();
+    final openF = svc.listOpen();
+    final closedF = svc.listClosed();
+    final wdF = svc.listWithdrawals();
+
+    final dash = await dashF;
+    final nextAssets = await assetsF;
+    final nextOpen = await openF;
+    final nextClosed = await closedF;
+    final remoteWithdrawals = await wdF;
+
+    _holdUiNotifications = true;
+    try {
+      metrics = dash;
+      assets = nextAssets;
+      openTrades = nextOpen;
+      closedTrades = nextClosed;
+      await _applyWithdrawalsAfterFetch(
+        remote: svc,
+        remoteItems: remoteWithdrawals,
+        settingsBundle: settingsBundle,
+      );
+      await _overlayLiveMarks();
+      lastSyncedAt = DateTime.now();
+      await OfflineCacheStore.savePortfolio(
+        settings: settings,
+        metrics: metrics!,
+        assets: assets,
+        openTrades: openTrades,
+        closedTrades: closedTrades,
+        withdrawals: withdrawals,
+        liveUsdt: liveUsdt,
+        liveGold: liveGold,
+      );
+    } finally {
+      _holdUiNotifications = false;
+    }
+  }
+
+  Future<void> _publishLocalPortfolio() async {
+    final nextAssets = await trades!.assets.listAll();
+    final nextOpen = await trades!.trades.listOpen();
+    final nextClosed = await trades!.trades.listClosed();
+    _holdUiNotifications = true;
+    try {
+      assets = nextAssets;
+      openTrades = nextOpen;
+      closedTrades = nextClosed;
+      await _overlayLiveMarks();
+      metrics = await portfolio!.getMetrics(calendar: settings.calendar);
+      await _loadLocalWithdrawals();
+      await portfolio!.recordSnapshot();
+      lastSyncedAt = DateTime.now();
+    } finally {
+      _holdUiNotifications = false;
+    }
   }
 
   Future<void> _loadWithdrawals({
@@ -1208,48 +1254,11 @@ class AppState extends ChangeNotifier {
     try {
       if (remote != null) {
         final remoteItems = await remote.listWithdrawals();
-        // Non-empty dedicated API is authoritative.
-        if (remoteItems != null && remoteItems.isNotEmpty) {
-          withdrawals = remoteItems;
-          _withdrawalsFromRemote = true;
-          _withdrawalsViaSettings = false;
-          return;
-        }
-
-        _withdrawalsFromRemote = false;
-        var bundle = settingsBundle;
-        bundle ??= await remote.fetchSettings();
-        if (bundle.hasClientWithdrawals && bundle.clientWithdrawals.isNotEmpty) {
-          withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
-          _withdrawalsViaSettings = true;
-          // Heal empty dedicated API from the settings mirror when present.
-          if (remoteItems != null &&
-              remoteItems.isEmpty &&
-              useRemote &&
-              !offline &&
-              !readOnlyOffline) {
-            await _migrateWithdrawalsToRemoteApi(withdrawals);
-          }
-          return;
-        }
-
-        await _loadLocalWithdrawals();
-        if (withdrawals.isNotEmpty && useRemote && !offline && !readOnlyOffline) {
-          if (remoteItems != null) {
-            await _migrateWithdrawalsToRemoteApi(withdrawals);
-          } else {
-            await _pushUserExtrasToServer(clientWithdrawals: withdrawals);
-            _withdrawalsViaSettings = true;
-          }
-        } else if (remoteItems != null) {
-          // Dedicated API exists and both server + local are empty.
-          withdrawals = remoteItems;
-          _withdrawalsFromRemote = true;
-          _withdrawalsViaSettings = false;
-        } else if (bundle.hasClientWithdrawals) {
-          withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
-          _withdrawalsViaSettings = true;
-        }
+        await _applyWithdrawalsAfterFetch(
+          remote: remote,
+          remoteItems: remoteItems,
+          settingsBundle: settingsBundle,
+        );
         return;
       }
       _withdrawalsFromRemote = false;
@@ -1258,6 +1267,58 @@ class AppState extends ChangeNotifier {
     } finally {
       _withdrawalsHydrated = true;
     }
+  }
+
+  Future<void> _applyWithdrawalsAfterFetch({
+    required RemoteInvestService remote,
+    required List<Withdrawal>? remoteItems,
+    RemoteSettingsBundle? settingsBundle,
+  }) async {
+    // Non-empty dedicated API is authoritative.
+    if (remoteItems != null && remoteItems.isNotEmpty) {
+      withdrawals = remoteItems;
+      _withdrawalsFromRemote = true;
+      _withdrawalsViaSettings = false;
+      _withdrawalsHydrated = true;
+      return;
+    }
+
+    _withdrawalsFromRemote = false;
+    var bundle = settingsBundle;
+    bundle ??= await remote.fetchSettings();
+    if (bundle.hasClientWithdrawals && bundle.clientWithdrawals.isNotEmpty) {
+      withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
+      _withdrawalsViaSettings = true;
+      // Heal empty dedicated API from the settings mirror when present.
+      if (remoteItems != null &&
+          remoteItems.isEmpty &&
+          useRemote &&
+          !offline &&
+          !readOnlyOffline) {
+        await _migrateWithdrawalsToRemoteApi(withdrawals);
+      }
+      _withdrawalsHydrated = true;
+      return;
+    }
+
+    await _loadLocalWithdrawals();
+    if (withdrawals.isNotEmpty && useRemote && !offline && !readOnlyOffline) {
+      if (remoteItems != null) {
+        await _migrateWithdrawalsToRemoteApi(withdrawals);
+      } else {
+        await _pushUserExtrasToServer(clientWithdrawals: withdrawals);
+        _withdrawalsViaSettings = true;
+      }
+    } else if (remoteItems != null) {
+      // Dedicated API exists and both server + local are empty.
+      withdrawals = remoteItems;
+      _withdrawalsFromRemote = true;
+      _withdrawalsViaSettings = false;
+    } else if (bundle.hasClientWithdrawals) {
+      withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
+      _withdrawalsViaSettings = true;
+    }
+    _withdrawalsHydrated = true;
   }
 
   /// Push local/settings withdrawals through the dedicated API when available,

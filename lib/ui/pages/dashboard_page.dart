@@ -397,41 +397,51 @@ class _NavHero extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 14),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        formatMoney(snap.marketValue),
-                        textAlign: TextAlign.right,
-                        maxLines: 1,
-                        style: const TextStyle(
-                          color: AppTheme.title,
-                          fontSize: 30,
-                          fontWeight: FontWeight.w800,
-                          height: 1.1,
-                          letterSpacing: -0.4,
-                        ),
-                      ),
-                    ),
-                    if (usd != null) ...[
-                      const SizedBox(height: 6),
-                      FittedBox(
+                    SizedBox(
+                      height: 34,
+                      child: FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerRight,
                         child: Text(
-                          formatUsd(usd),
+                          formatMoney(snap.marketValue),
                           textAlign: TextAlign.right,
-                          textDirection: TextDirection.ltr,
                           maxLines: 1,
                           style: const TextStyle(
-                            color: Color(0xFFE0C46A),
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
+                            color: AppTheme.title,
+                            fontSize: 30,
+                            fontWeight: FontWeight.w800,
+                            height: 1.1,
+                            letterSpacing: -0.4,
                           ),
                         ),
                       ),
-                    ],
-                    const SizedBox(height: 14),
+                    ),
+                    // Reserve USD line height so a missing/returning rate
+                    // cannot reflow the hero on each quote tick.
+                    SizedBox(
+                      height: 28,
+                      child: usd == null
+                          ? const SizedBox.shrink()
+                          : Align(
+                              alignment: Alignment.centerRight,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  formatUsd(usd),
+                                  textAlign: TextAlign.right,
+                                  textDirection: TextDirection.ltr,
+                                  maxLines: 1,
+                                  style: const TextStyle(
+                                    color: Color(0xFFE0C46A),
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 10),
                     Container(
                       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                       decoration: BoxDecoration(
@@ -455,50 +465,52 @@ class _NavHero extends StatelessWidget {
                             ),
                           ),
                           _VRule(color: AppTheme.border.withValues(alpha: 0.9)),
-                          if (usdPnl != null) ...[
-                            Expanded(
-                              child: _DeltaCell(
-                                label: 'دلار',
-                                value: formatUsd(
-                                  usdPnl,
-                                  compact: true,
-                                  showSign: true,
-                                ),
-                                tone: usdPnl >= 0
-                                    ? AppTheme.positive
-                                    : AppTheme.negative,
-                                ltr: true,
-                              ),
+                          Expanded(
+                            child: _DeltaCell(
+                              label: 'دلار',
+                              value: usdPnl == null
+                                  ? '—'
+                                  : formatUsd(
+                                      usdPnl,
+                                      compact: true,
+                                      showSign: true,
+                                    ),
+                              tone: usdPnl == null
+                                  ? AppTheme.muted
+                                  : (usdPnl >= 0
+                                      ? AppTheme.positive
+                                      : AppTheme.negative),
+                              ltr: usdPnl != null,
                             ),
-                            _VRule(
-                              color: AppTheme.border.withValues(alpha: 0.9),
-                            ),
-                          ],
-                          if (spark.length >= 2)
-                            Expanded(
-                              child: _DeltaCell(
-                                label: 'روند',
-                                value: formatPct(sparkPct),
-                                tone: sparkPct >= 0
-                                    ? AppTheme.positive
-                                    : AppTheme.negative,
-                              ),
-                            )
-                          else
-                            Expanded(
-                              child: _DeltaCell(
-                                label: 'بهای تمام‌شده',
-                                value: formatCompactToman(snap.costBasis),
-                                tone: AppTheme.muted,
-                              ),
-                            ),
+                          ),
+                          _VRule(
+                            color: AppTheme.border.withValues(alpha: 0.9),
+                          ),
+                          Expanded(
+                            child: spark.length >= 2
+                                ? _DeltaCell(
+                                    label: 'روند',
+                                    value: formatPct(sparkPct),
+                                    tone: sparkPct >= 0
+                                        ? AppTheme.positive
+                                        : AppTheme.negative,
+                                  )
+                                : _DeltaCell(
+                                    label: 'بهای تمام‌شده',
+                                    value: formatCompactToman(snap.costBasis),
+                                    tone: AppTheme.muted,
+                                  ),
+                          ),
                         ],
                       ),
                     ),
-                    if (spark.length >= 2) ...[
-                      const SizedBox(height: 12),
-                      Sparkline(values: spark, color: tone, height: 44),
-                    ],
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 44,
+                      child: spark.length >= 2
+                          ? Sparkline(values: spark, color: tone, height: 44)
+                          : const SizedBox.shrink(),
+                    ),
                   ],
                 ),
               ),
