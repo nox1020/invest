@@ -1,19 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:invest/domain/models/asset.dart';
-import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/services/dashboard_pnl.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
-import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/services/withdrawal_allowance.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
-import 'package:invest/ui/widgets/allocation_donut.dart';
 import 'package:invest/ui/widgets/dual_currency_chart.dart';
 import 'package:invest/ui/widgets/sparkline.dart';
 import 'package:provider/provider.dart';
-
-String _plainPct(num value) => '${formatNumber(value, decimals: 1)}٪';
 
 /// Economist capital desk — opened from the dashboard NAV hero.
 class CapitalChartPage extends StatefulWidget {
@@ -65,7 +59,6 @@ class _CapitalChartPageState extends State<CapitalChartPage>
     );
     final growth = state.capitalGrowthSeries;
     final year = state.yearRealizedChartSeries;
-    final allowance = state.withdrawalAllowance;
     final spark = [for (final p in growth) p.value];
     final sparkPct = sparkDeltaPct(spark);
     final lifetimePct = DashboardCurrencyPnl.totalPnlPct(
@@ -116,24 +109,6 @@ class _CapitalChartPageState extends State<CapitalChartPage>
               _BalanceSheet(snap: snap, lifetimePct: lifetimePct),
               const SizedBox(height: 20),
               const _SectionLabel(
-                eyebrow: 'ترکیب',
-                title: 'تخصیص دارایی',
-              ),
-              const SizedBox(height: 10),
-              _AllocationPanel(holdings: snap.holdings),
-              if (snap.goldHoldingG > 0) ...[
-                const SizedBox(height: 12),
-                _GoldSleeve(grams: snap.goldHoldingG),
-              ],
-              const SizedBox(height: 20),
-              const _SectionLabel(
-                eyebrow: 'نقدینگی',
-                title: 'ظرفیت برداشت',
-              ),
-              const SizedBox(height: 10),
-              _LiquidityPanel(allowance: allowance),
-              const SizedBox(height: 20),
-              const _SectionLabel(
                 eyebrow: 'روند',
                 title: 'مسیر سرمایه',
               ),
@@ -177,7 +152,7 @@ class _CapitalChartPageState extends State<CapitalChartPage>
               const _Footnote(
                 text:
                     'NAV از موجودی زنده محاسبه می‌شود. بازده کل روی سرمایهٔ طول عمر '
-                    '(خرید باز + بسته) است. گرم طلا معادل ۱۸ عیار گزارش می‌شود.',
+                    '(خرید باز + بسته) است. تخصیص دارایی در تب معاملات و ظرفیت برداشت در تب برداشت است.',
               ),
             ],
           ),
@@ -621,363 +596,6 @@ class _LedgerRow extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _AllocationPanel extends StatelessWidget {
-  const _AllocationPanel({required this.holdings});
-
-  final List<({Asset asset, HoldingMetrics metrics})> holdings;
-
-  @override
-  Widget build(BuildContext context) {
-    if (holdings.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: AppTheme.card,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.border),
-        ),
-        child: const Text(
-          'موقعیت بازی برای تخصیص نیست',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: AppTheme.muted),
-        ),
-      );
-    }
-
-    final total =
-        holdings.fold<double>(0, (s, h) => s + h.metrics.marketValue);
-    final slices = <AllocationSlice>[];
-    final rows = <_AllocRowData>[];
-    for (final h in holdings) {
-      final mv = h.metrics.marketValue;
-      if (mv <= 0) continue;
-      final kind = detectAssetKind(
-        name: h.asset.name,
-        symbol: h.asset.symbol,
-        notes: h.asset.notes,
-      );
-      final label = h.asset.symbol.trim().isEmpty
-          ? h.asset.name
-          : h.asset.symbol;
-      final share = total <= 0 ? 0.0 : mv / total;
-      slices.add(AllocationSlice(label: label, share: share, color: kind.color));
-      rows.add(
-        _AllocRowData(
-          label: label,
-          name: h.asset.name,
-          share: share,
-          value: mv,
-          color: kind.color,
-          pnl: h.metrics.unrealizedPnl,
-        ),
-      );
-    }
-    final top = rows.take(6).toList();
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-      decoration: BoxDecoration(
-        color: AppTheme.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              AllocationDonut(slices: slices, size: 96),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '${holdings.length} موقعیت',
-                      style: const TextStyle(
-                        color: AppTheme.title,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      top.isEmpty
-                          ? '—'
-                          : 'بزرگ‌ترین سهم: ${top.first.label} ${_plainPct(top.first.share * 100)}',
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        color: AppTheme.muted,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      formatMoney(total),
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        color: AppTheme.title,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          for (var i = 0; i < top.length; i++) ...[
-            if (i > 0) const Divider(height: 1, color: AppTheme.border),
-            _AllocRow(data: top[i]),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _AllocRowData {
-  const _AllocRowData({
-    required this.label,
-    required this.name,
-    required this.share,
-    required this.value,
-    required this.color,
-    required this.pnl,
-  });
-
-  final String label;
-  final String name;
-  final double share;
-  final double value;
-  final Color color;
-  final double pnl;
-}
-
-class _AllocRow extends StatelessWidget {
-  const _AllocRow({required this.data});
-  final _AllocRowData data;
-
-  @override
-  Widget build(BuildContext context) {
-    final pnlTone = data.pnl >= 0 ? AppTheme.positive : AppTheme.negative;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  formatCompactToman(data.value),
-                  style: const TextStyle(
-                    color: AppTheme.title,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  formatCompactToman(data.pnl, showSign: true),
-                  style: TextStyle(
-                    color: pnlTone,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            flex: 2,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  data.name,
-                  textAlign: TextAlign.right,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppTheme.title,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(3),
-                  child: LinearProgressIndicator(
-                    value: data.share.clamp(0.0, 1.0),
-                    minHeight: 4,
-                    backgroundColor: AppTheme.border,
-                    color: data.color,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  _plainPct(data.share * 100),
-                  style: const TextStyle(color: AppTheme.muted, fontSize: 10),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GoldSleeve extends StatelessWidget {
-  const _GoldSleeve({required this.grams});
-  final double grams;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: AppTheme.card,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.diamond_outlined, color: Color(0xFFE0C46A), size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                const Text(
-                  'آستین طلا (معادل ۱۸ عیار)',
-                  style: TextStyle(
-                    color: AppTheme.title,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  formatGrams(grams),
-                  style: const TextStyle(
-                    color: Color(0xFFE8C547),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LiquidityPanel extends StatelessWidget {
-  const _LiquidityPanel({required this.allowance});
-  final WithdrawalAllowance allowance;
-
-  @override
-  Widget build(BuildContext context) {
-    final used = allowance.usedAnnualFraction;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-      decoration: BoxDecoration(
-        color: AppTheme.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _LiqCell(
-                  label: 'قابل برداشت',
-                  value: formatCompactToman(allowance.available),
-                  tone: AppTheme.positive,
-                ),
-              ),
-              Expanded(
-                child: _LiqCell(
-                  label: 'باقیمانده سقف',
-                  value: formatCompactToman(allowance.remainingAnnual),
-                  tone: AppTheme.title,
-                ),
-              ),
-              Expanded(
-                child: _LiqCell(
-                  label: 'برداشت امسال',
-                  value: formatCompactToman(allowance.yearWithdrawn),
-                  tone: AppTheme.muted,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: used.clamp(0.0, 1.0),
-              minHeight: 6,
-              backgroundColor: AppTheme.border,
-              color: used > 0.85 ? AppTheme.negative : AppTheme.positive,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'مصرف کوتای ${allowance.annualPct}٪ · '
-            '${WithdrawalAllowance.yearCaption(allowance.yearKey, allowance.calendar)}',
-            textAlign: TextAlign.right,
-            style: const TextStyle(color: AppTheme.muted, fontSize: 11),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LiqCell extends StatelessWidget {
-  const _LiqCell({
-    required this.label,
-    required this.value,
-    required this.tone,
-  });
-
-  final String label;
-  final String value;
-  final Color tone;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          label,
-          style: const TextStyle(color: AppTheme.muted, fontSize: 10),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: tone,
-            fontWeight: FontWeight.w800,
-            fontSize: 13,
-          ),
-        ),
-      ],
     );
   }
 }

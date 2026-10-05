@@ -96,12 +96,11 @@ void main() {
     expect(find.text('ارزش پورتفو'), findsOneWidget);
     expect(find.text('ترازنامه'), findsOneWidget);
     expect(find.text('ارزش و سود'), findsOneWidget);
-    expect(find.text('تخصیص دارایی'), findsOneWidget);
-    expect(find.text('ظرفیت برداشت'), findsOneWidget);
+    expect(find.text('تخصیص دارایی'), findsNothing);
+    expect(find.text('ظرفیت برداشت'), findsNothing);
     expect(find.text('مسیر سرمایه'), findsOneWidget);
     expect(find.text('سود تحقق‌یافته سال'), findsOneWidget);
     expect(find.text('بهای تمام‌شده'), findsOneWidget);
-    expect(find.text('قابل برداشت'), findsOneWidget);
-    expect(find.textContaining('Bitcoin'), findsWidgets);
+    expect(find.textContaining('Bitcoin'), findsNothing);
   });
 }

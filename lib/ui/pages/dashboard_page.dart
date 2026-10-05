@@ -10,11 +10,9 @@ import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/layout/page_padding.dart';
-import 'package:invest/ui/pages/asset_detail_page.dart';
 import 'package:invest/ui/pages/capital_chart_page.dart';
 import 'package:invest/ui/pages/quote_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
-import 'package:invest/ui/widgets/allocation_donut.dart';
 import 'package:invest/ui/widgets/sparkline.dart';
 import 'package:provider/provider.dart';
 
@@ -127,6 +125,7 @@ class _DashboardBodyState extends State<_DashboardBody>
                 _MarketTape(
                   quotes: quotes,
                   caption: anchors.caption,
+                  onOpenIndex: () => openHomeTab(context, HomeTabs.index),
                 ),
               ],
               const SizedBox(height: 20),
@@ -154,36 +153,21 @@ class _DashboardBodyState extends State<_DashboardBody>
               ],
               if (snap.holdings.isNotEmpty) ...[
                 const SizedBox(height: 22),
-                _SectionLabel(
+                const _SectionLabel(
                   eyebrow: 'ساختار',
-                  title: 'ترکیب دارایی',
-                  actionLabel: 'همه',
-                  onAction: () => _openTradesTab(context),
+                  title: 'ترکیب',
                 ),
                 const SizedBox(height: 10),
-                _AllocationPanel(
+                _CompositionTeaser(
                   holdings: snap.holdings,
                   total: snap.marketValue,
+                  onOpenAssets: () => _openTradesTab(context),
                 ),
-                const SizedBox(height: 12),
-                for (var i = 0; i < snap.holdings.take(4).length; i++) ...[
-                  if (i > 0) const SizedBox(height: 8),
-                  _HoldingRow(
-                    asset: snap.holdings[i].asset,
-                    metrics: snap.holdings[i].metrics,
-                    share: snap.marketValue <= 0
-                        ? 0
-                        : snap.holdings[i].metrics.marketValue /
-                            snap.marketValue,
-                    usdt: usdt,
-                    rank: i + 1,
-                  ),
-                ],
               ],
               const SizedBox(height: 22),
               const _SectionLabel(
                 eyebrow: 'نقدینگی',
-                title: 'فعالیت',
+                title: 'میان‌بر',
               ),
               const SizedBox(height: 10),
               _LiquidityDesk(
@@ -204,7 +188,8 @@ void _openTradesTab(BuildContext context) {
 }
 
 List<CommodityQuote> _spotlightQuotes(AppState state) {
-  const order = ['usdt', 'gold', 'btc', 'eth'];
+  // Dashboard only anchors FX + gold; crypto tape lives on Index.
+  const order = ['usdt', 'gold'];
   final byId = {for (final q in state.commodityIndex) q.id: q};
   final out = <CommodityQuote>[];
   for (final id in order) {
@@ -596,19 +581,26 @@ class _VRule extends StatelessWidget {
 }
 
 class _MarketTape extends StatelessWidget {
-  const _MarketTape({required this.quotes, this.caption});
+  const _MarketTape({
+    required this.quotes,
+    this.caption,
+    this.onOpenIndex,
+  });
 
   final List<CommodityQuote> quotes;
   final String? caption;
+  final VoidCallback? onOpenIndex;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionLabel(
+        _SectionLabel(
           eyebrow: 'بازار',
-          title: 'لنگرهای قیمت',
+          title: 'لنگرها',
+          actionLabel: onOpenIndex == null ? null : 'شاخص',
+          onAction: onOpenIndex,
         ),
         const SizedBox(height: 10),
         Container(
@@ -904,253 +896,86 @@ class _GoldStrip extends StatelessWidget {
   }
 }
 
-class _AllocationPanel extends StatelessWidget {
-  const _AllocationPanel({required this.holdings, required this.total});
+class _CompositionTeaser extends StatelessWidget {
+  const _CompositionTeaser({
+    required this.holdings,
+    required this.total,
+    required this.onOpenAssets,
+  });
 
   final List<({Asset asset, HoldingMetrics metrics})> holdings;
   final double total;
+  final VoidCallback onOpenAssets;
 
   @override
   Widget build(BuildContext context) {
-    final slices = <AllocationSlice>[];
-    for (final h in holdings) {
-      if (h.metrics.marketValue <= 0) continue;
-      final kind = detectAssetKind(
-        name: h.asset.name,
-        symbol: h.asset.symbol,
-        notes: h.asset.notes,
-      );
-      slices.add(
-        AllocationSlice(
-          label: h.asset.symbol.trim().isEmpty ? h.asset.name : h.asset.symbol,
-          share: total <= 0 ? 0 : h.metrics.marketValue / total,
-          color: kind.color,
-        ),
-      );
-    }
-    final top = slices.isEmpty ? null : slices.first;
-    final topShare = top == null ? 0.0 : top.share * 100;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-      decoration: BoxDecoration(
-        color: AppTheme.card,
+    if (holdings.isEmpty) return const SizedBox.shrink();
+    final top = holdings.first;
+    final share = total <= 0 ? 0.0 : top.metrics.marketValue / total * 100;
+    final kind = detectAssetKind(
+      name: top.asset.name,
+      symbol: top.asset.symbol,
+      notes: top.asset.notes,
+    );
+    final label = top.asset.symbol.trim().isEmpty
+        ? top.asset.name
+        : top.asset.symbol;
+    return Material(
+      color: AppTheme.card,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Column(
-        children: [
-          Row(
-            textDirection: TextDirection.ltr,
+        onTap: onOpenAssets,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppTheme.border),
+          ),
+          child: Row(
             children: [
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  AllocationDonut(slices: slices, size: 104),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '${holdings.length}',
-                        style: const TextStyle(
-                          color: AppTheme.title,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 18,
-                        ),
-                      ),
-                      const Text(
-                        'موقعیت',
-                        style: TextStyle(
-                          color: AppTheme.muted,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(width: 16),
+              Icon(Icons.north_east_rounded, size: 16, color: AppTheme.muted),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    if (top != null) ...[
-                      const Text(
-                        'بیشترین وزن',
-                        style: TextStyle(
-                          color: AppTheme.muted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
+                    Text(
+                      '${holdings.length} موقعیت باز',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        color: AppTheme.title,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${top.label} · ${formatNumber(topShare, decimals: 1)}٪',
-                        style: const TextStyle(
-                          color: AppTheme.title,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                        ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'بیشترین وزن: $label · ${formatNumber(share, decimals: 1)}٪ · ${kind.label}',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        color: AppTheme.muted,
+                        fontSize: 11,
                       ),
-                      const SizedBox(height: 10),
-                    ],
-                    for (final s in slices.take(4))
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 7),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: s.color,
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                '${s.label}  ${formatNumber(s.share * 100, decimals: 1)}٪',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppTheme.text,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'جزئیات تخصیص در تب معاملات',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        color: AppTheme.muted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
                       ),
+                    ),
                   ],
                 ),
               ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HoldingRow extends StatelessWidget {
-  const _HoldingRow({
-    required this.asset,
-    required this.metrics,
-    required this.share,
-    required this.usdt,
-    required this.rank,
-  });
-
-  final Asset asset;
-  final HoldingMetrics metrics;
-  final double share;
-  final double? usdt;
-  final int rank;
-
-  @override
-  Widget build(BuildContext context) {
-    final kind = detectAssetKind(
-      name: asset.name,
-      symbol: asset.symbol,
-      notes: asset.notes,
-    );
-    final usd = metrics.marketValueUsd(usdt);
-    final tone =
-        metrics.unrealizedPnl >= 0 ? AppTheme.positive : AppTheme.negative;
-    return Material(
-      color: AppTheme.card,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: () => openAssetDetail(context, asset: asset),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 22,
-                    height: 22,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: kind.color.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      '$rank',
-                      style: TextStyle(
-                        color: kind.color,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          asset.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            color: AppTheme.title,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                          ),
-                        ),
-                        Text(
-                          '${formatNumber(share * 100, decimals: 1)}٪ از پورتفو',
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            color: AppTheme.muted,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        usd != null
-                            ? formatUsd(usd, compact: true)
-                            : formatCompactToman(metrics.marketValue),
-                        style: const TextStyle(
-                          color: AppTheme.title,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
-                        ),
-                      ),
-                      Text(
-                        formatPct(metrics.unrealizedPnlPct),
-                        style: TextStyle(
-                          color: tone,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: LinearProgressIndicator(
-                  value: share.clamp(0.0, 1.0),
-                  minHeight: 3,
-                  backgroundColor: AppTheme.border,
-                  color: kind.color.withValues(alpha: 0.85),
-                ),
+              const SizedBox(width: 10),
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: kind.color.withValues(alpha: 0.18),
+                child: Icon(kind.icon, color: kind.color, size: 17),
               ),
             ],
           ),
