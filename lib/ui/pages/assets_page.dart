@@ -61,6 +61,13 @@ class _AssetsPageState extends State<AssetsPage>
     );
     final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
     final openLots = state.openTrades.where((t) => t.quantity > 1e-9).length;
+    final totalValue =
+        holdings.fold<double>(0, (s, h) => s + h.metrics.marketValue);
+    final totalCost =
+        holdings.fold<double>(0, (s, h) => s + h.metrics.costBasis);
+    final totalPnl =
+        holdings.fold<double>(0, (s, h) => s + h.metrics.unrealizedPnl);
+    final pnlPct = totalCost.abs() < 1e-12 ? 0.0 : totalPnl / totalCost * 100;
 
     return RefreshIndicator(
       onRefresh: () => state.refreshAll(),
@@ -90,9 +97,11 @@ class _AssetsPageState extends State<AssetsPage>
                   body: 'دارایی ثبت شده اما مقدار باز صفر است.',
                 )
               else ...[
-                _ExposureHero(
-                  holdings: holdings,
-                  usdt: usdt,
+                _DeskSummary(
+                  totalValue: totalValue,
+                  totalPnl: totalPnl,
+                  pnlPct: pnlPct,
+                  count: holdings.length,
                 ),
                 const SizedBox(height: 20),
                 const _SectionLabel(
@@ -114,10 +123,7 @@ class _AssetsPageState extends State<AssetsPage>
                   _HoldingLedgerRow(
                     asset: holdings[i].asset,
                     metrics: holdings[i].metrics,
-                    totalValue: holdings.fold<double>(
-                      0,
-                      (s, h) => s + h.metrics.marketValue,
-                    ),
+                    totalValue: totalValue,
                     usdt: usdt,
                     canMutate: state.canMutate,
                   ),
@@ -125,8 +131,8 @@ class _AssetsPageState extends State<AssetsPage>
                 const SizedBox(height: 16),
                 const _Footnote(
                   text:
-                      'ارزش و سود شناور از لات‌های باز و علامت زنده محاسبه می‌شود. '
-                      'جزئیات میانگین خرید، کارمزد و معاملات در صفحهٔ هر دارایی است.',
+                      'NAV کامل در داشبورد است. اینجا تخصیص و دفتر موقعیت‌هاست؛ '
+                      'جزئیات خرید و معاملات در صفحهٔ هر دارایی.',
                 ),
               ],
             ],
@@ -268,244 +274,83 @@ class _EmptyDesk extends StatelessWidget {
   }
 }
 
-class _ExposureHero extends StatelessWidget {
-  const _ExposureHero({
-    required this.holdings,
-    required this.usdt,
+class _DeskSummary extends StatelessWidget {
+  const _DeskSummary({
+    required this.totalValue,
+    required this.totalPnl,
+    required this.pnlPct,
+    required this.count,
   });
 
-  final List<({Asset asset, HoldingMetrics metrics})> holdings;
-  final double? usdt;
+  final double totalValue;
+  final double totalPnl;
+  final double pnlPct;
+  final int count;
 
   @override
   Widget build(BuildContext context) {
-    final totalValue =
-        holdings.fold<double>(0, (s, h) => s + h.metrics.marketValue);
-    final totalCost =
-        holdings.fold<double>(0, (s, h) => s + h.metrics.costBasis);
-    final totalPnl =
-        holdings.fold<double>(0, (s, h) => s + h.metrics.unrealizedPnl);
-    final pnlPct = totalCost.abs() < 1e-12 ? 0.0 : totalPnl / totalCost * 100;
-    final usdValue = HoldingMetrics.portfolioMarketValueUsd(holdings, usdt);
-    final usdPnl = HoldingMetrics.portfolioUnrealizedPnlUsd(holdings, usdt);
-    double? usdPnlPct;
-    if (usdPnl != null) {
-      var usdCost = 0.0;
-      var complete = true;
-      for (final h in holdings) {
-        final c = h.metrics.costBasisUsd;
-        if (c == null) {
-          complete = false;
-          break;
-        }
-        usdCost += c;
-      }
-      if (complete && usdCost.abs() >= 1e-12) {
-        usdPnlPct = usdPnl / usdCost * 100;
-      }
-    }
     final tone = totalPnl >= 0 ? AppTheme.positive : AppTheme.negative;
-    final winners =
-        holdings.where((h) => h.metrics.unrealizedPnl >= 0).length;
-    final losers = holdings.length - winners;
-
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        gradient: const LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          colors: [
-            Color(0xFF1C3F30),
-            Color(0xFF13251C),
-            Color(0xFF101C16),
-          ],
-          stops: [0, 0.55, 1],
-        ),
+        color: AppTheme.card,
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppTheme.border),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Row(
         children: [
-          const Row(
-            children: [
-              _Pill(text: 'EXPOSURE'),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'ارزش موقعیت‌های باز',
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                    color: AppTheme.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            formatMoney(totalValue),
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: AppTheme.title,
-              fontSize: 26,
-              fontWeight: FontWeight.w800,
-              height: 1.1,
-            ),
-          ),
-          if (usdValue != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              formatUsd(usdValue),
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                color: Color(0xFFE8C547),
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppTheme.bg.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: AppTheme.border.withValues(alpha: 0.85),
-              ),
-            ),
-            child: Row(
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: _HeroStat(
-                    label: 'سود شناور',
-                    value: formatCompactToman(totalPnl, showSign: true),
-                    tone: tone,
+                Text(
+                  formatCompactToman(totalPnl, showSign: true),
+                  style: TextStyle(
+                    color: tone,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
                   ),
                 ),
-                _VRule(),
-                Expanded(
-                  child: _HeroStat(
-                    label: 'بازده',
-                    value: formatPct(pnlPct),
-                    tone: tone,
-                  ),
-                ),
-                _VRule(),
-                Expanded(
-                  child: _HeroStat(
-                    label: usdPnl == null ? 'سبز / قرمز' : 'سود دلاری',
-                    value: usdPnl == null
-                        ? '$winners / $losers'
-                        : formatUsd(usdPnl, compact: true, showSign: true),
-                    tone: usdPnl == null
-                        ? AppTheme.muted
-                        : (usdPnl >= 0
-                            ? AppTheme.positive
-                            : AppTheme.negative),
+                const SizedBox(height: 2),
+                Text(
+                  'شناور ${formatPct(pnlPct)}',
+                  style: TextStyle(
+                    color: tone,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
             ),
           ),
-          if (usdPnlPct != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'بازده دلاری ${formatPct(usdPnlPct)} · نسبت به بهای خرید ثبت‌شده',
-              textAlign: TextAlign.right,
-              style: const TextStyle(color: AppTheme.muted, fontSize: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  formatCompactToman(totalValue),
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    color: AppTheme.title,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$count موقعیت · دفتر تخصیص',
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    color: AppTheme.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
-          ],
-          const SizedBox(height: 8),
-          Text(
-            'بهای تمام‌شده ${formatCompactToman(totalCost)}',
-            textAlign: TextAlign.right,
-            style: const TextStyle(color: AppTheme.muted, fontSize: 11),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.text});
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppTheme.bg.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: AppTheme.muted,
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.6,
-        ),
-      ),
-    );
-  }
-}
-
-class _HeroStat extends StatelessWidget {
-  const _HeroStat({
-    required this.label,
-    required this.value,
-    required this.tone,
-  });
-
-  final String label;
-  final String value;
-  final Color tone;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: AppTheme.muted,
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          value,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: tone,
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _VRule extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 28,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      color: AppTheme.border.withValues(alpha: 0.9),
     );
   }
 }

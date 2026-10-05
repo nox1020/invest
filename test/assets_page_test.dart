@@ -74,13 +74,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('میز دارایی'), findsOneWidget);
-    expect(find.text('ارزش موقعیت‌های باز'), findsOneWidget);
+    expect(find.textContaining('موقعیت · دفتر تخصیص'), findsOneWidget);
     expect(find.text('تخصیص دارایی'), findsOneWidget);
     expect(find.text('موقعیت‌های باز'), findsOneWidget);
     expect(find.text('Bitcoin'), findsOneWidget);
     expect(find.text('طلا'), findsWidgets);
     expect(find.textContaining('تمرکز بالا'), findsOneWidget);
     expect(find.text('ارز دیجیتال'), findsWidgets);
+    expect(find.text('ارزش موقعیت‌های باز'), findsNothing);
   });
 
   testWidgets('empty assets desk shows empty state', (tester) async {
