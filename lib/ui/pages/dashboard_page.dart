@@ -17,7 +17,7 @@ import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/sparkline.dart';
 import 'package:provider/provider.dart';
 
-/// Economist-style portfolio desk: same data, clearer hierarchy.
+/// Portfolio home — one calm composition, same ledger, clearer hierarchy.
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
@@ -36,28 +36,39 @@ class _DashboardBodyState extends State<_DashboardBody>
     with SingleTickerProviderStateMixin {
   bool _usd = false;
   late final AnimationController _enter;
-  late final Animation<double> _fade;
-  late final Animation<Offset> _slide;
 
   @override
   void initState() {
     super.initState();
     _enter = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 520),
-    );
-    _fade = CurvedAnimation(parent: _enter, curve: Curves.easeOutCubic);
-    _slide = Tween<Offset>(
-      begin: const Offset(0, 0.03),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _enter, curve: Curves.easeOutCubic));
-    _enter.forward();
+      duration: const Duration(milliseconds: 780),
+    )..forward();
   }
 
   @override
   void dispose() {
     _enter.dispose();
     super.dispose();
+  }
+
+  Animation<double> _fade(double begin, double end) {
+    return CurvedAnimation(
+      parent: _enter,
+      curve: Interval(begin, end, curve: Curves.easeOutCubic),
+    );
+  }
+
+  Animation<Offset> _slide(double begin, double end) {
+    return Tween<Offset>(
+      begin: const Offset(0, 0.04),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _enter,
+        curve: Interval(begin, end, curve: Curves.easeOutCubic),
+      ),
+    );
   }
 
   @override
@@ -92,25 +103,60 @@ class _DashboardBodyState extends State<_DashboardBody>
     }
 
     final anchors = indexAnchors(state.commodityIndex);
+    final yoy = YearNavCompare.fromHistory(
+      currentNav: snap.marketValue,
+      currentYearKey: snap.yearKey,
+      history: state.settings.yearNavHistory,
+      liveUsdt: usdt,
+    );
 
-    return RefreshIndicator(
-      onRefresh: () => state.refreshAll(includeQuotes: true),
-      child: FadeTransition(
-        opacity: _fade,
-        child: SlideTransition(
-          position: _slide,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: shellPagePadding(),
-            children: [
-              _StatusRibbon(
+    Widget stage({
+      required double a,
+      required double b,
+      required Widget child,
+    }) {
+      return FadeTransition(
+        opacity: _fade(a, b),
+        child: SlideTransition(position: _slide(a, b), child: child),
+      );
+    }
+
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFF142820),
+            AppTheme.bg,
+            Color(0xFF0C1511),
+          ],
+          stops: [0, 0.28, 1],
+        ),
+      ),
+      child: RefreshIndicator(
+        color: AppTheme.positive,
+        backgroundColor: AppTheme.card,
+        onRefresh: () => state.refreshAll(includeQuotes: true),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: shellPagePadding(),
+          children: [
+            stage(
+              a: 0,
+              b: 0.35,
+              child: _StatusRibbon(
                 offline: state.offline,
                 lastSyncedAt: state.lastSyncedAt,
                 openLots: snap.openLotCount,
                 holdings: snap.holdingCount,
               ),
-              const SizedBox(height: 12),
-              _NavHero(
+            ),
+            const SizedBox(height: 14),
+            stage(
+              a: 0.05,
+              b: 0.45,
+              child: _NavHero(
                 snap: snap,
                 spark: spark,
                 onOpenCharts: () {
@@ -121,72 +167,94 @@ class _DashboardBodyState extends State<_DashboardBody>
                   );
                 },
               ),
-              if (quotes.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                _MarketTape(
+            ),
+            if (quotes.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              stage(
+                a: 0.18,
+                b: 0.55,
+                child: _MarketAnchors(
                   quotes: quotes,
                   caption: anchors.caption,
                   onOpenIndex: () => openHomeTab(context, HomeTabs.index),
                 ),
-              ],
-              const SizedBox(height: 20),
-              _SectionLabel(
-                eyebrow: 'عملکرد',
-                title: 'سود و زیان',
-                trailing: _FxToggle(
-                  usd: _usd,
-                  onChanged: (v) => setState(() => _usd = v),
-                ),
               ),
-              const SizedBox(height: 10),
-              if (_usd && snap.usdIncomplete)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 10),
-                  child: _HintBanner(
-                    text:
-                        'دلار فقط با بهای خرید ثبت‌شده محاسبه می‌شود. برای لات‌های بدون دلار، «—» می‌بینید.',
-                  ),
-                ),
-              _PnlLedger(
-                snap: snap,
-                usd: _usd,
-                yoy: YearNavCompare.fromHistory(
-                  currentNav: snap.marketValue,
-                  currentYearKey: snap.yearKey,
-                  history: state.settings.yearNavHistory,
-                  liveUsdt: usdt,
-                ),
-              ),
-              if (snap.goldHoldingG > 0) ...[
-                const SizedBox(height: 10),
-                _GoldStrip(grams: snap.goldHoldingG),
-              ],
-              if (snap.holdings.isNotEmpty) ...[
-                const SizedBox(height: 22),
-                const _SectionLabel(
-                  eyebrow: 'ساختار',
-                  title: 'ترکیب',
-                ),
-                const SizedBox(height: 10),
-                _CompositionTeaser(
-                  holdings: snap.holdings,
-                  total: snap.marketValue,
-                  onOpenAssets: () => _openTradesTab(context),
-                ),
-              ],
-              const SizedBox(height: 22),
-              const _SectionLabel(
-                eyebrow: 'نقدینگی',
-                title: 'میان‌بر',
-              ),
-              const SizedBox(height: 10),
-              _LiquidityDesk(
-                snap: snap,
-                withdrawable: state.withdrawableAmount,
-              ),
-              const SizedBox(height: 28),
             ],
-          ),
+            const SizedBox(height: 26),
+            stage(
+              a: 0.28,
+              b: 0.65,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _SectionLabel(
+                    title: 'سود و زیان',
+                    subtitle: 'عملکرد زنده پورتفو',
+                    trailing: _FxToggle(
+                      usd: _usd,
+                      onChanged: (v) => setState(() => _usd = v),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_usd && snap.usdIncomplete)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 10),
+                      child: _HintBanner(
+                        text:
+                            'دلار فقط با بهای خرید ثبت‌شده محاسبه می‌شود. برای لات‌های بدون دلار، «—» می‌بینید.',
+                      ),
+                    ),
+                  _PnlLedger(snap: snap, usd: _usd, yoy: yoy),
+                  if (snap.goldHoldingG > 0) ...[
+                    const SizedBox(height: 12),
+                    _GoldStrip(grams: snap.goldHoldingG),
+                  ],
+                ],
+              ),
+            ),
+            if (snap.holdings.isNotEmpty) ...[
+              const SizedBox(height: 26),
+              stage(
+                a: 0.4,
+                b: 0.78,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const _SectionLabel(
+                      title: 'ترکیب',
+                      subtitle: 'نگاه سریع به وزن‌ها',
+                    ),
+                    const SizedBox(height: 12),
+                    _CompositionTeaser(
+                      holdings: snap.holdings,
+                      total: snap.marketValue,
+                      onOpenAssets: () => _openTradesTab(context),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 26),
+            stage(
+              a: 0.5,
+              b: 0.9,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const _SectionLabel(
+                    title: 'میان‌بر',
+                    subtitle: 'دسترسی سریع',
+                  ),
+                  const SizedBox(height: 12),
+                  _LiquidityDesk(
+                    snap: snap,
+                    withdrawable: state.withdrawableAmount,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 28),
+          ],
         ),
       ),
     );
@@ -198,7 +266,6 @@ void _openTradesTab(BuildContext context) {
 }
 
 List<CommodityQuote> _spotlightQuotes(AppState state) {
-  // Dashboard only anchors FX + gold; crypto tape lives on Index.
   const order = ['usdt', 'gold'];
   final byId = {for (final q in state.commodityIndex) q.id: q};
   final out = <CommodityQuote>[];
@@ -231,17 +298,45 @@ class _StatusRibbon extends StatelessWidget {
             : 'به‌روز ${_shortTime(lastSyncedAt!)}';
     return Row(
       children: [
-        _MiniTag(
-          icon: offline ? Icons.cloud_off_outlined : Icons.sync_outlined,
-          label: syncLabel,
-          tone: offline ? AppTheme.negative : AppTheme.muted,
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: offline
+                ? AppTheme.negative.withValues(alpha: 0.12)
+                : AppTheme.positive.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: offline
+                  ? AppTheme.negative.withValues(alpha: 0.35)
+                  : AppTheme.positive.withValues(alpha: 0.28),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                offline ? Icons.cloud_off_outlined : Icons.check_circle_outline,
+                size: 14,
+                color: offline ? AppTheme.negative : AppTheme.positive,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                syncLabel,
+                style: TextStyle(
+                  color: offline ? AppTheme.negative : AppTheme.positive,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
         ),
         const Spacer(),
         Text(
           '$holdings دارایی · $openLots لات باز',
           style: const TextStyle(
             color: AppTheme.muted,
-            fontSize: 11,
+            fontSize: 12,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -254,37 +349,6 @@ class _StatusRibbon extends StatelessWidget {
     final h = local.hour.toString().padLeft(2, '0');
     final m = local.minute.toString().padLeft(2, '0');
     return '$h:$m';
-  }
-}
-
-class _MiniTag extends StatelessWidget {
-  const _MiniTag({
-    required this.icon,
-    required this.label,
-    required this.tone,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color tone;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: tone),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(
-            color: tone,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
-    );
   }
 }
 
@@ -311,145 +375,141 @@ class _NavHero extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onOpenCharts,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(22),
         child: Ink(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(22),
             gradient: const LinearGradient(
               begin: Alignment.topRight,
               end: Alignment.bottomLeft,
               colors: [
-                Color(0xFF1C3F30),
-                Color(0xFF13251C),
-                Color(0xFF101C16),
+                Color(0xFF245A44),
+                Color(0xFF17362A),
+                Color(0xFF101F18),
               ],
-              stops: [0, 0.55, 1],
+              stops: [0, 0.5, 1],
             ),
-            border: Border.all(color: AppTheme.border),
+            border: Border.all(
+              color: AppTheme.border.withValues(alpha: 0.7),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.28),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+            ],
           ),
-          child: Stack(
-            children: [
-              if (spark.length >= 2)
-                Positioned.fill(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: Stack(
+              children: [
+                Positioned(
+                  left: -40,
+                  top: -50,
                   child: IgnorePointer(
-                    child: Opacity(
-                      opacity: 0.22,
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 56),
-                        child: Sparkline(
-                          values: spark,
-                          color: tone,
-                          height: 120,
-                        ),
+                    child: Container(
+                      width: 160,
+                      height: 160,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: tone.withValues(alpha: 0.08),
                       ),
                     ),
                   ),
                 ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppTheme.bg.withValues(alpha: 0.45),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppTheme.border),
-                          ),
-                          child: const Text(
-                            'NAV',
-                            style: TextStyle(
-                              color: AppTheme.muted,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.6,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Expanded(
-                          child: Text(
-                            'ارزش پورتفو',
-                            textAlign: TextAlign.right,
-                            style: TextStyle(
-                              color: AppTheme.muted,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        Icon(
-                          Icons.north_east_rounded,
-                          size: 16,
-                          color: AppTheme.muted.withValues(alpha: 0.8),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      height: 34,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          formatMoney(snap.marketValue),
-                          textAlign: TextAlign.right,
-                          maxLines: 1,
-                          style: const TextStyle(
-                            color: AppTheme.title,
-                            fontSize: 30,
-                            fontWeight: FontWeight.w800,
-                            height: 1.1,
-                            letterSpacing: -0.4,
-                          ),
+                if (spark.length >= 2)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: 88,
+                    child: IgnorePointer(
+                      child: Opacity(
+                        opacity: 0.28,
+                        child: Sparkline(
+                          values: spark,
+                          color: tone,
+                          height: 88,
                         ),
                       ),
                     ),
-                    // Reserve USD line height so a missing/returning rate
-                    // cannot reflow the hero on each quote tick.
-                    SizedBox(
-                      height: 28,
-                      child: usd == null
-                          ? const SizedBox.shrink()
-                          : Align(
-                              alignment: Alignment.centerRight,
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'ارزش پورتفو',
+                            style: TextStyle(
+                              color: AppTheme.muted,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            'میز سرمایه',
+                            style: TextStyle(
+                              color: AppTheme.muted.withValues(alpha: 0.95),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.arrow_back_ios_new_rounded,
+                            size: 12,
+                            color: AppTheme.muted.withValues(alpha: 0.9),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        height: 40,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            formatMoney(snap.marketValue),
+                            textAlign: TextAlign.right,
+                            maxLines: 1,
+                            style: const TextStyle(
+                              color: AppTheme.title,
+                              fontSize: 34,
+                              fontWeight: FontWeight.w800,
+                              height: 1.05,
+                              letterSpacing: -0.6,
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        height: 26,
+                        child: usd == null
+                            ? const SizedBox.shrink()
+                            : Align(
                                 alignment: Alignment.centerRight,
                                 child: Text(
                                   formatUsd(usd),
                                   textAlign: TextAlign.right,
                                   textDirection: TextDirection.ltr,
-                                  maxLines: 1,
                                   style: const TextStyle(
-                                    color: Color(0xFFE0C46A),
-                                    fontSize: 17,
+                                    color: Color(0xFFE8CF7A),
+                                    fontSize: 16,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ),
-                            ),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                      decoration: BoxDecoration(
-                        color: AppTheme.bg.withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: AppTheme.border.withValues(alpha: 0.85),
-                        ),
                       ),
-                      child: Row(
+                      const SizedBox(height: 16),
+                      Row(
                         children: [
                           Expanded(
-                            child: _DeltaCell(
+                            child: _HeroStat(
                               label: 'سود باز',
                               value: formatCompactToman(
                                 snap.unrealizedPnl,
@@ -459,9 +519,8 @@ class _NavHero extends StatelessWidget {
                               tone: tone,
                             ),
                           ),
-                          _VRule(color: AppTheme.border.withValues(alpha: 0.9)),
                           Expanded(
-                            child: _DeltaCell(
+                            child: _HeroStat(
                               label: 'دلار',
                               value: usdPnl == null
                                   ? '—'
@@ -478,19 +537,16 @@ class _NavHero extends StatelessWidget {
                               ltr: usdPnl != null,
                             ),
                           ),
-                          _VRule(
-                            color: AppTheme.border.withValues(alpha: 0.9),
-                          ),
                           Expanded(
                             child: spark.length >= 2
-                                ? _DeltaCell(
+                                ? _HeroStat(
                                     label: 'روند',
                                     value: formatPct(sparkPct),
                                     tone: sparkPct >= 0
                                         ? AppTheme.positive
                                         : AppTheme.negative,
                                   )
-                                : _DeltaCell(
+                                : _HeroStat(
                                     label: 'بهای تمام‌شده',
                                     value: formatCompactToman(snap.costBasis),
                                     tone: AppTheme.muted,
@@ -498,18 +554,15 @@ class _NavHero extends StatelessWidget {
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 44,
-                      child: spark.length >= 2
-                          ? Sparkline(values: spark, color: tone, height: 44)
-                          : const SizedBox.shrink(),
-                    ),
-                  ],
+                      if (spark.length >= 2) ...[
+                        const SizedBox(height: 14),
+                        Sparkline(values: spark, color: tone, height: 40),
+                      ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -517,8 +570,8 @@ class _NavHero extends StatelessWidget {
   }
 }
 
-class _DeltaCell extends StatelessWidget {
-  const _DeltaCell({
+class _HeroStat extends StatelessWidget {
+  const _HeroStat({
     required this.label,
     required this.value,
     required this.tone,
@@ -539,13 +592,13 @@ class _DeltaCell extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: AppTheme.muted,
-            fontSize: 10,
+          style: TextStyle(
+            color: AppTheme.muted.withValues(alpha: 0.95),
+            fontSize: 11,
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerRight,
@@ -554,7 +607,7 @@ class _DeltaCell extends StatelessWidget {
             textDirection: ltr ? TextDirection.ltr : null,
             style: TextStyle(
               color: tone,
-              fontSize: 13,
+              fontSize: 14,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -575,23 +628,8 @@ class _DeltaCell extends StatelessWidget {
   }
 }
 
-class _VRule extends StatelessWidget {
-  const _VRule({required this.color});
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 36,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-      color: color,
-    );
-  }
-}
-
-class _MarketTape extends StatelessWidget {
-  const _MarketTape({
+class _MarketAnchors extends StatelessWidget {
+  const _MarketAnchors({
     required this.quotes,
     this.caption,
     this.onOpenIndex,
@@ -607,37 +645,29 @@ class _MarketTape extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _SectionLabel(
-          eyebrow: 'بازار',
           title: 'لنگرها',
+          subtitle: 'بازار مرجع',
           actionLabel: onOpenIndex == null ? null : 'شاخص',
           onAction: onOpenIndex,
         ),
-        const SizedBox(height: 10),
-        Container(
-          decoration: BoxDecoration(
-            color: AppTheme.card,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppTheme.border),
-          ),
-          child: Column(
-            children: [
-              for (var i = 0; i < quotes.length; i++) ...[
-                if (i > 0)
-                  const Divider(height: 1, thickness: 1, color: AppTheme.border),
-                _TapeRow(quote: quotes[i]),
-              ],
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            for (var i = 0; i < quotes.length; i++) ...[
+              if (i > 0) const SizedBox(width: 10),
+              Expanded(child: _AnchorTile(quote: quotes[i])),
             ],
-          ),
+          ],
         ),
         if (caption != null && caption!.trim().isNotEmpty) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
             caption!,
             textAlign: TextAlign.right,
             style: const TextStyle(
               color: AppTheme.muted,
               fontSize: 11,
-              height: 1.35,
+              height: 1.4,
             ),
           ),
         ],
@@ -646,8 +676,8 @@ class _MarketTape extends StatelessWidget {
   }
 }
 
-class _TapeRow extends StatelessWidget {
-  const _TapeRow({required this.quote});
+class _AnchorTile extends StatelessWidget {
+  const _AnchorTile({required this.quote});
   final CommodityQuote quote;
 
   @override
@@ -659,51 +689,61 @@ class _TapeRow extends StatelessWidget {
         : down
             ? AppTheme.negative
             : AppTheme.muted;
-    return InkWell(
-      onTap: () => openQuoteDetail(context, quote),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
-        child: Row(
-          children: [
-            Icon(quote.icon, size: 16, color: tone),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                quote.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+    return Material(
+      color: AppTheme.card.withValues(alpha: 0.86),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: () => openQuoteDetail(context, quote),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.border.withValues(alpha: 0.85)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Row(
+                children: [
+                  Icon(quote.icon, size: 16, color: tone),
+                  const Spacer(),
+                  Flexible(
+                    child: Text(
+                      quote.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        color: AppTheme.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                quote.formatPrice(compact: true),
                 textAlign: TextAlign.right,
                 style: const TextStyle(
-                  color: AppTheme.text,
-                  fontSize: 13,
+                  color: AppTheme.title,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                quote.change24h == null ? '—' : formatPct(quote.change24h!),
+                style: TextStyle(
+                  color: tone,
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  quote.formatPrice(compact: true),
-                  style: const TextStyle(
-                    color: AppTheme.title,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                  ),
-                ),
-                if (quote.change24h != null)
-                  Text(
-                    formatPct(quote.change24h!),
-                    style: TextStyle(
-                      color: tone,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -733,7 +773,8 @@ class _PnlLedger extends StatelessWidget {
           )
         : _PnlSpec(
             title: snap.yearKey.isEmpty ? 'امسال' : 'امسال ${snap.yearKey}',
-            caption: 'سود تحقق‌یافته · برای مقایسه، پایان سال قبل را در میز سرمایه بزنید',
+            caption:
+                'سود تحقق‌یافته · برای مقایسه، پایان سال قبل را در میز سرمایه بزنید',
             toman: snap.yearRealizedPnl,
             usd: snap.yearRealizedUsd,
           );
@@ -758,22 +799,14 @@ class _PnlLedger extends StatelessWidget {
       duration: const Duration(milliseconds: 220),
       switchInCurve: Curves.easeOut,
       switchOutCurve: Curves.easeIn,
-      child: Container(
+      child: Column(
         key: ValueKey(usd),
-        decoration: BoxDecoration(
-          color: AppTheme.card,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppTheme.border),
-        ),
-        child: Column(
-          children: [
-            for (var i = 0; i < items.length; i++) ...[
-              if (i > 0)
-                const Divider(height: 1, thickness: 1, color: AppTheme.border),
-              _PnlLedgerRow(spec: items[i], showUsd: usd),
-            ],
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(height: 8),
+            _PnlLedgerRow(spec: items[i], showUsd: usd),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -810,10 +843,24 @@ class _PnlLedgerRow extends StatelessWidget {
             : value < 0
                 ? AppTheme.negative
                 : AppTheme.title;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: AppTheme.card.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
+      ),
       child: Row(
         children: [
+          Container(
+            width: 3,
+            height: 42,
+            decoration: BoxDecoration(
+              color: tone,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -823,18 +870,22 @@ class _PnlLedgerRow extends StatelessWidget {
                   style: const TextStyle(
                     color: AppTheme.title,
                     fontWeight: FontWeight.w800,
-                    fontSize: 13,
+                    fontSize: 14,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   spec.caption,
-                  style: const TextStyle(color: AppTheme.muted, fontSize: 11),
+                  style: const TextStyle(
+                    color: AppTheme.muted,
+                    fontSize: 11,
+                    height: 1.3,
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -850,12 +901,12 @@ class _PnlLedgerRow extends StatelessWidget {
                   style: TextStyle(
                     color: tone,
                     fontWeight: FontWeight.w800,
-                    fontSize: 15,
+                    fontSize: 16,
                   ),
                 ),
               ),
               if (!showUsd && spec.pct != null) ...[
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   formatPct(spec.pct!),
                   style: TextStyle(
@@ -880,19 +931,19 @@ class _GoldStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.centerRight,
           end: Alignment.centerLeft,
           colors: [
-            const Color(0xFFE0C46A).withValues(alpha: 0.12),
+            const Color(0xFFE0C46A).withValues(alpha: 0.16),
             AppTheme.card,
           ],
         ),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: const Color(0xFFE0C46A).withValues(alpha: 0.28),
+          color: const Color(0xFFE0C46A).withValues(alpha: 0.3),
         ),
       ),
       child: Row(
@@ -945,61 +996,80 @@ class _CompositionTeaser extends StatelessWidget {
         ? top.asset.name
         : top.asset.symbol;
     return Material(
-      color: AppTheme.card,
-      borderRadius: BorderRadius.circular(14),
+      color: AppTheme.card.withValues(alpha: 0.92),
+      borderRadius: BorderRadius.circular(16),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         onTap: onOpenAssets,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          padding: const EdgeInsets.fromLTRB(14, 16, 14, 16),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppTheme.border),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.border.withValues(alpha: 0.85)),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(Icons.north_east_rounded, size: 16, color: AppTheme.muted),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '${holdings.length} موقعیت باز',
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        color: AppTheme.title,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
-                      ),
+              Row(
+                children: [
+                  Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    size: 13,
+                    color: AppTheme.muted.withValues(alpha: 0.9),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${holdings.length} موقعیت باز',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            color: AppTheme.title,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'بیشترین وزن: $label · ${formatNumber(share, decimals: 1)}٪ · ${kind.label}',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            color: AppTheme.muted,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'بیشترین وزن: $label · ${formatNumber(share, decimals: 1)}٪ · ${kind.label}',
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        color: AppTheme.muted,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'جزئیات تخصیص در تب معاملات',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        color: AppTheme.muted,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                  ),
+                  const SizedBox(width: 12),
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: kind.color.withValues(alpha: 0.18),
+                    child: Icon(kind.icon, color: kind.color, size: 18),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: (share / 100).clamp(0.0, 1.0),
+                  minHeight: 6,
+                  backgroundColor: AppTheme.border,
+                  color: kind.color,
                 ),
               ),
-              const SizedBox(width: 10),
-              CircleAvatar(
-                radius: 16,
-                backgroundColor: kind.color.withValues(alpha: 0.18),
-                child: Icon(kind.icon, color: kind.color, size: 17),
+              const SizedBox(height: 10),
+              const Text(
+                'جزئیات تخصیص در تب معاملات',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: AppTheme.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -1017,46 +1087,36 @@ class _LiquidityDesk extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.card,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: _LiquidityCell(
-                label: 'لات باز',
-                value: '${snap.openLotCount}',
-                hint: 'موقعیت فعال',
-                onTap: () => _openTradesTab(context),
-              ),
-            ),
-            Container(width: 1, color: AppTheme.border),
-            Expanded(
-              child: _LiquidityCell(
-                label: 'بسته‌شده',
-                value: '${snap.closedCount}',
-                hint: 'تاریخچه',
-                onTap: () => _openTradesTab(context),
-              ),
-            ),
-            Container(width: 1, color: AppTheme.border),
-            Expanded(
-              child: _LiquidityCell(
-                label: 'قابل برداشت',
-                value: formatCompactToman(withdrawable),
-                hint: 'سهمیه سالانه',
-                emphasize: true,
-                onTap: () => openHomeTab(context, HomeTabs.withdrawals),
-              ),
-            ),
-          ],
+    return Row(
+      children: [
+        Expanded(
+          child: _LiquidityCell(
+            label: 'لات باز',
+            value: '${snap.openLotCount}',
+            hint: 'موقعیت فعال',
+            onTap: () => _openTradesTab(context),
+          ),
         ),
-      ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _LiquidityCell(
+            label: 'بسته‌شده',
+            value: '${snap.closedCount}',
+            hint: 'تاریخچه',
+            onTap: () => _openTradesTab(context),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _LiquidityCell(
+            label: 'قابل برداشت',
+            value: formatCompactToman(withdrawable),
+            hint: 'سهمیه سالانه',
+            emphasize: true,
+            onTap: () => openHomeTab(context, HomeTabs.withdrawals),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1078,38 +1138,51 @@ class _LiquidityCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 14, 10, 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                color: AppTheme.muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+    return Material(
+      color: AppTheme.card.withValues(alpha: 0.9),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(10, 14, 10, 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: emphasize
+                  ? const Color(0xFFE0C46A).withValues(alpha: 0.35)
+                  : AppTheme.border.withValues(alpha: 0.85),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: AppTheme.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: emphasize ? const Color(0xFFE0C46A) : AppTheme.title,
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
+              const SizedBox(height: 10),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: emphasize ? const Color(0xFFE0C46A) : AppTheme.title,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              hint,
-              style: const TextStyle(color: AppTheme.muted, fontSize: 10),
-            ),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                hint,
+                style: const TextStyle(color: AppTheme.muted, fontSize: 10),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1118,15 +1191,15 @@ class _LiquidityCell extends StatelessWidget {
 
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel({
-    required this.eyebrow,
     required this.title,
+    this.subtitle,
     this.trailing,
     this.actionLabel,
     this.onAction,
   });
 
-  final String eyebrow;
   final String title;
+  final String? subtitle;
   final Widget? trailing;
   final String? actionLabel;
   final VoidCallback? onAction;
@@ -1141,30 +1214,35 @@ class _SectionLabel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                eyebrow,
-                style: TextStyle(
-                  color: AppTheme.muted.withValues(alpha: 0.9),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.4,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
                 title,
                 textAlign: TextAlign.right,
                 style: const TextStyle(
                   color: AppTheme.title,
                   fontWeight: FontWeight.w800,
-                  fontSize: 16,
+                  fontSize: 17,
                 ),
               ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle!,
+                  style: TextStyle(
+                    color: AppTheme.muted.withValues(alpha: 0.95),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
         if (actionLabel != null)
           TextButton(
             onPressed: onAction,
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.positive,
+              visualDensity: VisualDensity.compact,
+            ),
             child: Text(actionLabel!),
           ),
         if (trailing != null) ...[
@@ -1187,7 +1265,7 @@ class _FxToggle extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: AppTheme.card,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(11),
         border: Border.all(color: AppTheme.border),
       ),
       child: Row(
@@ -1230,7 +1308,7 @@ class _FxChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
           child: Text(
             label,
             style: TextStyle(
@@ -1256,7 +1334,7 @@ class _HintBanner extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       decoration: BoxDecoration(
         color: const Color(0xFFE0C46A).withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: const Color(0xFFE0C46A).withValues(alpha: 0.28),
         ),
@@ -1291,14 +1369,14 @@ class _EmptyDashboard extends StatelessWidget {
       children: [
         SizedBox(height: MediaQuery.sizeOf(context).height * 0.16),
         Container(
-          padding: const EdgeInsets.fromLTRB(20, 28, 20, 28),
+          padding: const EdgeInsets.fromLTRB(22, 30, 22, 30),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               begin: Alignment.topRight,
               end: Alignment.bottomLeft,
-              colors: [Color(0xFF1C3F30), Color(0xFF13251C)],
+              colors: [Color(0xFF245A44), Color(0xFF13251C)],
             ),
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(22),
             border: Border.all(color: AppTheme.border),
           ),
           child: Column(
@@ -1307,10 +1385,10 @@ class _EmptyDashboard extends StatelessWidget {
                 offline
                     ? Icons.cloud_off_outlined
                     : Icons.account_balance_outlined,
-                size: 40,
+                size: 42,
                 color: AppTheme.muted,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               Text(
                 offline
                     ? 'هنوز داده‌ای برای نمایش آفلاین ذخیره نشده است'
@@ -1319,10 +1397,10 @@ class _EmptyDashboard extends StatelessWidget {
                 style: const TextStyle(
                   color: AppTheme.title,
                   fontWeight: FontWeight.w800,
-                  fontSize: 17,
+                  fontSize: 18,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Text(
                 offline
                     ? 'پس از اتصال، دارایی‌ها اینجا جمع می‌شوند.'
@@ -1334,7 +1412,7 @@ class _EmptyDashboard extends StatelessWidget {
                   fontSize: 13,
                 ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 20),
               if (offline)
                 OutlinedButton(
                   onPressed: onRetry,
