@@ -12,6 +12,7 @@ import 'package:invest/domain/models/price_alert.dart';
 import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
+import 'package:invest/domain/models/year_nav_entry.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/invest_mutations.dart';
 import 'package:invest/domain/utils/buy_usd.dart';
@@ -143,6 +144,7 @@ class RemoteInvestService implements InvestMutations {
       'annual_withdrawal_pct': s.annualWithdrawalPct,
       'price_alerts': s.priceAlerts.map((e) => e.toJson()).toList(),
       'profit_alerts': s.profitAlerts.map((e) => e.toJson()).toList(),
+      'year_nav_history': s.yearNavHistory.map((e) => e.toJson()).toList(),
     };
     if (s.wallexUrl.trim().isNotEmpty) {
       body['wallex_markets_url'] = s.wallexUrl.trim();
@@ -651,6 +653,9 @@ class RemoteSettingsBundle {
       ),
       priceAlerts: PriceAlertList.parse(pick(AppConfig.settingPriceAlerts)),
       profitAlerts: ProfitAlertList.parse(pick(AppConfig.settingProfitAlerts)),
+      yearNavHistory: YearNavList.parse(
+        pick(AppConfig.settingYearNavHistory),
+      ),
     );
 
     final lockRaw = pick(AppConfig.settingAppLockHash);
@@ -721,6 +726,9 @@ class RemoteSettingsBundle {
       profitAlerts: presentKeys.contains(AppConfig.settingProfitAlerts)
           ? settings.profitAlerts
           : sent.profitAlerts,
+      yearNavHistory: presentKeys.contains(AppConfig.settingYearNavHistory)
+          ? settings.yearNavHistory
+          : sent.yearNavHistory,
       autoRefreshSeconds: presentKeys.contains('price_refresh_seconds') ||
               presentKeys.contains('auto_refresh_seconds')
           ? settings.autoRefreshSeconds

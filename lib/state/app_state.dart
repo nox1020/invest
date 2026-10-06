@@ -16,6 +16,7 @@ import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
+import 'package:invest/domain/models/year_nav_entry.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/iran_inflation.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
@@ -37,6 +38,7 @@ import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/domain/services/invest_mutations.dart';
 import 'package:invest/domain/services/withdrawal_allowance.dart';
+import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/security/app_lock.dart';
 import 'package:invest/security/biometric_auth.dart';
@@ -934,13 +936,15 @@ class AppState extends ChangeNotifier {
         : settings.persianToolboxUrl;
     final sentAnnualPct =
         AppSettings.clampAnnualWithdrawalPct(s.annualWithdrawalPct);
+    final sentYearNav = List<YearNavEntry>.from(s.yearNavHistory);
 
     settings = s
       ..usdtTmnRate = prevUsdt
       ..goldTmnPerGram = prevGold
       ..wallexUrl = prevWallex
       ..persianToolboxUrl = prevPersian
-      ..annualWithdrawalPct = sentAnnualPct;
+      ..annualWithdrawalPct = sentAnnualPct
+      ..yearNavHistory = sentYearNav;
     notifyListeners();
 
     Object? remoteError;
@@ -958,6 +962,7 @@ class AppState extends ChangeNotifier {
         // Re-assert the percent we wrote — response/raw may still carry the
         // previous server value on older backends.
         settings.annualWithdrawalPct = sentAnnualPct;
+        settings.yearNavHistory = List<YearNavEntry>.from(sentYearNav);
         if (settings.wallexUrl.trim().isEmpty) {
           settings.wallexUrl = prevWallex;
         }
@@ -1001,6 +1006,38 @@ class AppState extends ChangeNotifier {
   Future<void> saveAnnualWithdrawalPct(int pct) async {
     final next = settings.copyWith(
       annualWithdrawalPct: AppSettings.clampAnnualWithdrawalPct(pct),
+    );
+    await saveSettings(next);
+  }
+
+  /// Upsert a single year-end NAV (Toman). USD uses live USDT when available.
+  Future<void> upsertYearNav({
+    required String yearKey,
+    required double navToman,
+  }) async {
+    final key = yearKey.trim();
+    if (key.isEmpty) {
+      throw ArgumentError('سال الزامی است.');
+    }
+    if (navToman <= 0) {
+      throw ArgumentError('ارزش پایان سال باید بزرگ‌تر از صفر باشد.');
+    }
+    final usdt = liveUsdt ?? settings.usdtTmnRate;
+    final entry = YearNavEntry(
+      yearKey: key,
+      navToman: navToman,
+      usdtRate: (usdt != null && usdt > 0) ? usdt : null,
+      updatedAt: nowIso(),
+    );
+    final next = settings.copyWith(
+      yearNavHistory: YearNavList.upsert(settings.yearNavHistory, entry),
+    );
+    await saveSettings(next);
+  }
+
+  Future<void> deleteYearNav(String yearKey) async {
+    final next = settings.copyWith(
+      yearNavHistory: YearNavList.remove(settings.yearNavHistory, yearKey),
     );
     await saveSettings(next);
   }

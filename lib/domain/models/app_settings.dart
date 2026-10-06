@@ -1,6 +1,7 @@
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/price_alert.dart';
 import 'package:invest/domain/models/profit_alert.dart';
+import 'package:invest/domain/models/year_nav_entry.dart';
 
 class AppSettings {
   AppSettings({
@@ -23,10 +24,12 @@ class AppSettings {
     int annualWithdrawalPct = AppConfig.defaultAnnualWithdrawalPct,
     List<PriceAlert>? priceAlerts,
     List<ProfitAlert>? profitAlerts,
+    List<YearNavEntry>? yearNavHistory,
   })  : autoRefreshSeconds = clampAutoRefreshSeconds(autoRefreshSeconds),
         annualWithdrawalPct = clampAnnualWithdrawalPct(annualWithdrawalPct),
         priceAlerts = priceAlerts ?? [],
-        profitAlerts = profitAlerts ?? [];
+        profitAlerts = profitAlerts ?? [],
+        yearNavHistory = yearNavHistory ?? [];
 
   String calendar;
   String currency;
@@ -55,6 +58,9 @@ class AppSettings {
   int annualWithdrawalPct;
   List<PriceAlert> priceAlerts;
   List<ProfitAlert> profitAlerts;
+
+  /// Manual year-end NAV figures for YoY comparison (one number per year).
+  List<YearNavEntry> yearNavHistory;
 
   bool get isDark => theme != 'light';
 
@@ -207,6 +213,7 @@ class AppSettings {
     int? annualWithdrawalPct,
     List<PriceAlert>? priceAlerts,
     List<ProfitAlert>? profitAlerts,
+    List<YearNavEntry>? yearNavHistory,
     bool clearUsdtTmnRate = false,
     bool clearGoldTmnPerGram = false,
   }) {
@@ -233,6 +240,9 @@ class AppSettings {
           (priceAlerts ?? this.priceAlerts).map((e) => e.copy()).toList(),
       profitAlerts:
           (profitAlerts ?? this.profitAlerts).map((e) => e.copy()).toList(),
+      yearNavHistory: (yearNavHistory ?? this.yearNavHistory)
+          .map((e) => e.copyWith())
+          .toList(),
     );
   }
 
@@ -257,6 +267,7 @@ class AppSettings {
         'annual_withdrawal_pct': annualWithdrawalPct,
         'price_alerts': priceAlerts.map((e) => e.toJson()).toList(),
         'profit_alerts': profitAlerts.map((e) => e.toJson()).toList(),
+        'year_nav_history': yearNavHistory.map((e) => e.toJson()).toList(),
       };
 
   /// Local SQLite / settings-table key map.
@@ -280,6 +291,7 @@ class AppSettings {
         AppConfig.settingAnnualWithdrawalPct: '$annualWithdrawalPct',
         AppConfig.settingPriceAlerts: PriceAlertList.encode(priceAlerts),
         AppConfig.settingProfitAlerts: ProfitAlertList.encode(profitAlerts),
+        AppConfig.settingYearNavHistory: YearNavList.encode(yearNavHistory),
       };
 
   static bool _on(dynamic v, {bool fallback = true}) {
@@ -330,6 +342,9 @@ class AppSettings {
       profitAlerts: ProfitAlertList.parse(
         s['profit_alerts'] ?? s[AppConfig.settingProfitAlerts],
       ),
+      yearNavHistory: YearNavList.parse(
+        s['year_nav_history'] ?? s[AppConfig.settingYearNavHistory],
+      ),
     );
   }
 
@@ -355,6 +370,7 @@ class AppSettings {
       'annual_withdrawal_pct': map[AppConfig.settingAnnualWithdrawalPct],
       'price_alerts': map[AppConfig.settingPriceAlerts],
       'profit_alerts': map[AppConfig.settingProfitAlerts],
+      'year_nav_history': map[AppConfig.settingYearNavHistory],
     });
   }
 }
