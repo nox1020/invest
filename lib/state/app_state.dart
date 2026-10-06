@@ -1015,6 +1015,10 @@ class AppState extends ChangeNotifier {
           (a[i].navToman - b[i].navToman).abs() > 1e-6) {
         return false;
       }
+      final au = a[i].navUsd;
+      final bu = b[i].navUsd;
+      if (au == null && bu == null) continue;
+      if (au == null || bu == null || (au - bu).abs() > 1e-6) return false;
     }
     return true;
   }
@@ -1028,10 +1032,13 @@ class AppState extends ChangeNotifier {
     await saveSettings(next);
   }
 
-  /// Upsert a single year-end NAV (Toman). USD uses live USDT when available.
+  /// Upsert a year-end NAV. [navUsd] is optional manual dollar; when omitted,
+  /// USD is derived from live USDT.
   Future<void> upsertYearNav({
     required String yearKey,
     required double navToman,
+    double? navUsd,
+    bool clearNavUsd = false,
   }) async {
     final key = YearNavList.normalizeYearKey(yearKey);
     if (key.isEmpty) {
@@ -1040,11 +1047,21 @@ class AppState extends ChangeNotifier {
     if (navToman <= 0) {
       throw ArgumentError('ارزش پایان سال باید بزرگ‌تر از صفر باشد.');
     }
-    final usdt = liveUsdt ?? settings.usdtTmnRate;
+    final live = liveUsdt ?? settings.usdtTmnRate;
+    double? usd;
+    double? rate;
+    if (!clearNavUsd && navUsd != null && navUsd > 0) {
+      usd = navUsd;
+      rate = navToman / navUsd;
+    } else if (live != null && live > 0) {
+      rate = live;
+      usd = null; // auto via rate
+    }
     final entry = YearNavEntry(
       yearKey: key,
       navToman: navToman,
-      usdtRate: (usdt != null && usdt > 0) ? usdt : null,
+      navUsd: usd,
+      usdtRate: rate,
       updatedAt: nowIso(),
     );
     final next = settings.copyWith(

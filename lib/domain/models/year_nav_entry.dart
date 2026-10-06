@@ -1,15 +1,16 @@
 import 'dart:convert';
 
+import 'package:invest/config/app_config.dart';
+import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
+import 'package:shamsi_date/shamsi_date.dart';
 
-/// Year-end portfolio NAV entered as a single Toman figure.
-///
-/// USD is derived from [usdtRate] captured when the row was saved (or a
-/// live fallback supplied by the caller).
+/// Year-end portfolio NAV: Toman required, USD optional (manual or derived).
 class YearNavEntry {
   const YearNavEntry({
     required this.yearKey,
     required this.navToman,
+    this.navUsd,
     this.usdtRate,
     this.updatedAt = '',
   });
@@ -18,25 +19,39 @@ class YearNavEntry {
   final String yearKey;
   final double navToman;
 
-  /// USDT/TMN rate frozen at save time so the dollar leg stays stable.
+  /// Optional manual USD NAV. When set, takes priority over rate conversion.
+  final double? navUsd;
+
+  /// USDT/TMN rate used when [navUsd] is absent (auto or implied from edit).
   final double? usdtRate;
   final String updatedAt;
 
-  double? get navUsd => tomanToUsd(navToman, usdtRate);
+  /// Prefer manual USD, else Toman ÷ stored rate.
+  double? get resolvedUsd {
+    if (navUsd != null && navUsd! > 0) return navUsd;
+    return tomanToUsd(navToman, usdtRate);
+  }
 
-  double? navUsdWith(double? fallbackUsdt) =>
-      tomanToUsd(navToman, (usdtRate != null && usdtRate! > 0) ? usdtRate : fallbackUsdt);
+  double? navUsdWith(double? fallbackUsdt) {
+    if (navUsd != null && navUsd! > 0) return navUsd;
+    final rate =
+        (usdtRate != null && usdtRate! > 0) ? usdtRate : fallbackUsdt;
+    return tomanToUsd(navToman, rate);
+  }
 
   YearNavEntry copyWith({
     String? yearKey,
     double? navToman,
+    double? navUsd,
     double? usdtRate,
     String? updatedAt,
+    bool clearNavUsd = false,
     bool clearUsdtRate = false,
   }) {
     return YearNavEntry(
       yearKey: yearKey ?? this.yearKey,
       navToman: navToman ?? this.navToman,
+      navUsd: clearNavUsd ? null : (navUsd ?? this.navUsd),
       usdtRate: clearUsdtRate ? null : (usdtRate ?? this.usdtRate),
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -45,6 +60,7 @@ class YearNavEntry {
   Map<String, dynamic> toJson() => {
         'year': yearKey,
         'nav_toman': navToman,
+        if (navUsd != null) 'nav_usd': navUsd,
         if (usdtRate != null) 'usdt_tmn': usdtRate,
         if (updatedAt.isNotEmpty) 'updated_at': updatedAt,
       };
@@ -54,10 +70,20 @@ class YearNavEntry {
       '${m['year'] ?? m['year_key'] ?? ''}',
     );
     final nav = _d(m['nav_toman'] ?? m['nav'] ?? m['total_value']) ?? 0;
+    final usd = _d(m['nav_usd'] ?? m['usd'] ?? m['navUsd']);
+    var rate = _d(m['usdt_tmn'] ?? m['usdt_rate'] ?? m['usdtTmn']);
+    // Legacy rows: imply rate from manual USD when missing.
+    if ((rate == null || rate <= 0) &&
+        usd != null &&
+        usd > 0 &&
+        nav > 0) {
+      rate = nav / usd;
+    }
     return YearNavEntry(
       yearKey: year,
       navToman: nav,
-      usdtRate: _d(m['usdt_tmn'] ?? m['usdt_rate'] ?? m['usdtTmn']),
+      navUsd: (usd != null && usd > 0) ? usd : null,
+      usdtRate: (rate != null && rate > 0) ? rate : null,
       updatedAt: '${m['updated_at'] ?? ''}'.trim(),
     );
   }
@@ -178,5 +204,20 @@ class YearNavList {
     final y = int.tryParse(digits);
     if (y == null || y <= 0) return '';
     return y.toString().padLeft(4, '0');
+  }
+
+  /// Gregorian ISO for the last day of [yearKey] in [calendar].
+  static String yearEndIso(String yearKey, String calendar) {
+    final y = int.tryParse(normalizeYearKey(yearKey));
+    if (y == null) return todayIso();
+    if (calendar == AppConfig.calendarJalali) {
+      try {
+        final last = Jalali(y, 12, 1).monthLength;
+        return toIsoDate(Jalali(y, 12, last).toDateTime());
+      } catch (_) {
+        return toIsoDate(Jalali(y, 12, 29).toDateTime());
+      }
+    }
+    return '${y.toString().padLeft(4, '0')}-12-31';
   }
 }

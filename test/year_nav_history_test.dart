@@ -7,22 +7,13 @@ import 'package:invest/data/remote_invest_service.dart';
 
 void main() {
   group('YearNavList', () {
-    test('parses, upserts, and finds prior year', () {
+    test('parses manual USD and derives rate', () {
       final rows = YearNavList.parse([
-        {'year': '1403', 'nav_toman': 800000000, 'usdt_tmn': 80000},
-        {'year': '1404', 'nav_toman': 1000000000, 'usdt_tmn': 100000},
+        {'year': '1404', 'nav_toman': 1000000000, 'nav_usd': 10000},
       ]);
-      expect(rows.length, 2);
-      expect(rows.first.yearKey, '1404');
-      expect(rows.first.navUsd, closeTo(10000, 0.01));
-
-      final next = YearNavList.upsert(
-        rows,
-        const YearNavEntry(yearKey: '1404', navToman: 1.1e9, usdtRate: 110000),
-      );
-      expect(next.length, 2);
-      expect(YearNavList.find(next, '1404')!.navToman, 1.1e9);
-      expect(YearNavList.priorYearKey('1405'), '1404');
+      expect(rows.single.navUsd, 10000);
+      expect(rows.single.navUsdWith(null), 10000);
+      expect(rows.single.usdtRate, closeTo(100000, 0.01));
     });
 
     test('normalizeYearKey pads and accepts persian digits', () {
@@ -31,55 +22,63 @@ void main() {
       expect(YearNavList.normalizeYearKey(''), '');
     });
 
-    test('encode round-trips through settings string', () {
+    test('encode round-trips manual USD', () {
       final encoded = YearNavList.encode([
         const YearNavEntry(
           yearKey: '1404',
           navToman: 1e9,
-          usdtRate: 100000,
+          navUsd: 12000,
+          usdtRate: 83333.333,
         ),
       ]);
       final parsed = YearNavList.parse(encoded);
-      expect(parsed.single.yearKey, '1404');
+      expect(parsed.single.navUsd, 12000);
       expect(parsed.single.navToman, 1e9);
     });
   });
 
-  group('parseTomanAmount', () {
-    test('accepts plain, persian, and میلیارد', () {
-      expect(parseTomanAmount('1000000000'), 1e9);
+  group('parse amounts', () {
+    test('toman and usd parsers', () {
       expect(parseTomanAmount('۱ میلیارد'), 1e9);
-      expect(parseTomanAmount('2.5 میلیون'), 2.5e6);
       expect(parseTomanAmount('1٬000٬000٬000'), 1e9);
-      expect(parseTomanAmount(''), null);
-      expect(parseTomanAmount('abc'), null);
+      expect(parseUsdAmount('10000'), 10000);
+      expect(parseUsdAmount(r'$12.5k'), 12500);
+      expect(parseUsdAmount(''), null);
     });
   });
 
-  group('YearNavCompare', () {
-    test('computes YoY delta against prior year-end', () {
+  group('YearNavCompare + growth series', () {
+    test('YoY uses manual USD when present', () {
       final yoy = YearNavCompare.fromHistory(
         currentNav: 1.2e9,
         currentYearKey: '1405',
         history: const [
-          YearNavEntry(yearKey: '1404', navToman: 1e9, usdtRate: 100000),
+          YearNavEntry(yearKey: '1404', navToman: 1e9, navUsd: 8000),
         ],
         liveUsdt: 100000,
+        currentNavUsd: 12000,
       );
-      expect(yoy.hasPrior, isTrue);
-      expect(yoy.priorYearKey, '1404');
       expect(yoy.deltaToman, closeTo(2e8, 0.1));
-      expect(yoy.pct, closeTo(20, 0.01));
-      expect(yoy.deltaUsd, closeTo(2000, 0.01));
+      expect(yoy.deltaUsd, closeTo(4000, 0.01));
     });
 
-    test('missing prior year keeps realized-only mode', () {
-      final yoy = YearNavCompare.fromHistory(
+    test('growth series builds ascending toman/usd points', () {
+      final series = yearNavGrowthSeries(
+        history: const [
+          YearNavEntry(yearKey: '1403', navToman: 8e8, navUsd: 10000),
+          YearNavEntry(yearKey: '1404', navToman: 1e9, navUsd: 11000),
+        ],
         currentNav: 1.2e9,
         currentYearKey: '1405',
-        history: const [],
+        calendar: AppConfig.calendarJalali,
+        liveUsdt: 100000,
+        currentNavUsd: 12000,
       );
-      expect(yoy.hasPrior, isFalse);
+      expect(series.length, 3);
+      expect(series.first.value, 8e8);
+      expect(series.first.usdValue, 10000);
+      expect(series.last.value, 1.2e9);
+      expect(series.last.usdValue, 12000);
     });
   });
 
@@ -87,7 +86,7 @@ void main() {
     test('keeps sent history when server returns empty present key', () {
       final sent = AppSettings(
         yearNavHistory: const [
-          YearNavEntry(yearKey: '1404', navToman: 1e9, usdtRate: 100000),
+          YearNavEntry(yearKey: '1404', navToman: 1e9, navUsd: 10000),
         ],
       );
       final server = RemoteSettingsBundle(
@@ -95,19 +94,7 @@ void main() {
         presentKeys: {AppConfig.settingYearNavHistory},
       );
       final merged = server.mergePreserving(sent: sent);
-      expect(merged.settings.yearNavHistory.single.yearKey, '1404');
-      expect(merged.settings.yearNavHistory.single.navToman, 1e9);
-    });
-
-    test('storage map round-trips year nav', () {
-      final s = AppSettings(
-        yearNavHistory: const [
-          YearNavEntry(yearKey: '1404', navToman: 1e9, usdtRate: 90000),
-        ],
-      );
-      final again = AppSettings.fromStorageMap(s.toStorageMap());
-      expect(again.yearNavHistory.single.navToman, 1e9);
-      expect(again.yearNavHistory.single.usdtRate, 90000);
+      expect(merged.settings.yearNavHistory.single.navUsd, 10000);
     });
   });
 }

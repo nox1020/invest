@@ -107,7 +107,7 @@ void main() {
     expect(find.textContaining('Bitcoin'), findsNothing);
   });
 
-  testWidgets('capital desk shows YoY growth when prior year NAV exists',
+  testWidgets('capital desk shows YoY growth chart when prior year NAV exists',
       (tester) async {
     final state = AppState()
       ..loading = false
@@ -117,7 +117,12 @@ void main() {
         calendar: AppConfig.calendarGregorian,
         usdtTmnRate: 100000,
         yearNavHistory: const [
-          YearNavEntry(yearKey: '2025', navToman: 1e9, usdtRate: 100000),
+          YearNavEntry(
+            yearKey: '2025',
+            navToman: 1e9,
+            navUsd: 10000,
+            usdtRate: 100000,
+          ),
         ],
       )
       ..assets = [
@@ -169,6 +174,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('رشد نسبت به پایان 2025'), findsOneWidget);
+    expect(find.text('رشد سالانه'), findsOneWidget);
     expect(find.text('2025'), findsWidgets);
+    expect(find.textContaining(r'$10,000 · دستی'), findsOneWidget);
   });
 }
