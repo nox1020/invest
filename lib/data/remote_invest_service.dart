@@ -726,9 +726,7 @@ class RemoteSettingsBundle {
       profitAlerts: presentKeys.contains(AppConfig.settingProfitAlerts)
           ? settings.profitAlerts
           : sent.profitAlerts,
-      yearNavHistory: presentKeys.contains(AppConfig.settingYearNavHistory)
-          ? settings.yearNavHistory
-          : sent.yearNavHistory,
+      yearNavHistory: sent.yearNavHistory,
       autoRefreshSeconds: presentKeys.contains('price_refresh_seconds') ||
               presentKeys.contains('auto_refresh_seconds')
           ? settings.autoRefreshSeconds

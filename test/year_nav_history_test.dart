@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:invest/config/app_config.dart';
+import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/year_nav_entry.dart';
 import 'package:invest/domain/services/year_nav_compare.dart';
+import 'package:invest/data/remote_invest_service.dart';
 
 void main() {
   group('YearNavList', () {
@@ -22,6 +25,12 @@ void main() {
       expect(YearNavList.priorYearKey('1405'), '1404');
     });
 
+    test('normalizeYearKey pads and accepts persian digits', () {
+      expect(YearNavList.normalizeYearKey('۱۴۰۴'), '1404');
+      expect(YearNavList.normalizeYearKey('404'), '0404');
+      expect(YearNavList.normalizeYearKey(''), '');
+    });
+
     test('encode round-trips through settings string', () {
       final encoded = YearNavList.encode([
         const YearNavEntry(
@@ -41,6 +50,7 @@ void main() {
       expect(parseTomanAmount('1000000000'), 1e9);
       expect(parseTomanAmount('۱ میلیارد'), 1e9);
       expect(parseTomanAmount('2.5 میلیون'), 2.5e6);
+      expect(parseTomanAmount('1٬000٬000٬000'), 1e9);
       expect(parseTomanAmount(''), null);
       expect(parseTomanAmount('abc'), null);
     });
@@ -70,6 +80,34 @@ void main() {
         history: const [],
       );
       expect(yoy.hasPrior, isFalse);
+    });
+  });
+
+  group('remote mergePreserving year nav', () {
+    test('keeps sent history when server returns empty present key', () {
+      final sent = AppSettings(
+        yearNavHistory: const [
+          YearNavEntry(yearKey: '1404', navToman: 1e9, usdtRate: 100000),
+        ],
+      );
+      final server = RemoteSettingsBundle(
+        settings: AppSettings(yearNavHistory: const []),
+        presentKeys: {AppConfig.settingYearNavHistory},
+      );
+      final merged = server.mergePreserving(sent: sent);
+      expect(merged.settings.yearNavHistory.single.yearKey, '1404');
+      expect(merged.settings.yearNavHistory.single.navToman, 1e9);
+    });
+
+    test('storage map round-trips year nav', () {
+      final s = AppSettings(
+        yearNavHistory: const [
+          YearNavEntry(yearKey: '1404', navToman: 1e9, usdtRate: 90000),
+        ],
+      );
+      final again = AppSettings.fromStorageMap(s.toStorageMap());
+      expect(again.yearNavHistory.single.navToman, 1e9);
+      expect(again.yearNavHistory.single.usdtRate, 90000);
     });
   });
 }

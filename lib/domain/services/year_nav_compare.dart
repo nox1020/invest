@@ -55,7 +55,11 @@ class YearNavCompare {
 double? parseTomanAmount(String raw) {
   var t = raw.trim();
   if (t.isEmpty) return null;
-  t = _asciiDigits(t).replaceAll(',', '').replaceAll('،', '').replaceAll(' ', '');
+  t = _asciiDigits(t)
+      .replaceAll(',', '')
+      .replaceAll('،', '')
+      .replaceAll('٬', '')
+      .replaceAll(' ', '');
   var mult = 1.0;
   if (t.contains('میلیارد') || t.toLowerCase().contains('b')) {
     mult = 1e9;

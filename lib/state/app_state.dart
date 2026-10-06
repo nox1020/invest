@@ -992,13 +992,31 @@ class AppState extends ChangeNotifier {
       fetchSettings: false,
       checkApiVersion: false,
     );
-    // Refresh must not drop the percent we just saved.
+    // Refresh must not drop the percent / year-nav we just saved.
     if (settings.annualWithdrawalPct != sentAnnualPct) {
       settings.annualWithdrawalPct = sentAnnualPct;
       await _persistSettingsLocal(settings);
       await PriceAlertPrefs.saveFrom(settings);
       notifyListeners();
     }
+    if (!_sameYearNav(settings.yearNavHistory, sentYearNav)) {
+      settings.yearNavHistory = List<YearNavEntry>.from(sentYearNav);
+      await _persistSettingsLocal(settings);
+      await PriceAlertPrefs.saveFrom(settings);
+      notifyListeners();
+    }
+  }
+
+  static bool _sameYearNav(List<YearNavEntry> a, List<YearNavEntry> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].yearKey != b[i].yearKey ||
+          (a[i].navToman - b[i].navToman).abs() > 1e-6) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// Saves only the annual withdrawal policy percent (1–100) to memory,
@@ -1015,7 +1033,7 @@ class AppState extends ChangeNotifier {
     required String yearKey,
     required double navToman,
   }) async {
-    final key = yearKey.trim();
+    final key = YearNavList.normalizeYearKey(yearKey);
     if (key.isEmpty) {
       throw ArgumentError('سال الزامی است.');
     }
@@ -1036,8 +1054,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> deleteYearNav(String yearKey) async {
+    final key = YearNavList.normalizeYearKey(yearKey);
     final next = settings.copyWith(
-      yearNavHistory: YearNavList.remove(settings.yearNavHistory, yearKey),
+      yearNavHistory: YearNavList.remove(settings.yearNavHistory, key),
     );
     await saveSettings(next);
   }
@@ -1063,6 +1082,8 @@ class AppState extends ChangeNotifier {
   }) async {
     if (!useRemote || offline || remote == null || readOnlyOffline) return;
     try {
+      final sentYearNav = List<YearNavEntry>.from(settings.yearNavHistory);
+      final sentAnnualPct = settings.annualWithdrawalPct;
       final bundle = await remote!.saveSettings(
         settings,
         clientWithdrawals: clientWithdrawals ??
@@ -1071,6 +1092,8 @@ class AppState extends ChangeNotifier {
         appLockBiometric: biometricUnlockEnabled,
       );
       settings = bundle.settings;
+      settings.annualWithdrawalPct = sentAnnualPct;
+      settings.yearNavHistory = List<YearNavEntry>.from(sentYearNav);
       await _applyRemoteLockFromBundle(bundle);
       await _persistSettingsLocal(settings);
       await PriceAlertPrefs.saveFrom(settings);
@@ -1085,7 +1108,17 @@ class AppState extends ChangeNotifier {
     required bool migrate,
   }) async {
     settings = bundle.settings;
-    final filledGaps = await PriceAlertPrefs.fillGapsOnto(settings);
+    var filledGaps = await PriceAlertPrefs.fillGapsOnto(settings);
+    // Also heal from SQLite when Vinor returns empty year-nav history.
+    if (settings.yearNavHistory.isEmpty) {
+      await _ensureLocalSettingsRepo();
+      final map = await settingsRepo?.loadAll();
+      final fromDb = YearNavList.parse(map?[AppConfig.settingYearNavHistory]);
+      if (fromDb.isNotEmpty) {
+        settings.yearNavHistory = fromDb;
+        filledGaps = true;
+      }
+    }
     await _applyRemoteLockFromBundle(bundle, migrateLocal: migrate);
     await _persistSettingsLocal(settings);
     await PriceAlertPrefs.saveFrom(settings);
