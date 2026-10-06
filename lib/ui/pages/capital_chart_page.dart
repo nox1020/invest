@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:invest/domain/models/year_nav_entry.dart';
 import 'package:invest/domain/services/dashboard_pnl.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/withdrawal_allowance.dart';
+import 'package:invest/domain/services/year_nav_compare.dart';
+import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/dual_currency_chart.dart';
 import 'package:invest/ui/widgets/sparkline.dart';
+import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 
 /// Economist capital desk — opened from the dashboard NAV hero.
@@ -148,11 +152,26 @@ class _CapitalChartPageState extends State<CapitalChartPage>
                         lineColor: const Color(0xFF5B8DEF),
                       ),
               ),
+              const SizedBox(height: 20),
+              const _SectionLabel(
+                eyebrow: 'مقایسه',
+                title: 'پایان سال‌های گذشته',
+              ),
+              const SizedBox(height: 10),
+              _YearNavDesk(
+                history: state.settings.yearNavHistory,
+                currentNav: snap.marketValue,
+                currentYearKey: snap.yearKey,
+                calendar: calendar,
+                usdt: usdt,
+                readOnly: state.readOnlyOffline,
+              ),
               const SizedBox(height: 16),
               const _Footnote(
                 text:
-                    'NAV از موجودی زنده محاسبه می‌شود. بازده کل روی سرمایهٔ طول عمر '
-                    '(خرید باز + بسته) است. تخصیص دارایی در تب معاملات و ظرفیت برداشت در تب برداشت است.',
+                    'NAV از موجودی زنده محاسبه می‌شود. برای مقایسهٔ سالانه، فقط '
+                    'یک عدد پایان‌سال (تومان) کافی است؛ معادل دلاری از نرخ تتر '
+                    'محاسبه می‌شود. تخصیص در تب معاملات و برداشت در تب برداشت است.',
               ),
             ],
           ),
@@ -664,4 +683,353 @@ class _Footnote extends StatelessWidget {
       ),
     );
   }
+}
+
+class _YearNavDesk extends StatelessWidget {
+  const _YearNavDesk({
+    required this.history,
+    required this.currentNav,
+    required this.currentYearKey,
+    required this.calendar,
+    required this.usdt,
+    required this.readOnly,
+  });
+
+  final List<YearNavEntry> history;
+  final double currentNav;
+  final String currentYearKey;
+  final String calendar;
+  final double? usdt;
+  final bool readOnly;
+
+  @override
+  Widget build(BuildContext context) {
+    final yoy = YearNavCompare.fromHistory(
+      currentNav: currentNav,
+      currentYearKey: currentYearKey,
+      history: history,
+      liveUsdt: usdt,
+    );
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Column(
+        children: [
+          if (yoy.hasPrior)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          'رشد نسبت به پایان ${yoy.priorYearKey}',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            color: AppTheme.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          formatMoney(yoy.deltaToman, showSign: true),
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            color: yoy.deltaToman > 0
+                                ? AppTheme.positive
+                                : yoy.deltaToman < 0
+                                    ? AppTheme.negative
+                                    : AppTheme.title,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          [
+                            formatPct(yoy.pct),
+                            if (yoy.deltaUsd != null)
+                              formatUsd(yoy.deltaUsd!, showSign: true),
+                          ].join(' · '),
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            color: AppTheme.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (history.isEmpty)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(14, 18, 14, 10),
+              child: Text(
+                'مثلاً سال ۱۴۰۴ → ۱ میلیارد تومان. فقط یک عدد؛ دلار خودکار است.',
+                textAlign: TextAlign.right,
+                style: TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
+              ),
+            )
+          else
+            for (var i = 0; i < history.length; i++) ...[
+              if (i > 0 || yoy.hasPrior)
+                const Divider(height: 1, thickness: 1, color: AppTheme.border),
+              _YearNavRow(
+                entry: history[i],
+                usdt: usdt,
+                calendar: calendar,
+                readOnly: readOnly,
+              ),
+            ],
+          const Divider(height: 1, thickness: 1, color: AppTheme.border),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: readOnly
+                    ? null
+                    : () => _showYearNavEditor(context, usdt: usdt),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('افزودن سال گذشته'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _YearNavRow extends StatelessWidget {
+  const _YearNavRow({
+    required this.entry,
+    required this.usdt,
+    required this.calendar,
+    required this.readOnly,
+  });
+
+  final YearNavEntry entry;
+  final double? usdt;
+  final String calendar;
+  final bool readOnly;
+
+  @override
+  Widget build(BuildContext context) {
+    final usd = entry.navUsdWith(usdt);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 14, 8),
+      child: Row(
+        children: [
+          if (!readOnly)
+            IconButton(
+              tooltip: 'حذف',
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text('حذف سال ${entry.yearKey}؟'),
+                    content: const Text(
+                      'این عدد پایان‌سال از تاریخچه حذف می‌شود.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('انصراف'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('حذف'),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok != true || !context.mounted) return;
+                try {
+                  await context.read<AppState>().deleteYearNav(entry.yearKey);
+                } catch (e) {
+                  if (context.mounted) showUserError(context, e);
+                }
+              },
+              icon: const Icon(Icons.delete_outline, size: 20),
+            ),
+          Expanded(
+            child: InkWell(
+              onTap: readOnly
+                  ? null
+                  : () => _showYearNavEditor(
+                        context,
+                        usdt: usdt,
+                        existing: entry,
+                      ),
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      WithdrawalAllowance.yearCaption(entry.yearKey, calendar),
+                      style: const TextStyle(
+                        color: AppTheme.title,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      formatMoney(entry.navToman),
+                      style: const TextStyle(
+                        color: AppTheme.title,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      usd == null
+                          ? 'دلار: نرخ تتر نیست'
+                          : formatUsd(usd),
+                      style: const TextStyle(
+                        color: AppTheme.muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _showYearNavEditor(
+  BuildContext context, {
+  required double? usdt,
+  YearNavEntry? existing,
+}) async {
+  final state = context.read<AppState>();
+  final currentYear = yearPeriodKeyHint(state);
+  final prior = YearNavList.priorYearKey(currentYear);
+  final yearCtrl = TextEditingController(
+    text: existing?.yearKey.isNotEmpty == true
+        ? existing!.yearKey
+        : (prior.isNotEmpty ? prior : ''),
+  );
+  final navCtrl = TextEditingController(
+    text: existing == null
+        ? ''
+        : existing.navToman
+            .toStringAsFixed(0)
+            .replaceAll(RegExp(r'\.0+$'), ''),
+  );
+
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) {
+      return AlertDialog(
+        title: Text(existing == null ? 'افزودن سال گذشته' : 'ویرایش سال'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: yearCtrl,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              decoration: InputDecoration(
+                labelText: 'سال',
+                hintText: prior.isEmpty ? '۱۴۰۴' : prior,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: navCtrl,
+              keyboardType: TextInputType.text,
+              textAlign: TextAlign.center,
+              decoration: const InputDecoration(
+                labelText: 'ارزش پایان سال (تومان)',
+                hintText: '۱ میلیارد یا 1000000000',
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              usdt == null || usdt <= 0
+                  ? 'نرخ تتر در دسترس نیست؛ فقط تومان ذخیره می‌شود.'
+                  : 'معادل دلاری خودکار با تتر ${formatMoney(usdt)}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('انصراف'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ذخیره'),
+          ),
+        ],
+      );
+    },
+  );
+
+  final yearRaw = yearCtrl.text;
+  final navRaw = navCtrl.text;
+  yearCtrl.dispose();
+  navCtrl.dispose();
+  if (ok != true || !context.mounted) return;
+
+  final year = _asciiYear(yearRaw);
+  final nav = parseTomanAmount(navRaw);
+  if (year.isEmpty || nav == null) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('سال و یک عدد تومان معتبر وارد کنید.')),
+      );
+    }
+    return;
+  }
+
+  try {
+    await state.upsertYearNav(yearKey: year, navToman: nav);
+  } catch (e) {
+    if (context.mounted) showUserError(context, e);
+  }
+}
+
+String yearPeriodKeyHint(AppState state) {
+  final fromMetrics = state.metrics?.yearKey;
+  if (fromMetrics != null && fromMetrics.isNotEmpty) return fromMetrics;
+  return yearPeriodKey(todayIso(), state.settings.calendar);
+}
+
+String _asciiYear(String raw) {
+  const fa = '۰۱۲۳۴۵۶۷۸۹';
+  const ar = '٠١٢٣٤٥٦٧٨٩';
+  final buf = StringBuffer();
+  for (final c in raw.trim().split('')) {
+    final fi = fa.indexOf(c);
+    if (fi >= 0) {
+      buf.write(fi);
+      continue;
+    }
+    final ai = ar.indexOf(c);
+    if (ai >= 0) {
+      buf.write(ai);
+      continue;
+    }
+    if (RegExp(r'[0-9]').hasMatch(c)) buf.write(c);
+  }
+  return buf.toString();
 }

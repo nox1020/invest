@@ -43,6 +43,9 @@ class AppConfig {
   static const settingPriceAlerts = 'price_alerts';
   static const settingProfitAlerts = 'profit_alerts';
 
+  /// Year-end NAV history: `[{year, nav_toman, usdt_tmn}, …]`.
+  static const settingYearNavHistory = 'year_nav_history';
+
   /// PIN / password hash synced via Vinor settings (cross-device).
   static const settingAppLockHash = 'app_lock_hash';
   static const settingAppLockBiometric = 'app_lock_biometric';

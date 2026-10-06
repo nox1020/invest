@@ -6,6 +6,7 @@ import 'package:invest/domain/services/chart_series.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/services/index_analytics.dart';
+import 'package:invest/domain/services/year_nav_compare.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
@@ -146,7 +147,16 @@ class _DashboardBodyState extends State<_DashboardBody>
                         'دلار فقط با بهای خرید ثبت‌شده محاسبه می‌شود. برای لات‌های بدون دلار، «—» می‌بینید.',
                   ),
                 ),
-              _PnlLedger(snap: snap, usd: _usd),
+              _PnlLedger(
+                snap: snap,
+                usd: _usd,
+                yoy: YearNavCompare.fromHistory(
+                  currentNav: snap.marketValue,
+                  currentYearKey: snap.yearKey,
+                  history: state.settings.yearNavHistory,
+                  liveUsdt: usdt,
+                ),
+              ),
               if (snap.goldHoldingG > 0) ...[
                 const SizedBox(height: 10),
                 _GoldStrip(grams: snap.goldHoldingG),
@@ -701,13 +711,32 @@ class _TapeRow extends StatelessWidget {
 }
 
 class _PnlLedger extends StatelessWidget {
-  const _PnlLedger({required this.snap, required this.usd});
+  const _PnlLedger({
+    required this.snap,
+    required this.usd,
+    required this.yoy,
+  });
 
   final DashboardSnapshot snap;
   final bool usd;
+  final YearNavCompare yoy;
 
   @override
   Widget build(BuildContext context) {
+    final yearSpec = yoy.hasPrior
+        ? _PnlSpec(
+            title: 'رشد سال',
+            caption: 'نسبت به پایان ${yoy.priorYearKey}',
+            toman: yoy.deltaToman,
+            usd: yoy.deltaUsd,
+            pct: yoy.pct,
+          )
+        : _PnlSpec(
+            title: snap.yearKey.isEmpty ? 'امسال' : 'امسال ${snap.yearKey}',
+            caption: 'سود تحقق‌یافته · برای مقایسه، پایان سال قبل را در میز سرمایه بزنید',
+            toman: snap.yearRealizedPnl,
+            usd: snap.yearRealizedUsd,
+          );
     final items = [
       _PnlSpec(
         title: 'سود باز',
@@ -722,12 +751,7 @@ class _PnlLedger extends StatelessWidget {
         toman: snap.realizedPnl,
         usd: snap.realizedUsd,
       ),
-      _PnlSpec(
-        title: snap.yearKey.isEmpty ? 'امسال' : 'امسال ${snap.yearKey}',
-        caption: 'سود تحقق‌یافته دوره',
-        toman: snap.yearRealizedPnl,
-        usd: snap.yearRealizedUsd,
-      ),
+      yearSpec,
     ];
 
     return AnimatedSwitcher(
