@@ -5,6 +5,7 @@ import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/price_alert.dart';
 import 'package:invest/domain/models/profit_alert.dart';
+import 'package:invest/domain/models/year_nav_entry.dart';
 import 'package:invest/domain/services/price_alert_engine.dart';
 import 'package:invest/domain/services/profit_alert_engine.dart';
 
@@ -32,6 +33,7 @@ class PriceAlertPrefs {
         'persian_toolbox_url': s.persianToolboxUrl,
         'price_alerts': s.priceAlerts.map((e) => e.toJson()).toList(),
         'profit_alerts': s.profitAlerts.map((e) => e.toJson()).toList(),
+        'year_nav_history': s.yearNavHistory.map((e) => e.toJson()).toList(),
       }),
     );
   }
@@ -51,6 +53,9 @@ class PriceAlertPrefs {
     if (snap.hasProfitAlerts) {
       s.profitAlerts = snap.profitAlerts.map((e) => e.copy()).toList();
     }
+    if (snap.hasYearNavHistory) {
+      s.yearNavHistory = snap.yearNavHistory.map((e) => e.copyWith()).toList();
+    }
   }
 
   /// Apply device-local prefs only where the server payload left a gap.
@@ -68,6 +73,12 @@ class PriceAlertPrefs {
         snap.hasProfitAlerts &&
         snap.profitAlerts.isNotEmpty) {
       s.profitAlerts = snap.profitAlerts.map((e) => e.copy()).toList();
+      changed = true;
+    }
+    if (s.yearNavHistory.isEmpty &&
+        snap.hasYearNavHistory &&
+        snap.yearNavHistory.isNotEmpty) {
+      s.yearNavHistory = snap.yearNavHistory.map((e) => e.copyWith()).toList();
       changed = true;
     }
     // Heal annual % when the device has a saved policy and the server echo
@@ -190,6 +201,8 @@ class PriceAlertSnapshot {
     required this.alerts,
     required this.profitAlerts,
     this.hasProfitAlerts = false,
+    this.yearNavHistory = const [],
+    this.hasYearNavHistory = false,
   });
 
   final bool notificationsEnabled;
@@ -205,6 +218,8 @@ class PriceAlertSnapshot {
   final List<PriceAlert> alerts;
   final List<ProfitAlert> profitAlerts;
   final bool hasProfitAlerts;
+  final List<YearNavEntry> yearNavHistory;
+  final bool hasYearNavHistory;
 
   factory PriceAlertSnapshot.fromJson(Map<String, dynamic> m) {
     return PriceAlertSnapshot(
@@ -225,6 +240,8 @@ class PriceAlertSnapshot {
       alerts: PriceAlertList.parse(m['price_alerts']),
       profitAlerts: ProfitAlertList.parse(m['profit_alerts']),
       hasProfitAlerts: m.containsKey('profit_alerts'),
+      yearNavHistory: YearNavList.parse(m['year_nav_history']),
+      hasYearNavHistory: m.containsKey('year_nav_history'),
     );
   }
 }

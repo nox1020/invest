@@ -135,6 +135,10 @@ class BackupPayload {
       if (settings.profitAlerts.isEmpty && fromRaw.profitAlerts.isNotEmpty) {
         settings.profitAlerts = fromRaw.profitAlerts;
       }
+      if (settings.yearNavHistory.isEmpty &&
+          fromRaw.yearNavHistory.isNotEmpty) {
+        settings.yearNavHistory = fromRaw.yearNavHistory;
+      }
       if (!settingsMap.containsKey('notify_background') &&
           raw.containsKey(AppConfig.settingNotifyBackground)) {
         settings.notifyBackground = fromRaw.notifyBackground;

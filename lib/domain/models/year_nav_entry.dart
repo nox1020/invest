@@ -50,7 +50,9 @@ class YearNavEntry {
       };
 
   factory YearNavEntry.fromJson(Map<String, dynamic> m) {
-    final year = '${m['year'] ?? m['year_key'] ?? ''}'.trim();
+    final year = YearNavList.normalizeYearKey(
+      '${m['year'] ?? m['year_key'] ?? ''}',
+    );
     final nav = _d(m['nav_toman'] ?? m['nav'] ?? m['total_value']) ?? 0;
     return YearNavEntry(
       yearKey: year,
@@ -148,8 +150,33 @@ class YearNavList {
 
   /// Year key immediately before [yearKey] (Jalali or Gregorian digit year).
   static String priorYearKey(String yearKey) {
-    final y = int.tryParse(yearKey.trim());
+    final y = int.tryParse(normalizeYearKey(yearKey));
     if (y == null) return '';
     return (y - 1).toString().padLeft(4, '0');
+  }
+
+  /// Normalize free-text year to a 4-digit key (`۱۴۰۴` → `1404`).
+  static String normalizeYearKey(String raw) {
+    const fa = '۰۱۲۳۴۵۶۷۸۹';
+    const ar = '٠١٢٣٤٥٦٧٨٩';
+    final buf = StringBuffer();
+    for (final c in raw.trim().split('')) {
+      final fi = fa.indexOf(c);
+      if (fi >= 0) {
+        buf.write(fi);
+        continue;
+      }
+      final ai = ar.indexOf(c);
+      if (ai >= 0) {
+        buf.write(ai);
+        continue;
+      }
+      if (RegExp(r'[0-9]').hasMatch(c)) buf.write(c);
+    }
+    final digits = buf.toString();
+    if (digits.isEmpty) return '';
+    final y = int.tryParse(digits);
+    if (y == null || y <= 0) return '';
+    return y.toString().padLeft(4, '0');
   }
 }

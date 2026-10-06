@@ -990,7 +990,7 @@ Future<void> _showYearNavEditor(
   navCtrl.dispose();
   if (ok != true || !context.mounted) return;
 
-  final year = _asciiYear(yearRaw);
+  final year = YearNavList.normalizeYearKey(yearRaw);
   final nav = parseTomanAmount(navRaw);
   if (year.isEmpty || nav == null) {
     if (context.mounted) {
@@ -1012,24 +1012,4 @@ String yearPeriodKeyHint(AppState state) {
   final fromMetrics = state.metrics?.yearKey;
   if (fromMetrics != null && fromMetrics.isNotEmpty) return fromMetrics;
   return yearPeriodKey(todayIso(), state.settings.calendar);
-}
-
-String _asciiYear(String raw) {
-  const fa = '۰۱۲۳۴۵۶۷۸۹';
-  const ar = '٠١٢٣٤٥٦٧٨٩';
-  final buf = StringBuffer();
-  for (final c in raw.trim().split('')) {
-    final fi = fa.indexOf(c);
-    if (fi >= 0) {
-      buf.write(fi);
-      continue;
-    }
-    final ai = ar.indexOf(c);
-    if (ai >= 0) {
-      buf.write(ai);
-      continue;
-    }
-    if (RegExp(r'[0-9]').hasMatch(c)) buf.write(c);
-  }
-  return buf.toString();
 }
