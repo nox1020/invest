@@ -15,6 +15,10 @@ class NotificationService {
   bool _ready = false;
   int _seq = 0;
 
+  /// Bare drawable name under `res/drawable`. A `@mipmap/...` path is not a
+  /// drawable; the plugin then throws `invalid_icon` and aborts startup.
+  static const androidNotificationIcon = 'ic_stat_invest';
+
   static const _channelTrades = 'vplus_trades';
   static const _channelWithdrawals = 'vplus_withdrawals';
   static const _channelPrices = 'vplus_price_alerts';
@@ -23,11 +27,15 @@ class NotificationService {
 
   Future<void> init() async {
     if (_ready) return;
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: android);
-    await _plugin.initialize(initSettings);
-    await _ensureChannels();
-    _ready = true;
+    try {
+      const android = AndroidInitializationSettings(androidNotificationIcon);
+      const initSettings = InitializationSettings(android: android);
+      await _plugin.initialize(initSettings);
+      await _ensureChannels();
+      _ready = true;
+    } catch (_) {
+      // Missing icon or a plugin error must not keep the app from opening.
+    }
   }
 
   Future<void> _ensureChannels() async {
@@ -117,6 +125,7 @@ class NotificationService {
     int? id,
   }) async {
     await init();
+    if (!_ready) return;
     final channel = switch (kind) {
       NotificationKind.trades => _channelTrades,
       NotificationKind.withdrawals => _channelWithdrawals,
@@ -148,6 +157,7 @@ class NotificationService {
           channel,
           channelName,
           channelDescription: 'V+',
+          icon: androidNotificationIcon,
           importance: Importance.high,
           priority: Priority.high,
           styleInformation: BigTextStyleInformation(body),
