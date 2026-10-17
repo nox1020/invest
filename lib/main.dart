@@ -22,14 +22,25 @@ Future<void> main() async {
       statusBarIconBrightness: Brightness.light,
     ),
   );
-  await NotificationService.instance.init();
-  await BackgroundPriceWorker.initialize();
+  // Paint the loading screen before plugins and the Vinor handshake.
+  // Those calls used to run first, so a thrown notification init or a
+  // stalled platform channel left the process on the white splash and
+  // the installed app never opened.
   final state = AppState();
-  await state.init();
   runApp(
     ChangeNotifierProvider.value(
       value: state,
       child: const InvestApp(),
     ),
   );
+  await WidgetsBinding.instance.endOfFrame;
+  try {
+    await NotificationService.instance.init();
+  } catch (_) {}
+  try {
+    await BackgroundPriceWorker.initialize();
+  } catch (_) {}
+  try {
+    await state.init();
+  } catch (_) {}
 }
