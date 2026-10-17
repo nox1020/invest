@@ -19,6 +19,7 @@ class NotificationService {
   static const _channelWithdrawals = 'vplus_withdrawals';
   static const _channelPrices = 'vplus_price_alerts';
   static const _channelGeneral = 'vplus_general';
+  static const _channelChecks = 'vplus_checks';
 
   Future<void> init() async {
     if (_ready) return;
@@ -63,6 +64,14 @@ class NotificationService {
         'عمومی',
         description: 'اعلان‌های عمومی V+',
         importance: Importance.defaultImportance,
+      ),
+    );
+    await android.createNotificationChannel(
+      const AndroidNotificationChannel(
+        _channelChecks,
+        'چک‌ها',
+        description: 'سررسید، برگشت و وصول چک',
+        importance: Importance.high,
       ),
     );
   }
@@ -112,12 +121,14 @@ class NotificationService {
       NotificationKind.trades => _channelTrades,
       NotificationKind.withdrawals => _channelWithdrawals,
       NotificationKind.prices => _channelPrices,
+      NotificationKind.checks => _channelChecks,
       NotificationKind.general => _channelGeneral,
     };
     final channelName = switch (kind) {
       NotificationKind.trades => 'معاملات',
       NotificationKind.withdrawals => 'برداشت‌ها',
       NotificationKind.prices => 'هشدار قیمت',
+      NotificationKind.checks => 'چک‌ها',
       NotificationKind.general => 'عمومی',
     };
     final nid = id ?? (++_seq) % 100000;
@@ -152,4 +163,4 @@ class NotificationService {
       );
 }
 
-enum NotificationKind { trades, withdrawals, prices, general }
+enum NotificationKind { trades, withdrawals, prices, checks, general }

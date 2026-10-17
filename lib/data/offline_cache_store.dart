@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/iran_inflation.dart';
 import 'package:invest/domain/models/metrics.dart';
@@ -24,6 +25,7 @@ class OfflineCacheStore {
     required List<Trade> openTrades,
     required List<Trade> closedTrades,
     List<Withdrawal> withdrawals = const [],
+    List<BankCheck> checks = const [],
     double? liveUsdt,
     double? liveGold,
   }) async {
@@ -51,6 +53,7 @@ class OfflineCacheStore {
       'open_trades': openTrades.map(_tradeJson).toList(),
       'closed_trades': closedTrades.map(_tradeJson).toList(),
       'withdrawals': withdrawals.map(_withdrawalJson).toList(),
+      'checks': checks.map((c) => c.toMap()).toList(),
       'live_usdt': liveUsdt,
       'live_gold': liveGold,
     };
@@ -97,6 +100,9 @@ class OfflineCacheStore {
       final withdrawals = ((map['withdrawals'] as List?) ?? const [])
           .map((e) => Withdrawal.fromMap(_toObjMap(e as Map)))
           .toList();
+      final checks = ((map['checks'] as List?) ?? const [])
+          .map((e) => BankCheck.fromMap(_toObjMap(e as Map)))
+          .toList();
       return OfflinePortfolioSnapshot(
         savedAt: DateTime.tryParse(map['saved_at'] as String? ?? ''),
         settings: settings,
@@ -105,6 +111,7 @@ class OfflineCacheStore {
         openTrades: open,
         closedTrades: closed,
         withdrawals: withdrawals,
+        checks: checks,
         liveUsdt: (map['live_usdt'] as num?)?.toDouble(),
         liveGold: (map['live_gold'] as num?)?.toDouble(),
       );
@@ -259,6 +266,7 @@ class OfflinePortfolioSnapshot {
     required this.openTrades,
     required this.closedTrades,
     this.withdrawals = const [],
+    this.checks = const [],
     this.liveUsdt,
     this.liveGold,
   });
@@ -270,6 +278,7 @@ class OfflinePortfolioSnapshot {
   final List<Trade> openTrades;
   final List<Trade> closedTrades;
   final List<Withdrawal> withdrawals;
+  final List<BankCheck> checks;
   final double? liveUsdt;
   final double? liveGold;
 }

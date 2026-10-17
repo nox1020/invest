@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/app_lock_store.dart';
 import 'package:invest/data/app_database.dart';
+import 'package:invest/data/check_repository.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/notification_inbox_store.dart';
 import 'package:invest/data/offline_cache_store.dart';
@@ -13,6 +15,7 @@ import 'package:invest/data/session_store.dart';
 import 'package:invest/data/withdrawal_repository.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
@@ -24,6 +27,7 @@ import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/services/backup_payload.dart';
 import 'package:invest/domain/services/backup_service.dart';
 import 'package:invest/domain/services/chart_series.dart';
+import 'package:invest/domain/services/check_ledger.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/iran_inflation_service.dart';
 import 'package:invest/domain/services/notification_service.dart';
@@ -44,6 +48,7 @@ import 'package:invest/security/app_lock.dart';
 import 'package:invest/security/biometric_auth.dart';
 import 'package:invest/services/refresh_coordinator.dart';
 import 'package:invest/ui/widgets/user_error.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 /// App-wide state — online (Vinor API), offline cache, or local SQLite.
@@ -65,6 +70,7 @@ class AppState extends ChangeNotifier {
   PortfolioService? portfolio;
   SettingsRepository? settingsRepo;
   WithdrawalRepository? _withdrawalsRepo;
+  CheckRepository? _checksRepo;
   QuoteClients? quotes;
   CommodityIndexService? commodityIndexService;
 
@@ -74,6 +80,7 @@ class AppState extends ChangeNotifier {
   List<Trade> openTrades = [];
   List<Trade> closedTrades = [];
   List<Withdrawal> withdrawals = [];
+  List<BankCheck> checks = [];
   bool _withdrawalsFromRemote = false;
 
   /// True when withdrawals are stored in Vinor settings (`client_withdrawals`)
@@ -83,6 +90,15 @@ class AppState extends ChangeNotifier {
   /// Set after withdrawals have been loaded/restored this session so settings
   /// pushes cannot wipe the server mirror with an empty default list.
   bool _withdrawalsHydrated = false;
+
+  /// Set after the cheque book has been loaded so a settings push cannot
+  /// wipe the server mirror with an empty default list.
+  bool _checksHydrated = false;
+
+  /// Local cheque book differs from the server mirror and must be pushed
+  /// before a settings fetch is allowed to replace it.
+  bool _checksPendingSync = false;
+  final Set<String> _checkAlertKeys = {};
   bool loading = true;
   bool refreshing = false;
   String? error;
@@ -179,10 +195,17 @@ class AppState extends ChangeNotifier {
 
   double get withdrawableAmount => withdrawalAllowance.available;
 
+  CheckLedger get checkLedger => CheckLedger.summarize(checks);
+
   Future<WithdrawalRepository> _localWithdrawals() async {
     _withdrawalsRepo ??=
         WithdrawalRepository(await AppDatabase.instance.database);
     return _withdrawalsRepo!;
+  }
+
+  Future<CheckRepository> _localChecks() async {
+    _checksRepo ??= CheckRepository(await AppDatabase.instance.database);
+    return _checksRepo!;
   }
 
   Future<void> init({Database? testDb}) async {
@@ -268,6 +291,7 @@ class AppState extends ChangeNotifier {
     portfolio = PortfolioService(db);
     settingsRepo = SettingsRepository(db);
     _withdrawalsRepo = WithdrawalRepository(db);
+    _checksRepo = CheckRepository(db);
     quotes = QuoteClients();
     commodityIndexService = CommodityIndexService();
     iranInflationService = IranInflationService();
@@ -320,7 +344,14 @@ class AppState extends ChangeNotifier {
     openTrades = snap.openTrades;
     closedTrades = snap.closedTrades;
     withdrawals = snap.withdrawals;
+    checks = List<BankCheck>.from(snap.checks);
+    if (checks.isEmpty) {
+      await _loadLocalChecks();
+    } else {
+      await _persistChecksLocal();
+    }
     _withdrawalsHydrated = true;
+    _checksHydrated = true;
     liveUsdt = snap.liveUsdt ?? settings.usdtTmnRate;
     liveGold = snap.liveGold ?? settings.goldTmnPerGram;
     lastSyncedAt = snap.savedAt;
@@ -351,6 +382,7 @@ class AppState extends ChangeNotifier {
     portfolio = PortfolioService(db);
     settingsRepo = SettingsRepository(db);
     _withdrawalsRepo = WithdrawalRepository(db);
+    _checksRepo = CheckRepository(db);
     quotes ??= QuoteClients();
     commodityIndexService ??= CommodityIndexService();
     iranInflationService ??= IranInflationService();
@@ -460,9 +492,13 @@ class AppState extends ChangeNotifier {
     openTrades = [];
     closedTrades = [];
     withdrawals = [];
+    checks = [];
     _withdrawalsFromRemote = false;
     _withdrawalsViaSettings = false;
     _withdrawalsHydrated = false;
+    _checksHydrated = false;
+    _checksPendingSync = false;
+    _checkAlertKeys.clear();
     try {
       await OfflineCacheStore.clearUserData();
       await PriceAlertPrefs.clear();
@@ -955,6 +991,7 @@ class AppState extends ChangeNotifier {
           // Mirror withdrawals once hydrated so annual-% edits cannot drop
           // server-side history (dedicated API may be absent).
           clientWithdrawals: _withdrawalsHydrated ? withdrawals : null,
+          clientChecks: _checksHydrated ? checks : null,
           appLockHash: appLockHash ?? '',
           appLockBiometric: biometricUnlockEnabled,
         );
@@ -974,6 +1011,8 @@ class AppState extends ChangeNotifier {
           withdrawals = List<Withdrawal>.from(bundle.clientWithdrawals);
           _withdrawalsViaSettings = true;
         }
+        // Cheque edits are pushed from memory. Do not replace that book with
+        // the PUT echo — an older server may echo a stale list.
       } catch (e) {
         remoteError = e;
       }
@@ -1095,16 +1134,19 @@ class AppState extends ChangeNotifier {
   /// Push settings + lock + optional withdrawal mirror to Vinor.
   Future<void> _pushUserExtrasToServer({
     List<Withdrawal>? clientWithdrawals,
+    List<BankCheck>? clientChecks,
     bool rethrowErrors = false,
   }) async {
     if (!useRemote || offline || remote == null || readOnlyOffline) return;
     try {
       final sentYearNav = List<YearNavEntry>.from(settings.yearNavHistory);
       final sentAnnualPct = settings.annualWithdrawalPct;
+      final sentChecks = clientChecks ?? (_checksHydrated ? checks : null);
       final bundle = await remote!.saveSettings(
         settings,
         clientWithdrawals: clientWithdrawals ??
             (_withdrawalsHydrated ? withdrawals : null),
+        clientChecks: sentChecks,
         appLockHash: appLockHash ?? '',
         appLockBiometric: biometricUnlockEnabled,
       );
@@ -1306,6 +1348,7 @@ class AppState extends ChangeNotifier {
         remoteItems: remoteWithdrawals,
         settingsBundle: settingsBundle,
       );
+      await _applyChecksAfterFetch(settingsBundle);
       await _overlayLiveMarks();
       lastSyncedAt = DateTime.now();
       await OfflineCacheStore.savePortfolio(
@@ -1315,6 +1358,7 @@ class AppState extends ChangeNotifier {
         openTrades: openTrades,
         closedTrades: closedTrades,
         withdrawals: withdrawals,
+        checks: checks,
         liveUsdt: liveUsdt,
         liveGold: liveGold,
       );
@@ -1336,6 +1380,8 @@ class AppState extends ChangeNotifier {
       metrics = await portfolio!.getMetrics(calendar: settings.calendar);
       await _loadLocalWithdrawals();
       _withdrawalsHydrated = true;
+      await _loadLocalChecks();
+      _checksHydrated = true;
       await portfolio!.recordSnapshot();
       lastSyncedAt = DateTime.now();
     } finally {
@@ -1436,6 +1482,208 @@ class AppState extends ChangeNotifier {
       // Older local DBs without the table still render an empty history.
       withdrawals = [];
     }
+  }
+
+  Future<void> _loadLocalChecks() async {
+    try {
+      checks = await (await _localChecks()).listAll();
+    } catch (_) {
+      checks = [];
+    }
+  }
+
+  Future<void> _persistChecksLocal() async {
+    try {
+      await (await _localChecks()).replaceAll(checks);
+    } catch (_) {}
+  }
+
+  Future<void> _applyChecksAfterFetch(RemoteSettingsBundle? bundle) async {
+    if (_checksPendingSync) {
+      await _flushChecks();
+      await _remindCheckDues();
+      return;
+    }
+    if (bundle != null && bundle.hasClientChecks) {
+      checks = List<BankCheck>.from(bundle.clientChecks);
+      await _persistChecksLocal();
+    } else if (!_checksHydrated) {
+      await _loadLocalChecks();
+    }
+    _checksHydrated = true;
+    if (bundle != null &&
+        !bundle.hasClientChecks &&
+        checks.isNotEmpty &&
+        useRemote &&
+        !offline &&
+        !readOnlyOffline) {
+      await _flushChecks();
+    }
+    await _remindCheckDues();
+  }
+
+  /// Insert or update one cheque. Local book is written first, then mirrored
+  /// into Vinor settings when online.
+  ///
+  /// [synced] is false when the device copy is saved but the server mirror
+  /// did not accept it yet.
+  Future<({BankCheck check, bool synced})> saveCheck(BankCheck draft) async {
+    if (!canMutate) {
+      throw StateError(
+        'در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.',
+      );
+    }
+    final prepared = prepareBankCheck(draft, others: checks);
+    final now = nowIso();
+    final id = prepared.id ?? _nextCheckId();
+    final saved = prepared.copyWith(
+      id: id,
+      createdAt: prepared.createdAt.trim().isEmpty ? now : prepared.createdAt,
+      updatedAt: now,
+    );
+    final next = [
+      for (final c in checks)
+        if (c.id != id) c,
+      saved,
+    ];
+    final synced = await _commitChecks(next);
+    await emitLocalAlert(
+      kind: NotificationKind.checks,
+      title: draft.id == null ? 'چک ثبت شد' : 'چک ویرایش شد',
+      body:
+          '${saved.directionLabel} · ${saved.statusLabel} · ${formatMoney(saved.amount)}',
+    );
+    return (check: saved, synced: synced);
+  }
+
+  Future<bool> setCheckStatus(
+    BankCheck item,
+    String status, {
+    String? settledDate,
+  }) async {
+    if (item.id == null) {
+      throw ArgumentError('شناسه چک نامعتبر است.');
+    }
+    final result = await saveCheck(
+      item.copyWith(
+        status: status,
+        settledDate: settledDate,
+        clearSettledDate: status == checkStatusPending,
+      ),
+    );
+    return result.synced;
+  }
+
+  Future<bool> deleteCheck(BankCheck item) async {
+    if (!canMutate) {
+      throw StateError(
+        'در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.',
+      );
+    }
+    if (item.id == null) {
+      throw ArgumentError('شناسه چک نامعتبر است.');
+    }
+    final next = [for (final c in checks) if (c.id != item.id) c];
+    return _commitChecks(next);
+  }
+
+  Future<bool> _commitChecks(List<BankCheck> next) async {
+    final repo = await _localChecks();
+    await repo.replaceAll(next);
+    checks = next;
+    _checksHydrated = true;
+    _checksPendingSync = true;
+    notifyListeners();
+    final synced = await _flushChecks();
+    await _persistWithdrawalCache();
+    await _remindCheckDues();
+    return synced;
+  }
+
+  Future<bool> _flushChecks() async {
+    if (!useRemote || offline || remote == null || readOnlyOffline) {
+      _checksPendingSync = false;
+      return true;
+    }
+    try {
+      await _pushUserExtrasToServer(
+        clientChecks: checks,
+        rethrowErrors: true,
+      );
+      _checksPendingSync = false;
+      return true;
+    } catch (_) {
+      _checksPendingSync = true;
+      return false;
+    }
+  }
+
+  int _nextCheckId() {
+    var maxId = 0;
+    for (final c in checks) {
+      final id = c.id ?? 0;
+      if (id > maxId) maxId = id;
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return now > maxId ? now : maxId + 1;
+  }
+
+  Future<void> _remindCheckDues() async {
+    if (!settings.notificationsEnabled || checks.isEmpty) return;
+    final today = todayIso();
+    final pending = <BankCheck>[];
+    for (final c in checks) {
+      if (!c.isOpen || c.id == null) continue;
+      final days = c.daysUntilDue();
+      if (days > 3) continue;
+      final key = '${c.id}|$today';
+      if (_checkAlertKeys.contains(key)) continue;
+      pending.add(c);
+    }
+    if (pending.isEmpty) return;
+
+    Map<String, dynamic> seen = {};
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('check_due_alerts_v1');
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) seen = Map<String, dynamic>.from(decoded);
+      }
+      final dueToday = <String, String>{};
+      for (final c in pending) {
+        final key = '${c.id}|$today';
+        if (seen[key] == today) {
+          _checkAlertKeys.add(key);
+          continue;
+        }
+        final days = c.daysUntilDue();
+        final when = c.dueRelativeLabel();
+        final who = c.counterparty.trim().isEmpty
+            ? c.bankName.trim()
+            : c.counterparty.trim();
+        final title = days < 0
+            ? 'سررسید چک گذشته است'
+            : days == 0
+                ? 'سررسید چک امروز است'
+                : 'سررسید چک نزدیک است';
+        await emitLocalAlert(
+          kind: NotificationKind.checks,
+          title: title,
+          body:
+              '${c.directionLabel} ${formatMoney(c.amount)} · $when${who.isEmpty ? '' : ' · $who'}',
+        );
+        _checkAlertKeys.add(key);
+        dueToday[key] = today;
+      }
+      if (dueToday.isEmpty) return;
+      seen.addAll(dueToday);
+      final keep = <String, String>{};
+      for (final e in seen.entries) {
+        if (e.value == today) keep[e.key] = today;
+      }
+      await prefs.setString('check_due_alerts_v1', jsonEncode(keep));
+    } catch (_) {}
   }
 
   Future<void> recordWithdrawal({
@@ -1577,6 +1825,7 @@ class AppState extends ChangeNotifier {
       NotificationKind.trades => s.tradesAlertsOn,
       NotificationKind.withdrawals => s.withdrawalAlertsOn,
       NotificationKind.prices => s.priceAlertsOn,
+      NotificationKind.checks => s.notificationsEnabled,
       NotificationKind.general => s.notificationsEnabled,
     };
     if (!allowed) return;
@@ -1598,6 +1847,7 @@ class AppState extends ChangeNotifier {
       openTrades: openTrades,
       closedTrades: closedTrades,
       withdrawals: withdrawals,
+      checks: checks,
       liveUsdt: liveUsdt,
       liveGold: liveGold,
     );
@@ -1852,6 +2102,7 @@ class AppState extends ChangeNotifier {
       openTrades: openTrades,
       closedTrades: closedTrades,
       withdrawals: withdrawals,
+      checks: checks,
       capitalSnapshots: snaps,
       appLockHash: appLockHash,
       biometricUnlockEnabled: biometricUnlockEnabled,
@@ -1883,6 +2134,7 @@ class AppState extends ChangeNotifier {
     portfolio ??= PortfolioService(db);
     settingsRepo ??= SettingsRepository(db);
     _withdrawalsRepo ??= WithdrawalRepository(db);
+    _checksRepo ??= CheckRepository(db);
 
     await BackupService.restoreLocalDatabase(db, payload);
     await BackupService.restoreAppLock(payload);
@@ -1928,9 +2180,11 @@ class AppState extends ChangeNotifier {
     closedTrades =
         payload.trades.where((t) => t.status == AppConfig.tradeClosed).toList();
     withdrawals = List<Withdrawal>.from(payload.withdrawals);
+    checks = List<BankCheck>.from(payload.checks);
     _withdrawalsFromRemote = false;
     _withdrawalsViaSettings = payload.withdrawals.isNotEmpty;
     _withdrawalsHydrated = true;
+    _checksHydrated = true;
     liveUsdt = settings.usdtTmnRate;
     liveGold = settings.goldTmnPerGram;
 
@@ -1950,6 +2204,15 @@ class AppState extends ChangeNotifier {
         _withdrawalsViaSettings = true;
         _withdrawalsFromRemote = false;
       }
+      if (checks.isEmpty && payload.checks.isNotEmpty) {
+        checks = List<BankCheck>.from(payload.checks);
+        _checksHydrated = true;
+        await _persistChecksLocal();
+        await _pushUserExtrasToServer(
+          clientChecks: checks,
+          rethrowErrors: true,
+        );
+      }
     } else if (!useRemote) {
       await refreshAll(
         includeQuotes: false,
@@ -1957,6 +2220,8 @@ class AppState extends ChangeNotifier {
         checkApiVersion: false,
       );
       withdrawals = List<Withdrawal>.from(payload.withdrawals);
+      checks = List<BankCheck>.from(payload.checks);
+      _checksHydrated = true;
     } else if (payload.withdrawals.isNotEmpty) {
       // Offline / read-only remote: keep restored history in local DB + cache.
       final repo = await _localWithdrawals();
@@ -2006,6 +2271,7 @@ class AppState extends ChangeNotifier {
     await svc.saveSettings(
       payload.settings,
       clientWithdrawals: payload.withdrawals,
+      clientChecks: payload.checks,
       appLockHash: payload.appLockHash ?? '',
       appLockBiometric: payload.biometricUnlockEnabled,
     );
@@ -2140,6 +2406,7 @@ class AppState extends ChangeNotifier {
     await svc.saveSettings(
       payload.settings,
       clientWithdrawals: payload.withdrawals,
+      clientChecks: payload.checks,
       appLockHash: payload.appLockHash ?? '',
       appLockBiometric: payload.biometricUnlockEnabled,
     );

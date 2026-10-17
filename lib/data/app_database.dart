@@ -3,6 +3,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'package:invest/config/app_config.dart';
+import 'package:invest/data/check_repository.dart';
 import 'package:invest/domain/utils/dates.dart';
 
 class AppDatabase {
@@ -32,7 +33,7 @@ class AppDatabase {
     final path = p.join(dir.path, 'invest.db');
     return openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('PRAGMA foreign_keys = ON');
         await _createSchema(db);
@@ -44,6 +45,9 @@ class AppDatabase {
         }
         if (oldVersion < 3) {
           await _addBuyPriceUsdColumn(db);
+        }
+        if (oldVersion < 4) {
+          await ensureChecksTable(db);
         }
       },
       onOpen: (db) async {
@@ -104,6 +108,14 @@ CREATE TABLE IF NOT EXISTS capital_snapshots (
 );
 ''');
     await _createWithdrawalsTable(db);
+    await ensureChecksTable(db);
+  }
+
+  static Future<void> ensureChecksTable(DatabaseExecutor db) async {
+    await db.execute(CheckRepository.createSql);
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_checks_due ON checks(due_date)',
+    );
   }
 
   static Future<void> _createWithdrawalsTable(Database db) async {

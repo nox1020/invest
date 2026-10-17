@@ -4,6 +4,7 @@ import 'package:invest/data/remote_invest_service.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/price_alert.dart';
 import 'package:invest/domain/models/profit_alert.dart';
+import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 
 void main() {
@@ -84,6 +85,55 @@ void main() {
     expect(merged.appLockBiometric, isFalse);
     expect(merged.hasClientWithdrawals, isTrue);
     expect(merged.clientWithdrawals.single.id, 1);
+    expect(merged.hasClientChecks, isFalse);
+  });
+
+  test('parses client checks and keeps a sent book the server dropped', () {
+    final bundle = RemoteSettingsBundle.fromApiMap({
+      'calendar': 'jalali',
+      'raw': {
+        'client_checks': [
+          {
+            'id': 4,
+            'direction': 'payable',
+            'amount': 250000,
+            'issue_date': '2026-10-01',
+            'due_date': '2026-11-01',
+            'check_number': '88',
+            'status': 'pending',
+          },
+        ],
+      },
+    });
+    expect(bundle.hasClientChecks, isTrue);
+    expect(bundle.clientChecks.single.direction, 'payable');
+    expect(bundle.clientChecks.single.dueDate, '2026-11-01');
+
+    final dropped = RemoteSettingsBundle.fromApiMap({
+      'calendar': 'jalali',
+    }).mergePreserving(
+      sent: AppSettings(),
+      clientChecks: [
+        BankCheck(
+          id: 9,
+          direction: checkDirectionReceivable,
+          amount: 10,
+          issueDate: '2026-01-01',
+          dueDate: '2026-02-01',
+          checkNumber: '1',
+        ),
+      ],
+    );
+    expect(dropped.hasClientChecks, isTrue);
+    expect(dropped.clientChecks.single.id, 9);
+
+    final echoedEmpty = RemoteSettingsBundle.fromApiMap({
+      'client_checks': <Map<String, dynamic>>[],
+    }).mergePreserving(
+      sent: AppSettings(),
+      clientChecks: dropped.clientChecks,
+    );
+    expect(echoedEmpty.clientChecks.single.id, 9);
   });
 
   test('empty app_lock_hash clears lock', () {

@@ -59,7 +59,8 @@ Future<void> exportAppBackup(BuildContext context) async {
             'پشتیبان کامل آماده شد '
             '(تنظیمات، ${state.assets.length} دارایی، '
             '${state.openTrades.length + state.closedTrades.length} معامله، '
-            '${state.withdrawals.length} برداشت).',
+            '${state.withdrawals.length} برداشت، '
+            '${state.checks.length} چک).',
           ),
         ),
       );
@@ -109,6 +110,7 @@ Future<void> importAppBackup(BuildContext context) async {
           'معاملات باز: ${payload.openTradeCount}\n'
           'معاملات بسته: ${payload.closedTradeCount}\n'
           'برداشت‌ها: ${payload.withdrawals.length}\n'
+          'چک‌ها: ${payload.checks.length}\n'
           'اسنپ‌شات سرمایه: ${payload.capitalSnapshots.length}\n'
           'قفل برنامه: ${payload.appLockHash != null && payload.appLockHash!.isNotEmpty ? 'دارد' : 'ندارد'}\n\n'
           'این فایل فقط با اپ V+ رمزگشایی می‌شود.',
