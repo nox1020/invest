@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/services/backup_service.dart';
@@ -107,6 +108,19 @@ void main() {
       withdrawals: [
         Withdrawal(id: 3, amount: 500, note: 'تست', createdAt: '2024-02-02'),
       ],
+      checks: [
+        BankCheck(
+          id: 8,
+          direction: checkDirectionPayable,
+          amount: 750000,
+          issueDate: '2026-01-01',
+          dueDate: '2026-02-01',
+          checkNumber: '44',
+          bankName: 'ملت',
+          counterparty: 'آریا',
+          status: checkStatusPending,
+        ),
+      ],
       capitalSnapshots: [
         {'id': 1, 'date': '2024-02-01', 'total_value': 100, 'created_at': 'x'},
       ],
@@ -126,6 +140,9 @@ void main() {
     expect(restored.openTradeCount, 1);
     expect(restored.closedTradeCount, 1);
     expect(restored.withdrawals.single.amount, 500);
+    expect(restored.checks.single.amount, 750000);
+    expect(restored.checks.single.dueDate, '2026-02-01');
+    expect(restored.checks.single.counterparty, 'آریا');
     // JSON round-trip may yield int or double for numbers.
     expect(
       (restored.capitalSnapshots.single['total_value'] as num).toDouble(),

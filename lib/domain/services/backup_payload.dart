@@ -1,6 +1,7 @@
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/utils/dates.dart';
@@ -8,7 +9,7 @@ import 'package:invest/domain/utils/dates.dart';
 const backupFormatId = 'vplus-backup';
 
 /// Current writer version. Readers accept 1..[backupFormatVersion].
-const backupFormatVersion = 2;
+const backupFormatVersion = 3;
 
 /// Full portable snapshot of app data (before encryption).
 class BackupPayload {
@@ -18,6 +19,7 @@ class BackupPayload {
     required this.assets,
     required this.trades,
     required this.withdrawals,
+    this.checks = const <BankCheck>[],
     this.capitalSnapshots = const <Map<String, Object?>>[],
     this.settingsRaw = const <String, String>{},
     this.appLockHash,
@@ -34,6 +36,7 @@ class BackupPayload {
   final List<Asset> assets;
   final List<Trade> trades;
   final List<Withdrawal> withdrawals;
+  final List<BankCheck> checks;
   final List<Map<String, Object?>> capitalSnapshots;
   final String? appLockHash;
   final bool biometricUnlockEnabled;
@@ -56,6 +59,7 @@ class BackupPayload {
         'assets': assets.map(_assetToJson).toList(),
         'trades': trades.map(_tradeToJson).toList(),
         'withdrawals': withdrawals.map(_withdrawalToJson).toList(),
+        'checks': checks.map((c) => c.toMap()).toList(),
         'capital_snapshots': capitalSnapshots,
         'app_lock': {
           'hash': appLockHash,
@@ -70,6 +74,7 @@ class BackupPayload {
             'assets',
             'trades',
             'withdrawals',
+            'checks',
             'capital_snapshots',
             'app_lock',
           ],
@@ -113,6 +118,9 @@ class BackupPayload {
     final withdrawals = ((json['withdrawals'] as List?) ?? const [])
         .map((e) => _withdrawalFromJson(Map<String, dynamic>.from(e as Map)))
         .toList();
+    final checks = ((json['checks'] as List?) ?? const [])
+        .map((e) => BankCheck.fromMap(Map<String, Object?>.from(e as Map)))
+        .toList();
     final snaps = ((json['capital_snapshots'] as List?) ?? const [])
         .map((e) => Map<String, Object?>.from(e as Map))
         .toList();
@@ -152,6 +160,7 @@ class BackupPayload {
       assets: assets,
       trades: trades,
       withdrawals: withdrawals,
+      checks: checks,
       capitalSnapshots: snaps,
       appLockHash: lock['hash'] as String?,
       biometricUnlockEnabled: lock['biometric_enabled'] == true,

@@ -10,6 +10,7 @@ import 'package:invest/domain/models/iran_inflation.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/price_alert.dart';
 import 'package:invest/domain/models/profit_alert.dart';
+import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/models/year_nav_entry.dart';
@@ -125,6 +126,7 @@ class RemoteInvestService implements InvestMutations {
   Future<RemoteSettingsBundle> saveSettings(
     AppSettings s, {
     List<Withdrawal>? clientWithdrawals,
+    List<BankCheck>? clientChecks,
     String? appLockHash,
     bool? appLockBiometric,
   }) async {
@@ -177,12 +179,17 @@ class RemoteInvestService implements InvestMutations {
           )
           .toList();
     }
+    if (clientChecks != null) {
+      body[AppConfig.settingClientChecks] =
+          clientChecks.map((c) => c.toMap()).toList();
+    }
     final data = await _api.put('/invest/api/v1/settings', body: body);
     final bundle =
         _bundleFrom(Map<String, dynamic>.from(data['settings'] as Map));
     return bundle.mergePreserving(
       sent: s,
       clientWithdrawals: clientWithdrawals,
+      clientChecks: clientChecks,
       appLockHash: appLockHash,
       appLockBiometric: appLockBiometric,
     );
@@ -576,6 +583,8 @@ class RemoteSettingsBundle {
     this.presentKeys = const {},
     this.clientWithdrawals = const [],
     this.hasClientWithdrawals = false,
+    this.clientChecks = const [],
+    this.hasClientChecks = false,
     this.appLockHash,
     this.appLockBiometric,
   });
@@ -584,6 +593,8 @@ class RemoteSettingsBundle {
   final Set<String> presentKeys;
   final List<Withdrawal> clientWithdrawals;
   final bool hasClientWithdrawals;
+  final List<BankCheck> clientChecks;
+  final bool hasClientChecks;
   final String? appLockHash;
   final bool? appLockBiometric;
 
@@ -673,12 +684,17 @@ class RemoteSettingsBundle {
     final clientWithdrawals = _parseClientWithdrawals(
       pick(AppConfig.settingClientWithdrawals),
     );
+    final clientChecks = _parseClientChecks(
+      pick(AppConfig.settingClientChecks),
+    );
 
     return RemoteSettingsBundle(
       settings: settings,
       presentKeys: present,
       clientWithdrawals: clientWithdrawals,
       hasClientWithdrawals: hasKey(AppConfig.settingClientWithdrawals),
+      clientChecks: clientChecks,
+      hasClientChecks: hasKey(AppConfig.settingClientChecks),
       appLockHash: appLockHash,
       appLockBiometric: appLockBiometric,
     );
@@ -706,11 +722,34 @@ class RemoteSettingsBundle {
     return out;
   }
 
+  static List<BankCheck> _parseClientChecks(dynamic raw) {
+    dynamic value = raw;
+    if (value is String) {
+      final t = value.trim();
+      if (t.isEmpty) return const [];
+      try {
+        value = jsonDecode(t);
+      } catch (_) {
+        return const [];
+      }
+    }
+    if (value is! List) return const [];
+    final out = <BankCheck>[];
+    for (final e in value) {
+      if (e is! Map) continue;
+      try {
+        out.add(BankCheck.fromMap(Map<String, Object?>.from(e)));
+      } catch (_) {}
+    }
+    return out;
+  }
+
   /// When the PUT response omits extras the client just sent, keep the sent
   /// values so UI / local cache stay correct even on older backends.
   RemoteSettingsBundle mergePreserving({
     required AppSettings sent,
     List<Withdrawal>? clientWithdrawals,
+    List<BankCheck>? clientChecks,
     String? appLockHash,
     bool? appLockBiometric,
   }) {
@@ -743,6 +782,11 @@ class RemoteSettingsBundle {
       merged.persianToolboxUrl = sent.persianToolboxUrl;
     }
 
+    final checks = _mergeChecks(
+      echoed: hasClientChecks ? this.clientChecks : null,
+      sent: clientChecks,
+    );
+
     return RemoteSettingsBundle(
       settings: merged,
       presentKeys: presentKeys,
@@ -750,6 +794,8 @@ class RemoteSettingsBundle {
           ? this.clientWithdrawals
           : (clientWithdrawals ?? this.clientWithdrawals),
       hasClientWithdrawals: hasClientWithdrawals || clientWithdrawals != null,
+      clientChecks: checks.list,
+      hasClientChecks: checks.present,
       appLockHash: presentKeys.contains(AppConfig.settingAppLockHash)
           ? this.appLockHash
           : (appLockHash ?? this.appLockHash),
@@ -757,5 +803,23 @@ class RemoteSettingsBundle {
           ? this.appLockBiometric
           : (appLockBiometric ?? this.appLockBiometric),
     );
+  }
+
+  /// Prefer the list we just wrote when the server omits it or echoes empty
+  /// after a non-empty write (older backends drop unknown settings keys).
+  static ({List<BankCheck> list, bool present}) _mergeChecks({
+    required List<BankCheck>? echoed,
+    required List<BankCheck>? sent,
+  }) {
+    if (sent == null) {
+      return (list: echoed ?? const [], present: echoed != null);
+    }
+    if (echoed == null) {
+      return (list: sent, present: true);
+    }
+    if (sent.isNotEmpty && echoed.isEmpty) {
+      return (list: sent, present: true);
+    }
+    return (list: echoed, present: true);
   }
 }

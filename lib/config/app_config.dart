@@ -53,6 +53,9 @@ class AppConfig {
   /// Withdrawals mirrored into settings when `/withdrawals` API is missing.
   static const settingClientWithdrawals = 'client_withdrawals';
 
+  /// Cheque book mirrored into settings (no dedicated checks API).
+  static const settingClientChecks = 'client_checks';
+
   /// Shared with the desktop `price_refresh_seconds` key.
   static const settingAutoRefreshSeconds = 'price_refresh_seconds';
   static const defaultAutoRefreshSeconds = 5;

@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:invest/config/app_config.dart';
+import 'package:invest/data/app_database.dart';
 import 'package:invest/data/app_lock_store.dart';
 import 'package:invest/data/offline_cache_store.dart';
 import 'package:invest/data/repositories.dart';
 import 'package:invest/data/withdrawal_repository.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
@@ -41,6 +43,7 @@ class BackupService {
     required List<Trade> openTrades,
     required List<Trade> closedTrades,
     required List<Withdrawal> withdrawals,
+    List<BankCheck> checks = const [],
     List<Map<String, Object?>> capitalSnapshots = const [],
     Map<String, String>? settingsRaw,
     String? appLockHash,
@@ -58,6 +61,7 @@ class BackupService {
       assets: List<Asset>.from(assets),
       trades: [...openTrades, ...closedTrades],
       withdrawals: List<Withdrawal>.from(withdrawals),
+      checks: List<BankCheck>.from(checks),
       capitalSnapshots: capitalSnapshots,
       appLockHash: appLockHash,
       biometricUnlockEnabled: biometricUnlockEnabled,
@@ -72,7 +76,9 @@ class BackupService {
     BackupPayload payload,
   ) async {
     await db.transaction((txn) async {
+      await AppDatabase.ensureChecksTable(txn);
       await txn.delete('trades');
+      await txn.delete('checks');
       await txn.delete('withdrawals');
       await txn.delete('capital_snapshots');
       await txn.delete('assets');
@@ -111,6 +117,11 @@ class BackupService {
 
       for (final w in payload.withdrawals) {
         await txn.insert('withdrawals', w.toMap());
+      }
+
+      for (final c in payload.checks) {
+        if (c.id == null) continue;
+        await txn.insert('checks', c.toMap());
       }
 
       for (final s in payload.capitalSnapshots) {
@@ -205,6 +216,7 @@ class BackupService {
           .where((t) => t.status == AppConfig.tradeClosed)
           .toList(),
       withdrawals: payload.withdrawals,
+      checks: payload.checks,
       liveUsdt: payload.settings.usdtTmnRate,
       liveGold: payload.settings.goldTmnPerGram,
     );

@@ -151,12 +151,14 @@ class _NotificationTile extends StatelessWidget {
       NotificationKind.trades => AppTheme.positive,
       NotificationKind.withdrawals => const Color(0xFFE0C46A),
       NotificationKind.prices => const Color(0xFF6BB8FF),
+      NotificationKind.checks => const Color(0xFF7DCEA0),
       NotificationKind.general => AppTheme.muted,
     };
     final icon = switch (item.kind) {
       NotificationKind.trades => Icons.swap_horiz_rounded,
       NotificationKind.withdrawals => Icons.payments_outlined,
       NotificationKind.prices => Icons.show_chart_rounded,
+      NotificationKind.checks => Icons.account_balance_wallet_outlined,
       NotificationKind.general => Icons.notifications_outlined,
     };
 

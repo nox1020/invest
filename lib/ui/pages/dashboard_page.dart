@@ -12,6 +12,7 @@ import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/capital_chart_page.dart';
+import 'package:invest/ui/pages/checks_page.dart';
 import 'package:invest/ui/pages/quote_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/sparkline.dart';
@@ -234,6 +235,22 @@ class _DashboardBodyState extends State<_DashboardBody>
                 ),
               ),
             ],
+            const SizedBox(height: 26),
+            stage(
+              a: 0.42,
+              b: 0.72,
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _SectionLabel(
+                    title: 'چک‌ها',
+                    subtitle: 'دریافتی، بدهی و سررسید',
+                  ),
+                  SizedBox(height: 12),
+                  ChecksDashboardCard(),
+                ],
+              ),
+            ),
             const SizedBox(height: 26),
             stage(
               a: 0.5,
@@ -1423,6 +1440,8 @@ class _EmptyDashboard extends StatelessWidget {
                   onPressed: () => openHomeTab(context, HomeTabs.trades),
                   child: const Text('رفتن به معاملات'),
                 ),
+              const SizedBox(height: 18),
+              const ChecksDashboardCard(),
             ],
           ),
         ),

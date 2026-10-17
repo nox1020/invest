@@ -22,6 +22,7 @@ class AppNotification {
         NotificationKind.trades => 'معاملات',
         NotificationKind.withdrawals => 'برداشت',
         NotificationKind.prices => 'قیمت',
+        NotificationKind.checks => 'چک',
         NotificationKind.general => 'عمومی',
       };
 

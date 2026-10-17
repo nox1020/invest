@@ -1,0 +1,191 @@
+import 'package:invest/domain/models/bank_check.dart';
+
+/// Which slice of the cheque book the list is showing.
+enum CheckListFilter { all, receivable, payable, due, bounced, settled }
+
+/// Totals for open cheques, debts, and due dates.
+class CheckLedger {
+  const CheckLedger({
+    required this.openReceivable,
+    required this.openReceivableCount,
+    required this.debts,
+    required this.debtCount,
+    required this.bouncedReceivable,
+    required this.bouncedReceivableCount,
+    required this.bouncedPayable,
+    required this.overdueAmount,
+    required this.overdueCount,
+    required this.dueSoonAmount,
+    required this.dueSoonCount,
+    required this.clearedReceivable,
+    required this.clearedPayable,
+    this.nextDue,
+  });
+
+  /// دریافتی‌های نزد صندوق (هنوز وصول نشده).
+  final double openReceivable;
+  final int openReceivableCount;
+
+  /// بدهی: چک پرداختی صادرشده یا برگشتی.
+  final double debts;
+  final int debtCount;
+
+  /// چک دریافتی برگشتی؛ هنوز مطالبه است ولی جزو دریافتی باز نیست.
+  final double bouncedReceivable;
+  final int bouncedReceivableCount;
+  final double bouncedPayable;
+
+  final double overdueAmount;
+  final int overdueCount;
+
+  /// Open cheques due today through the next 7 days.
+  final double dueSoonAmount;
+  final int dueSoonCount;
+
+  final double clearedReceivable;
+  final double clearedPayable;
+  final BankCheck? nextDue;
+
+  /// دریافتی باز منهای بدهی. مثبت یعنی خالص دریافتنی.
+  double get net => openReceivable - debts;
+
+  static const empty = CheckLedger(
+    openReceivable: 0,
+    openReceivableCount: 0,
+    debts: 0,
+    debtCount: 0,
+    bouncedReceivable: 0,
+    bouncedReceivableCount: 0,
+    bouncedPayable: 0,
+    overdueAmount: 0,
+    overdueCount: 0,
+    dueSoonAmount: 0,
+    dueSoonCount: 0,
+    clearedReceivable: 0,
+    clearedPayable: 0,
+  );
+
+  static CheckLedger summarize(
+    Iterable<BankCheck> checks, {
+    DateTime? today,
+  }) {
+    final now = today ?? DateTime.now();
+    var openReceivable = 0.0;
+    var openReceivableCount = 0;
+    var debts = 0.0;
+    var debtCount = 0;
+    var bouncedReceivable = 0.0;
+    var bouncedReceivableCount = 0;
+    var bouncedPayable = 0.0;
+    var overdueAmount = 0.0;
+    var overdueCount = 0;
+    var dueSoonAmount = 0.0;
+    var dueSoonCount = 0;
+    var clearedReceivable = 0.0;
+    var clearedPayable = 0.0;
+    BankCheck? next;
+
+    for (final c in checks) {
+      if (c.countsAsReceivable) {
+        openReceivable += c.amount;
+        openReceivableCount++;
+      }
+      if (c.countsAsDebt) {
+        debts += c.amount;
+        debtCount++;
+      }
+      if (c.isReceivable && c.isBounced) {
+        bouncedReceivable += c.amount;
+        bouncedReceivableCount++;
+      }
+      if (c.isPayable && c.isBounced) {
+        bouncedPayable += c.amount;
+      }
+      if (c.isReceivable && c.status == checkStatusCleared) {
+        clearedReceivable += c.amount;
+      }
+      if (c.isPayable && c.status == checkStatusCleared) {
+        clearedPayable += c.amount;
+      }
+      if (!c.isOpen) continue;
+      final days = c.daysUntilDue(now);
+      if (days < 0) {
+        overdueAmount += c.amount;
+        overdueCount++;
+      } else if (days <= 7) {
+        dueSoonAmount += c.amount;
+        dueSoonCount++;
+      }
+      if (next == null || c.dueDate.compareTo(next.dueDate) < 0) {
+        next = c;
+      }
+    }
+
+    return CheckLedger(
+      openReceivable: openReceivable,
+      openReceivableCount: openReceivableCount,
+      debts: debts,
+      debtCount: debtCount,
+      bouncedReceivable: bouncedReceivable,
+      bouncedReceivableCount: bouncedReceivableCount,
+      bouncedPayable: bouncedPayable,
+      overdueAmount: overdueAmount,
+      overdueCount: overdueCount,
+      dueSoonAmount: dueSoonAmount,
+      dueSoonCount: dueSoonCount,
+      clearedReceivable: clearedReceivable,
+      clearedPayable: clearedPayable,
+      nextDue: next,
+    );
+  }
+}
+
+List<BankCheck> filterChecks(
+  Iterable<BankCheck> checks,
+  CheckListFilter filter, {
+  String query = '',
+  DateTime? today,
+}) {
+  final now = today ?? DateTime.now();
+  final q = query.trim();
+  final out = <BankCheck>[];
+  for (final c in checks) {
+    if (!_matchesFilter(c, filter, now)) continue;
+    if (q.isNotEmpty && !_matchesQuery(c, q)) continue;
+    out.add(c);
+  }
+  out.sort((a, b) {
+    if (a.isOpen != b.isOpen) return a.isOpen ? -1 : 1;
+    if (a.isOpen) return a.dueDate.compareTo(b.dueDate);
+    final as = a.settledDate ?? a.dueDate;
+    final bs = b.settledDate ?? b.dueDate;
+    return bs.compareTo(as);
+  });
+  return out;
+}
+
+bool _matchesFilter(BankCheck c, CheckListFilter filter, DateTime today) {
+  return switch (filter) {
+    CheckListFilter.all => true,
+    CheckListFilter.receivable => c.isReceivable,
+    CheckListFilter.payable => c.isPayable,
+    CheckListFilter.due => c.isOpen && c.daysUntilDue(today) <= 7,
+    CheckListFilter.bounced => c.isBounced,
+    CheckListFilter.settled => c.isSettled,
+  };
+}
+
+bool _matchesQuery(BankCheck c, String query) {
+  final hay = [
+    c.checkNumber,
+    c.sayadId,
+    c.bankName,
+    c.branch,
+    c.counterparty,
+    c.purpose,
+    c.note,
+    c.directionLabel,
+    c.statusLabel,
+  ].join(' ');
+  return hay.contains(query);
+}
