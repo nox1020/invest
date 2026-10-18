@@ -78,6 +78,10 @@ class AppState extends ChangeNotifier {
 
   bool useRemote = true;
   bool authenticated = false;
+
+  /// The server rejected this cookie. Local data and the stored session stay.
+  /// The dashboard remains visible and asks for OTP again.
+  bool reauthRequired = false;
   bool offline = false;
   bool readOnlyOffline = false;
   DateTime? lastSyncedAt;
@@ -282,6 +286,7 @@ class AppState extends ChangeNotifier {
           readOnlyOffline = false;
           useRemote = true;
           authenticated = true;
+          reauthRequired = false;
           try {
             await _loadRemoteData();
             _startAutoRefreshTimer();
@@ -296,9 +301,15 @@ class AppState extends ChangeNotifier {
         case AuthCheckStatus.offline:
           await _bootOfflineWithSession();
         case AuthCheckStatus.unauthenticated:
-          authenticated = false;
-          offline = false;
-          await _loadCommodityCacheQuietly();
+          if ((_session?.sessionCookie ?? '').trim().isNotEmpty) {
+            reauthRequired = true;
+            await _bootOfflineWithSession();
+          } else {
+            authenticated = false;
+            reauthRequired = false;
+            offline = false;
+            await _loadCommodityCacheQuietly();
+          }
       }
     } catch (e) {
       error = formatUserError(e);
@@ -479,7 +490,15 @@ class AppState extends ChangeNotifier {
       final auth = await _api!.checkAuthDetailed();
       if (auth.status == AuthCheckStatus.authenticated) {
         _noteServerPhone(auth.phone);
+        reauthRequired = false;
         return true;
+      }
+      if (auth.status == AuthCheckStatus.unauthenticated &&
+          (_session?.sessionCookie ?? '').trim().isNotEmpty) {
+        // The server rejected this session. Keep the cached book and ask
+        // for a new OTP without deleting the stored cookie.
+        reauthRequired = true;
+        authenticated = true;
       }
       return false;
     } catch (_) {
@@ -530,6 +549,7 @@ class AppState extends ChangeNotifier {
       await _api!.verifyOtp(phone, code);
       userPhone = phone;
       authenticated = true;
+      reauthRequired = false;
       offline = false;
       readOnlyOffline = false;
       useRemote = true;
@@ -543,13 +563,29 @@ class AppState extends ChangeNotifier {
 
   Future<void> logout() async {
     _stopAutoRefreshTimer();
-    if (!_checksHydrated) {
-      await _loadLocalChecks();
+    try {
+      if (!_checksHydrated) {
+        await _loadLocalChecks();
+      }
+      await _stashChecksForCurrentPhone();
+      await _clearActiveCheckTable();
+    } catch (e, st) {
+      logLocalFailure('logout-checks', e, st);
     }
-    await _stashChecksForCurrentPhone();
-    await _clearActiveCheckTable();
-    await _api?.logout();
+    try {
+      if (_api != null) {
+        await _api!.logout();
+      } else {
+        await _session?.clearAuth();
+      }
+    } catch (e, st) {
+      logLocalFailure('logout-session', e, st);
+      try {
+        await _session?.clearAuth();
+      } catch (_) {}
+    }
     authenticated = false;
+    reauthRequired = false;
     offline = false;
     readOnlyOffline = false;
     userPhone = null;
@@ -1454,6 +1490,10 @@ class AppState extends ChangeNotifier {
       );
     }
     userPhone = server;
+    final session = _session;
+    if (session != null && session.phone != server) {
+      unawaited(session.setPhone(server));
+    }
   }
 
   Future<void> _handleRefreshFailure(
@@ -1462,8 +1502,8 @@ class AppState extends ChangeNotifier {
     StackTrace st,
   ) async {
     final tag = '$step: ${refreshFailureCode(cause)}';
-    if (cause is InvestApiException && cause.statusCode == 401) {
-      await logout();
+    if (cause is InvestApiException && cause.isDefinitiveAuthRejection) {
+      await _keepSessionAfterAuthRejection(tag, cause, st);
       return;
     }
     if (cause is InvestApiException && cause.errorCode == 'network_error') {
@@ -1480,6 +1520,51 @@ class AppState extends ChangeNotifier {
     }
     debugPrint('Invest refresh failed: $cause\n$st');
     await _keepBookAfterRefreshFailure(tag);
+  }
+
+  /// A rejected cookie is re-checked once. Network, HTML, and 5xx never
+  /// reach this. The stored cookie and the cached book stay either way.
+  Future<void> _keepSessionAfterAuthRejection(
+    String tag,
+    InvestApiException cause,
+    StackTrace st,
+  ) async {
+    debugPrint('Invest refresh auth rejected: $cause\n$st');
+    var again = const AuthCheckResult(AuthCheckStatus.offline);
+    if (_api != null) {
+      try {
+        again = await _api!.checkAuthDetailed();
+      } catch (e, st2) {
+        logLocalFailure('auth-recheck', e, st2);
+      }
+    }
+    if (again.status == AuthCheckStatus.authenticated) {
+      reauthRequired = false;
+      await _keepBookAfterRefreshFailure(tag);
+      return;
+    }
+    if (again.status == AuthCheckStatus.offline) {
+      offline = true;
+      final loaded = await _applyPortfolioCache();
+      if (loaded) {
+        readOnlyOffline = true;
+        error = null;
+      } else {
+        error = _refreshBanner(tag, showedServer: false, kept: false);
+      }
+      return;
+    }
+    final hasSession = (_session?.sessionCookie ?? '').trim().isNotEmpty;
+    if (!hasSession) {
+      await _keepBookAfterRefreshFailure(tag);
+      return;
+    }
+    reauthRequired = true;
+    authenticated = true;
+    offline = true;
+    final loaded = await _applyPortfolioCache();
+    if (loaded) readOnlyOffline = true;
+    error = null;
   }
 
   String _refreshBanner(
@@ -1522,7 +1607,7 @@ class AppState extends ChangeNotifier {
         return await run();
       } catch (e, st) {
         debugPrint('Invest refresh $step failed: $e\n$st');
-        if (e is InvestApiException && e.statusCode == 401) {
+        if (e is InvestApiException && e.isDefinitiveAuthRejection) {
           throw _RefreshStepException(step, e);
         }
         failures.add(_StepFailure(step, e));

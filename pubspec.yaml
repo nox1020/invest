@@ -1,4 +1,4 @@
-﻿name: invest
+name: invest
 description: V+ — مدیریت سرمایه و معاملات (اندروید)
 publish_to: "none"
 version: 1.0.0+1
@@ -28,6 +28,7 @@ dependencies:
   shamsi_date: ^1.0.2
   provider: ^6.1.2
   smart_auth: ^3.2.0
+  flutter_secure_storage: ^9.2.4
 
 dev_dependencies:
   flutter_test:

@@ -22,6 +22,7 @@ class _LoginPageState extends State<LoginPage> {
   final _phoneCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
   final _smartAuth = SmartAuth.instance;
+  bool _seededPhone = false;
   bool _otpSent = false;
   bool _busy = false;
   bool _smsListenActive = false;
@@ -29,6 +30,17 @@ class _LoginPageState extends State<LoginPage> {
   String? _debugCode;
 
   bool get _androidSmsAutofill => !kIsWeb && Platform.isAndroid;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_seededPhone) return;
+    _seededPhone = true;
+    final phone = context.read<AppState>().userPhone?.trim() ?? '';
+    if (phone.isNotEmpty && _phoneCtrl.text.isEmpty) {
+      _phoneCtrl.text = phone;
+    }
+  }
 
   @override
   void dispose() {
@@ -131,6 +143,9 @@ class _LoginPageState extends State<LoginPage> {
     try {
       await state.verifyOtp(_phoneCtrl.text.trim(), _codeCtrl.text.trim());
       await _stopSmsListen();
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
     } catch (e) {
       setState(() => _error = formatUserError(e));
     } finally {

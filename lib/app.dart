@@ -184,6 +184,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               },
               child: Column(
                 children: [
+                  if (state.reauthRequired) const _ReauthBanner(),
                   if (state.readOnlyOffline) const OfflineReadOnlyNotice(),
                   if (state.error != null && state.error!.isNotEmpty)
                     UserErrorBanner(message: state.error!),
@@ -228,6 +229,44 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),
             label: 'تنظیمات',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReauthBanner extends StatelessWidget {
+  const _ReauthBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'نشست سرور تأیید نشد. داده‌های ذخیره‌شده سر جایش است. برای ثبت تغییر، دوباره وارد شوید.',
+            textAlign: TextAlign.right,
+            style: TextStyle(color: AppTheme.text, fontSize: 13, height: 1.4),
+          ),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const LoginPage()),
+                );
+              },
+              child: const Text('ورود دوباره'),
+            ),
           ),
         ],
       ),

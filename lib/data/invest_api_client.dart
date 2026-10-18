@@ -11,6 +11,11 @@ class InvestApiException implements Exception {
   final int? statusCode;
   final String? errorCode;
 
+  /// JSON 401 from Vinor (`auth_required` / `session_expired`). HTML, a
+  /// redirect, or a transport failure is not a rejected session.
+  bool get isDefinitiveAuthRejection =>
+      statusCode == 401 && errorCode != 'not_json';
+
   @override
   String toString() => message;
 }
@@ -44,6 +49,11 @@ class InvestApiClient {
   final Duration timeout;
 
   String? _sessionCookie;
+
+  /// The cookie failed its signature check, but the same value still works
+  /// as a Bearer token. Later calls omit the cookie so the server guard
+  /// does not reject them before reading the token.
+  bool omitSessionCookie = false;
 
   String get baseUrl => _session.baseUrl;
 
@@ -92,14 +102,16 @@ class InvestApiClient {
     Uri uri, {
     Map<String, dynamic>? body,
     Duration? timeout,
+    bool includeCookie = true,
   }) async {
     if (_sessionCookie == null || _sessionCookie!.isEmpty) {
       restoreSessionCookie();
     }
+    final sendCookie = includeCookie && !omitSessionCookie;
     final headers = <String, String>{
       'Accept': 'application/json',
       if (body != null) 'Content-Type': 'application/json; charset=utf-8',
-      if (_sessionCookie != null && _sessionCookie!.isNotEmpty)
+      if (sendCookie && _sessionCookie != null && _sessionCookie!.isNotEmpty)
         'Cookie': _sessionCookie!,
       if (_bearerToken != null) 'Authorization': 'Bearer $_bearerToken',
     };
@@ -154,6 +166,7 @@ class InvestApiClient {
     final match = RegExp(r'vinor_session=([^;,\s]+)').firstMatch(raw);
     if (match == null) return;
     _sessionCookie = 'vinor_session=${match.group(1)}';
+    omitSessionCookie = false;
     await _session.setSessionCookie(_sessionCookie);
   }
 
@@ -226,8 +239,30 @@ class InvestApiClient {
     if (_sessionCookie == null || _sessionCookie!.isEmpty) {
       return const AuthCheckResult(AuthCheckStatus.unauthenticated);
     }
+    final primary = await _readAuthStatus(includeCookie: !omitSessionCookie);
+    if (primary.status != AuthCheckStatus.unauthenticated) return primary;
+    if (omitSessionCookie) return primary;
+    // Vinor accepts the same cookie value as a Bearer token, and that path
+    // does not apply the cookie max-age. A cookie 401 is retried once
+    // without the cookie before the session is treated as rejected.
+    final bearerOnly = await _readAuthStatus(includeCookie: false);
+    if (bearerOnly.status == AuthCheckStatus.authenticated) {
+      omitSessionCookie = true;
+      return bearerOnly;
+    }
+    if (bearerOnly.status == AuthCheckStatus.offline) {
+      return const AuthCheckResult(AuthCheckStatus.offline);
+    }
+    return bearerOnly;
+  }
+
+  Future<AuthCheckResult> _readAuthStatus({required bool includeCookie}) async {
     try {
-      final data = await get('/invest/api/v1/auth/status');
+      final data = await _request(
+        'GET',
+        _uri('/invest/api/v1/auth/status'),
+        includeCookie: includeCookie,
+      );
       if (data['authenticated'] == true) {
         final phone = _text(data['phone'])?.trim() ?? '';
         return AuthCheckResult(
@@ -237,10 +272,10 @@ class InvestApiClient {
       }
       return const AuthCheckResult(AuthCheckStatus.unauthenticated);
     } on InvestApiException catch (e) {
-      if (e.statusCode == 401) {
+      if (e.isDefinitiveAuthRejection) {
         return const AuthCheckResult(AuthCheckStatus.unauthenticated);
       }
-      // Network / timeout / server unreachable — keep local session.
+      // Network, timeout, 5xx, redirect, or HTML — keep the local session.
       return const AuthCheckResult(AuthCheckStatus.offline);
     }
   }

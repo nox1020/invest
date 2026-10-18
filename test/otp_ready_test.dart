@@ -62,6 +62,8 @@ void main() {
   test('requestOtp waits 20 seconds so a slow sms.ir reply still succeeds', () {
     fakeAsync((async) {
       SharedPreferences.setMockInitialValues({});
+      SessionStore.debugUsePlugins = false;
+      addTearDown(() => SessionStore.debugUsePlugins = true);
       InvestApiClient? api;
       SessionStore.load().then((session) {
         api = InvestApiClient(

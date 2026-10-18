@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
@@ -8,6 +10,11 @@ class BiometricAuth {
   BiometricAuth._();
 
   static final LocalAuthentication _auth = LocalAuthentication();
+
+  /// Widget tests never answer the local_auth channel. Waiting on it traps
+  /// startup inside the fake clock. The real app does not set this variable.
+  static bool get _pluginAnswers =>
+      !kIsWeb && Platform.environment['FLUTTER_TEST'] != 'true';
 
   static const _androidMessages = AndroidAuthMessages(
     signInTitle: 'احراز هویت V+',
@@ -24,7 +31,7 @@ class BiometricAuth {
   );
 
   static Future<bool> isDeviceSupported() async {
-    if (kIsWeb) return false;
+    if (kIsWeb || !_pluginAnswers) return false;
     try {
       return await _auth.isDeviceSupported();
     } catch (_) {
@@ -33,7 +40,7 @@ class BiometricAuth {
   }
 
   static Future<bool> hasEnrolledBiometrics() async {
-    if (kIsWeb) return false;
+    if (kIsWeb || !_pluginAnswers) return false;
     try {
       if (!await _auth.canCheckBiometrics) return false;
       final types = await _auth.getAvailableBiometrics();
@@ -49,6 +56,7 @@ class BiometricAuth {
   }
 
   static Future<List<BiometricType>> availableTypes() async {
+    if (!_pluginAnswers) return const [];
     try {
       return await _auth.getAvailableBiometrics();
     } catch (_) {
@@ -74,6 +82,12 @@ class BiometricAuth {
     required String reason,
     bool biometricOnly = false,
   }) async {
+    if (!_pluginAnswers && !kIsWeb) {
+      return const BiometricAuthResult(
+        success: false,
+        message: 'بیومتریک در این محیط در دسترس نیست.',
+      );
+    }
     if (kIsWeb) {
       return const BiometricAuthResult(
         success: false,
