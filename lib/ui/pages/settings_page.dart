@@ -4,7 +4,6 @@ import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/app_lock_page.dart';
-import 'package:invest/ui/pages/checks_page.dart';
 import 'package:invest/ui/pages/price_alerts_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/backup_actions.dart';
@@ -210,21 +209,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ],
             ),
-          TgSettingsSection(
-            title: 'چک‌ها',
-            children: [
-              TgSettingsTile(
-                icon: Icons.account_balance_wallet_outlined,
-                iconColor: const Color(0xFF7DCEA0),
-                title: 'مدیریت چک‌ها',
-                subtitle: state.checks.isEmpty
-                    ? 'دریافتی، بدهی، سررسید و برگشتی'
-                    : '${state.checks.length} چک در دفتر',
-                onTap: () => openChecksPage(context),
-                showDivider: false,
-              ),
-            ],
-          ),
           TgSettingsSection(
             title: 'پشتیبان‌گیری',
             children: [

@@ -261,8 +261,12 @@ class _ChecksPageState extends State<ChecksPage> {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       showDragHandle: true,
-      builder: (ctx) => _CheckDetailSheet(itemId: item.id),
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: _CheckDetailSheet(itemId: item.id),
+      ),
     );
   }
 }
@@ -570,6 +574,7 @@ class _CheckCard extends StatelessWidget {
               Row(
                 children: [
                   Flexible(
+                    flex: 2,
                     child: Text(
                       formatMoney(item.amount),
                       maxLines: 1,
@@ -582,7 +587,9 @@ class _CheckCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  _Tag(text: item.statusLabel, color: AppTheme.muted),
+                  Flexible(
+                    child: _Tag(text: item.statusLabel, color: AppTheme.muted),
+                  ),
                   const SizedBox(width: 6),
                   _Tag(text: item.directionLabel, color: tone),
                 ],
@@ -591,6 +598,8 @@ class _CheckCard extends StatelessWidget {
               Text(
                 who,
                 textAlign: TextAlign.right,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: AppTheme.text,
                   fontWeight: FontWeight.w700,
@@ -600,6 +609,8 @@ class _CheckCard extends StatelessWidget {
               Text(
                 '${item.identityLabel}${item.bankName.trim().isEmpty ? '' : ' · ${item.bankName}'}',
                 textAlign: TextAlign.right,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: AppTheme.muted, fontSize: 12),
               ),
               const SizedBox(height: 4),
@@ -612,6 +623,8 @@ class _CheckCard extends StatelessWidget {
                   item.dueRelativeLabel(),
                 ].join(' · '),
                 textAlign: TextAlign.right,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: overdue ? AppTheme.negative : AppTheme.muted,
                   fontSize: 12,
@@ -641,6 +654,9 @@ class _Tag extends StatelessWidget {
       ),
       child: Text(
         text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        softWrap: false,
         style: TextStyle(
           color: color,
           fontSize: 11,
@@ -655,6 +671,9 @@ class _CheckDetailSheet extends StatelessWidget {
   const _CheckDetailSheet({required this.itemId});
   final int? itemId;
 
+  static const scrollKey = Key('check-detail-scroll');
+  static const actionsKey = Key('check-detail-actions');
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
@@ -663,94 +682,123 @@ class _CheckDetailSheet extends StatelessWidget {
       if (c.id == itemId) item = c;
     }
     if (item == null) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Text('این چک دیگر در دفتر نیست.'),
+      return const SafeArea(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text('این چک دیگر در دفتر نیست.'),
+        ),
       );
     }
     final check = item;
     final calendar = state.settings.calendar;
     final actions = _statusActions(check);
+    final media = MediaQuery.of(context);
+    final keyboard = media.viewInsets.bottom;
+    final gesture = media.padding.bottom;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        16,
-        0,
-        16,
-        16 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              '${check.directionLabel} · ${formatMoney(check.amount)}',
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                color: AppTheme.title,
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // The drag handle already deflates this child's max height.
+        final cap = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : media.size.height;
+        final available = (cap - keyboard).clamp(0.0, double.infinity);
+        final inner = (available - gesture).clamp(0.0, available);
+        // Leave a slice for the facts so a tall action bar cannot cover them.
+        // The bar itself scrolls, anchored on the edit row, when it does not fit.
+        final factsFloor = inner < 220 ? inner * 0.34 : 88.0;
+        final barMax = (inner - factsFloor).clamp(0.0, inner);
+        return Padding(
+          padding: EdgeInsets.only(bottom: keyboard),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: available),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    fit: FlexFit.loose,
+                    child: SingleChildScrollView(
+                      key: scrollKey,
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            key: const Key('check-detail-amount'),
+                            _breakLongTokens(
+                              '${check.directionLabel} · ${formatMoney(check.amount)}',
+                            ),
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                              color: AppTheme.title,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 20,
+                              height: 1.3,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _Fact('وضعیت', check.statusLabel),
+                          _Fact(
+                            'سررسید',
+                            '${formatDisplayDate(check.dueDate, calendar)} · ${check.dueRelativeLabel()}',
+                          ),
+                          _Fact(
+                            'تاریخ صدور',
+                            formatDisplayDate(check.issueDate, calendar),
+                          ),
+                          if (check.checkNumber.isNotEmpty)
+                            _Fact('شماره چک', check.checkNumber),
+                          if (check.sayadId.isNotEmpty)
+                            _Fact('شناسه صیادی', check.sayadId),
+                          if (check.bankName.isNotEmpty)
+                            _Fact('بانک', check.bankName),
+                          if (check.branch.isNotEmpty)
+                            _Fact('شعبه', check.branch),
+                          if (check.counterparty.isNotEmpty)
+                            _Fact(check.counterpartyLabel, check.counterparty),
+                          if (check.purpose.isNotEmpty)
+                            _Fact('بابت', check.purpose),
+                          if (check.note.isNotEmpty) _Fact('یادداشت', check.note),
+                          if (check.settledDate != null &&
+                              check.settledDate!.isNotEmpty)
+                            _Fact(
+                              'تاریخ وضعیت',
+                              formatDisplayDate(check.settledDate, calendar),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (state.canMutate)
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: barMax),
+                      child: SingleChildScrollView(
+                        reverse: true,
+                        child: _DetailActions(
+                          key: actionsKey,
+                          actions: actions,
+                          onStatus: (action) =>
+                              _applyStatus(context, check, action),
+                          onDelete: () => _delete(context, state, check),
+                          onEdit: () {
+                            final navigator = Navigator.of(context);
+                            navigator.pop();
+                            openCheckEditor(
+                              navigator.context,
+                              existing: check,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            _Fact('وضعیت', check.statusLabel),
-            _Fact('سررسید',
-                '${formatDisplayDate(check.dueDate, calendar)} · ${check.dueRelativeLabel()}'),
-            _Fact('تاریخ صدور', formatDisplayDate(check.issueDate, calendar)),
-            if (check.checkNumber.isNotEmpty)
-              _Fact('شماره چک', check.checkNumber),
-            if (check.sayadId.isNotEmpty) _Fact('شناسه صیادی', check.sayadId),
-            if (check.bankName.isNotEmpty) _Fact('بانک', check.bankName),
-            if (check.branch.isNotEmpty) _Fact('شعبه', check.branch),
-            if (check.counterparty.isNotEmpty)
-              _Fact(check.counterpartyLabel, check.counterparty),
-            if (check.purpose.isNotEmpty) _Fact('بابت', check.purpose),
-            if (check.note.isNotEmpty) _Fact('یادداشت', check.note),
-            if (check.settledDate != null && check.settledDate!.isNotEmpty)
-              _Fact(
-                'تاریخ وضعیت',
-                formatDisplayDate(check.settledDate, calendar),
-              ),
-            if (state.canMutate && actions.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.end,
-                children: [
-                  for (final action in actions)
-                    OutlinedButton(
-                      onPressed: () => _applyStatus(context, check, action),
-                      child: Text(action.label),
-                    ),
-                ],
-              ),
-            ],
-            if (state.canMutate) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  TextButton(
-                    onPressed: () => _delete(context, state, check),
-                    child: const Text(
-                      'حذف',
-                      style: TextStyle(color: AppTheme.negative),
-                    ),
-                  ),
-                  const Spacer(),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      openCheckEditor(context, existing: check);
-                    },
-                    child: const Text('ویرایش'),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -829,6 +877,71 @@ class _CheckDetailSheet extends StatelessWidget {
   }
 }
 
+class _DetailActions extends StatelessWidget {
+  const _DetailActions({
+    super.key,
+    required this.actions,
+    required this.onStatus,
+    required this.onDelete,
+    required this.onEdit,
+  });
+
+  final List<_StatusAction> actions;
+  final ValueChanged<_StatusAction> onStatus;
+  final VoidCallback onDelete;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.card,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Divider(height: 1, color: AppTheme.border),
+            const SizedBox(height: 8),
+            if (actions.isNotEmpty)
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final action in actions)
+                    OutlinedButton(
+                      onPressed: () => onStatus(action),
+                      child: Text(action.label),
+                    ),
+                ],
+              ),
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                TextButton(
+                  onPressed: onDelete,
+                  child: const Text(
+                    'حذف',
+                    style: TextStyle(color: AppTheme.negative),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: onEdit,
+                  child: const Text('ویرایش'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Label above a wrapping value. A side-by-side row clips long Persian
+/// names, notes, and digit strings once the system font grows.
 class _Fact extends StatelessWidget {
   const _Fact(this.label, this.value);
   final String label;
@@ -837,26 +950,49 @@ class _Fact extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              style: const TextStyle(color: AppTheme.text, fontSize: 13),
-            ),
-          ),
-          const SizedBox(width: 12),
           Text(
             label,
-            style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              color: AppTheme.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              height: 1.3,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            _breakLongTokens(value),
+            textAlign: TextAlign.right,
+            softWrap: true,
+            style: const TextStyle(
+              color: AppTheme.text,
+              fontSize: 15,
+              height: 1.4,
+            ),
           ),
         ],
       ),
     );
   }
+}
+
+/// Lets a long cheque number, Sayad id, or unbroken note wrap instead of
+/// painting past the edge of the sheet.
+String _breakLongTokens(String input) {
+  return input.replaceAllMapped(RegExp(r'\S{12,}'), (match) {
+    final token = match.group(0)!;
+    final buf = StringBuffer();
+    for (var i = 0; i < token.length; i++) {
+      if (i > 0 && i % 8 == 0) buf.write('\u200b');
+      buf.write(token[i]);
+    }
+    return buf.toString();
+  });
 }
 
 class _StatusAction {
