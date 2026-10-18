@@ -1,4 +1,5 @@
 import 'package:invest/domain/utils/dates.dart';
+import 'package:invest/domain/utils/json_values.dart';
 
 /// Cheque we will collect (دریافتی).
 const checkDirectionReceivable = 'receivable';
@@ -204,33 +205,29 @@ class BankCheck {
   }
 
   factory BankCheck.fromMap(Map<String, Object?> m) {
-    final idVal = m['id'];
-    final settled = (m['settled_date'] as String?) ??
-        (m['settledDate'] as String?);
+    String text(Object? primary, Object? secondary) {
+      final first = jsonText(primary);
+      if (first.isNotEmpty) return first;
+      return jsonText(secondary);
+    }
+
     return BankCheck(
-      id: idVal is int ? idVal : (idVal as num?)?.toInt(),
+      id: jsonInt(m['id']),
       direction: _directionOf(m['direction']),
       amount: _amountOf(m['amount']),
       issueDate: _dateOf(m['issue_date'] ?? m['issueDate']),
       dueDate: _dateOf(m['due_date'] ?? m['dueDate']),
-      checkNumber: (m['check_number'] as String?) ??
-          (m['checkNumber'] as String?) ??
-          '',
-      sayadId: (m['sayad_id'] as String?) ?? (m['sayadId'] as String?) ?? '',
-      bankName:
-          (m['bank_name'] as String?) ?? (m['bankName'] as String?) ?? '',
-      branch: (m['branch'] as String?) ?? '',
-      counterparty: (m['counterparty'] as String?) ?? '',
-      purpose: (m['purpose'] as String?) ?? '',
-      note: (m['note'] as String?) ?? '',
+      checkNumber: text(m['check_number'], m['checkNumber']),
+      sayadId: text(m['sayad_id'], m['sayadId']),
+      bankName: text(m['bank_name'], m['bankName']),
+      branch: jsonText(m['branch']),
+      counterparty: jsonText(m['counterparty']),
+      purpose: jsonText(m['purpose']),
+      note: jsonText(m['note']),
       status: _statusOf(m['status']),
-      settledDate: _optionalDateOf(settled),
-      createdAt: (m['created_at'] as String?) ??
-          (m['createdAt'] as String?) ??
-          '',
-      updatedAt: (m['updated_at'] as String?) ??
-          (m['updatedAt'] as String?) ??
-          '',
+      settledDate: _optionalDateOf(m['settled_date'] ?? m['settledDate']),
+      createdAt: text(m['created_at'], m['createdAt']),
+      updatedAt: text(m['updated_at'], m['updatedAt']),
       statusLabelFromServer: _optionalText(m['status_label']),
       dueLabelFromServer: _optionalText(m['due_label']),
       daysUntilDueFromServer: _optionalInt(m['days_until_due']),

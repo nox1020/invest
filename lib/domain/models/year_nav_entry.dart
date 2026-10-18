@@ -135,7 +135,12 @@ class YearNavList {
     final seen = <String>{};
     for (final item in raw) {
       if (item is! Map) continue;
-      final e = YearNavEntry.fromJson(Map<String, dynamic>.from(item));
+      final YearNavEntry e;
+      try {
+        e = YearNavEntry.fromJson(Map<String, dynamic>.from(item));
+      } catch (_) {
+        continue;
+      }
       if (e.yearKey.isEmpty || e.navToman <= 0) continue;
       if (!seen.add(e.yearKey)) continue;
       out.add(e);

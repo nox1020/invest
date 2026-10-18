@@ -79,7 +79,7 @@ class OfflineCacheStore {
         openCount: jsonInt(m['open_count']) ?? 0,
         closedCount: jsonInt(m['closed_count']) ?? 0,
         yearRealizedPnl: _d(m['year_realized_pnl']),
-        yearKey: (m['year_key'] as String?) ?? '',
+        yearKey: jsonText(m['year_key']),
         goldFund: GoldFundMetrics(
           goldInG: _d(m['gold_in_g']),
           goldOutG: _d(m['gold_out_g']),
@@ -103,8 +103,8 @@ class OfflineCacheStore {
         closedTrades: closed,
         withdrawals: withdrawals,
         checks: checks,
-        liveUsdt: (map['live_usdt'] as num?)?.toDouble(),
-        liveGold: (map['live_gold'] as num?)?.toDouble(),
+        liveUsdt: jsonDouble(map['live_usdt']),
+        liveGold: jsonDouble(map['live_gold']),
       );
     } catch (_) {
       return null;

@@ -18,10 +18,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class _BookServer {
-  _BookServer({this.failPosts = false, this.failDashboard = false});
+  _BookServer({
+    this.failPosts = false,
+    this.failDashboard = false,
+    this.failSideRequests = false,
+    this.redirectDashboard = false,
+    this.accountShape = false,
+  });
 
   final bool failPosts;
   final bool failDashboard;
+  final bool failSideRequests;
+  final bool redirectDashboard;
+  final bool accountShape;
   final calls = <String>[];
   final assets = <Map<String, dynamic>>[];
   final openTrades = <Map<String, dynamic>>[];
@@ -37,8 +46,29 @@ class _BookServer {
     }
     if (request.method == 'GET' &&
         path.endsWith('/dashboard') &&
+        redirectDashboard) {
+      return http.Response(
+        '<html>login</html>',
+        302,
+        headers: {
+          'location': 'https://vinor.ir/login',
+          'set-cookie': 'vinor_session=wiped; Path=/',
+        },
+      );
+    }
+    if (request.method == 'GET' &&
+        path.endsWith('/dashboard') &&
         failDashboard) {
       return _json({'success': false, 'message': 'dashboard down'}, 500);
+    }
+    if (failSideRequests &&
+        request.method == 'GET' &&
+        (path.endsWith('/insights') ||
+            path.endsWith('/checks') ||
+            path.endsWith('/checks/reminders') ||
+            path.endsWith('/withdrawals') ||
+            path.endsWith('/quotes'))) {
+      return _json({'success': false, 'message': 'side down'}, 500);
     }
     if (request.method == 'POST' && path.endsWith('/assets')) {
       final body = jsonDecode(request.body) as Map<String, dynamic>;
@@ -75,15 +105,7 @@ class _BookServer {
     if (request.method == 'GET' && path.endsWith('/settings')) {
       return _json({
         'success': true,
-        'settings': {
-          'calendar': 'gregorian',
-          'live_prices_enabled': false,
-          'usdt_api_enabled': false,
-          'gold_api_enabled': false,
-          'notifications_enabled': false,
-          'notify_trades': false,
-          'notify_background': false,
-        },
+        'settings': accountShape ? _accountSettings() : _quietSettings(),
       });
     }
     if (request.method == 'GET' && path.endsWith('/dashboard')) {
@@ -104,13 +126,43 @@ class _BookServer {
       });
     }
     if (request.method == 'GET' && path.endsWith('/assets')) {
-      return _json({'success': true, 'items': assets});
+      return _json({
+        'success': true,
+        'items': accountShape ? _accountAssets() : assets,
+      });
     }
     if (request.method == 'GET' && path.endsWith('/trades/open')) {
-      return _json({'success': true, 'items': openTrades});
+      return _json({
+        'success': true,
+        'items': accountShape ? _accountOpenTrades() : openTrades,
+      });
     }
     if (request.method == 'GET' && path.endsWith('/trades/closed')) {
-      return _json({'success': true, 'items': <Object>[]});
+      return _json({
+        'success': true,
+        'items': accountShape ? _accountClosedTrades() : <Object>[],
+      });
+    }
+    if (request.method == 'GET' && path.endsWith('/insights')) {
+      return _json({
+        'success': true,
+        'generated_at': '2026-10-18 06:18:00',
+        'items': [
+          {
+            'id': 'alloc-gold',
+            'title': 'تمرکز طلا',
+            'summary': 'بخش بزرگ',
+            'description': 'توضیح',
+            'action': 'متنوع کنید',
+            'category': 'risk',
+            'severity': 'm',
+            'priority': 2,
+            'related_assets': ['GOLD'],
+            'related_trades': <Object>[],
+          },
+          'skip-me',
+        ],
+      });
     }
     if (request.method == 'GET' && path.endsWith('/withdrawals')) {
       return _json({'success': true, 'items': <Object>[]});
@@ -120,6 +172,151 @@ class _BookServer {
     }
     return _json({'success': true});
   }
+
+  Map<String, dynamic> _quietSettings() => {
+        'calendar': 'gregorian',
+        'live_prices_enabled': false,
+        'usdt_api_enabled': false,
+        'gold_api_enabled': false,
+        'notifications_enabled': false,
+        'notify_trades': false,
+        'notify_background': false,
+      };
+
+  Map<String, dynamic> _accountSettings() => {
+        'calendar': 'jalali',
+        'currency': 'toman',
+        'theme': 'dark',
+        'first_run_done': true,
+        'goal_roi_pct': null,
+        'live_prices_enabled': false,
+        'usdt_api_enabled': false,
+        'gold_api_enabled': false,
+        'gold_auto_update_assets': false,
+        'notifications_enabled': false,
+        'notify_trades': false,
+        'notify_withdrawals': false,
+        'notify_price_moves': false,
+        'price_refresh_seconds': 60,
+        'gold_tmn_per_gram': 3500000.0,
+        'usdt_tmn_rate': 60000.0,
+        'wallex_markets_url': 'https://api.wallex.ir/v1/markets',
+        'persiantoolbox_url': 'https://persiantoolbox.ir/api/market',
+        'client_checks': [
+          {
+            'id': 4,
+            'direction': 'receivable',
+            'amount': 1500000,
+            'issue_date': '2026-10-01',
+            'due_date': '2026-11-01',
+            'check_number': '1010',
+            'sayad_id': '1234567890123456',
+            'bank_name': 'ملت',
+            'branch': '',
+            'counterparty': 'طرف حساب',
+            'purpose': 'قرض',
+            'note': 'یادداشت',
+            'status': 'pending',
+            'settled_date': null,
+            'days_until_due': 12,
+            'created_at': '2026-10-01 08:00:00',
+            'updated_at': '2026-10-01 08:00:00',
+          },
+        ],
+        'raw': {
+          'calendar': 'jalali',
+          'goal_roi_pct': '',
+          'price_refresh_seconds': '60',
+          'live_prices_enabled': '0',
+          'notifications_enabled': '0',
+        },
+      };
+
+  List<Object> _accountAssets() => [
+        {
+          'id': 3,
+          'name': 'سکه ۱۸',
+          'symbol': '',
+          'quantity': 1.5,
+          'avg_buy_price': 10.0,
+          'current_price': 12.0,
+          'notes': '',
+          'total_value': 18.0,
+          'cost_basis': 15.0,
+          'unrealized_pnl': 3.0,
+          'unrealized_pnl_pct': 20.0,
+          'created_at': '2024-01-01 00:00:00',
+          'updated_at': '2024-01-02 00:00:00',
+        },
+        'not-a-row',
+        {
+          'id': 4,
+          'name': 'صندوق',
+          'symbol': 'FUND',
+          'quantity': 2.0,
+          'avg_buy_price': 5.0,
+          'current_price': 6.0,
+          'notes': '',
+          'total_value': 12.0,
+          'cost_basis': 10.0,
+          'unrealized_pnl': 2.0,
+          'unrealized_pnl_pct': 20.0,
+          'created_at': '2024-02-01 00:00:00',
+          'updated_at': '2024-02-02 00:00:00',
+        },
+      ];
+
+  List<Map<String, dynamic>> _accountOpenTrades() => [
+        {
+          'id': 8,
+          'asset_id': 3,
+          'asset_name': 'سکه ۱۸',
+          'asset_symbol': '',
+          'status': 'open',
+          'quantity': 1.5,
+          'buy_price': 10.0,
+          'buy_fee': 0.0,
+          'buy_date': '2024-01-01',
+          'buy_note': '[buy_fx:60000.0]',
+          'sell_price': null,
+          'sell_fee': 0.0,
+          'sell_date': null,
+          'sell_note': '',
+          'realized_pnl': null,
+          'return_pct': null,
+          'holding_days': null,
+          'current_price': 12.0,
+          'current_value': 18.0,
+          'created_at': '2024-01-01 00:00:00',
+          'updated_at': '2024-01-02 00:00:00',
+        },
+      ];
+
+  List<Map<String, dynamic>> _accountClosedTrades() => [
+        {
+          'id': 9,
+          'asset_id': 4,
+          'asset_name': 'صندوق',
+          'asset_symbol': 'FUND',
+          'status': 'closed',
+          'quantity': 1.0,
+          'buy_price': 5.0,
+          'buy_fee': 0.0,
+          'buy_date': '2024-01-01',
+          'buy_note': '',
+          'sell_price': 7.0,
+          'sell_fee': 0.0,
+          'sell_date': '2024-06-01',
+          'sell_note': '',
+          'realized_pnl': 2.0,
+          'return_pct': 40.0,
+          'holding_days': 120,
+          'current_price': 7.0,
+          'current_value': 7.0,
+          'created_at': '2024-01-01 00:00:00',
+          'updated_at': '2024-06-01 00:00:00',
+        },
+      ];
 
   http.Response _json(Object body, [int status = 200]) {
     return http.Response(
@@ -391,5 +588,62 @@ void main() {
     expect(server.postCount, posts);
     final snap = await OfflineCacheStore.loadPortfolio();
     expect(snap!.assets.map((a) => a.name), contains('سکه'));
+  });
+
+  test('a non-empty server book replaces an empty cache when other routes fail',
+      () async {
+    await OfflineCacheStore.savePortfolio(
+      settings: AppSettings(
+        livePricesEnabled: false,
+        notificationsEnabled: false,
+      ),
+      metrics: _metrics(),
+      assets: const [],
+      openTrades: const [],
+      closedTrades: const [],
+    );
+    final server = _BookServer(
+      failDashboard: true,
+      failSideRequests: true,
+      accountShape: true,
+    );
+    final state = await _stateFor(server);
+
+    await state.refresh();
+
+    expect(state.assets.map((a) => a.name), ['سکه ۱۸', 'صندوق']);
+    expect(state.assets.first.symbol, isEmpty);
+    expect(state.openTrades, hasLength(1));
+    expect(state.openTrades.single.sellPrice, isNull);
+    expect(state.openTrades.single.holdingDays, isNull);
+    expect(state.closedTrades, hasLength(1));
+    expect(state.error, contains('به‌روزرسانی داشبورد انجام نشد'));
+    expect(state.error, contains('dashboard: InvestApiException/500'));
+    expect(state.error, contains('داده‌های سرور نشان داده می‌شود'));
+    expect(state.error, isNot(contains('به‌روز کنید')));
+    expect(server.postCount, 0);
+    final snap = await OfflineCacheStore.loadPortfolio();
+    expect(snap!.assets.map((a) => a.name), ['سکه ۱۸', 'صندوق']);
+  });
+
+  test('a login redirect does not discard the server book or the session cookie',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      'vinor_session_cookie': 'vinor_session=keep-me',
+    });
+    final server = _BookServer(
+      redirectDashboard: true,
+      accountShape: true,
+    );
+    final state = await _stateFor(server);
+
+    await state.refresh();
+
+    expect(state.assets.map((a) => a.name), contains('سکه ۱۸'));
+    expect(state.error, contains('dashboard: InvestApiException/redirect'));
+    expect(state.error, contains('داده‌های سرور نشان داده می‌شود'));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('vinor_session_cookie'), 'vinor_session=keep-me');
+    expect(state.authenticated, isFalse);
   });
 }

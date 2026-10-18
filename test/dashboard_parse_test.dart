@@ -8,6 +8,7 @@ import 'package:invest/data/remote_invest_service.dart';
 import 'package:invest/data/session_store.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/trade.dart';
+import 'package:invest/domain/utils/json_values.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -135,5 +136,40 @@ void main() {
     final remote = RemoteInvestService(api);
     expect(await remote.assets.listAll(), isEmpty);
     expect((await remote.fetchSettings()).settings.currency, isNotEmpty);
+  });
+
+  test('persian digits parse and one bad asset row is skipped', () {
+    expect(jsonDouble('۱٫۵'), 1.5);
+    expect(jsonInt('۱۲'), 12);
+
+    final rows = RemoteInvestService.parseRows<Asset>(
+      [
+        {'id': 1, 'name': 'خوب', 'symbol': '', 'quantity': 1},
+        {'id': 2, 'name': 'بد', 'quantity': 1},
+      ],
+      'assets',
+      (row) {
+        if (row['name'] == 'بد') throw const FormatException('bad row');
+        return Asset.fromMap(row);
+      },
+    );
+    expect(rows, hasLength(1));
+    expect(rows.single.name, 'خوب');
+    expect(rows.single.symbol, isEmpty);
+  });
+
+  test('insights rows keep string ids and int trade ids', () {
+    final insight = RemoteInsight.fromMap({
+      'id': 'alloc-gold',
+      'title': 'تمرکز',
+      'summary': 'خلاصه',
+      'priority': 3,
+      'related_assets': ['سکه'],
+      'related_trades': [8, '9'],
+    });
+    expect(insight.id, 'alloc-gold');
+    expect(insight.priority, 3);
+    expect(insight.relatedAssets, ['سکه']);
+    expect(insight.relatedTrades, [8, 9]);
   });
 }

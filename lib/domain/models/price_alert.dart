@@ -155,9 +155,11 @@ class PriceAlertList {
     final out = <PriceAlert>[];
     for (final item in raw) {
       if (item is! Map) continue;
-      final alert = PriceAlert.fromJson(Map<String, dynamic>.from(item));
-      if (alert.id.isEmpty) continue;
-      out.add(alert);
+      try {
+        final alert = PriceAlert.fromJson(Map<String, dynamic>.from(item));
+        if (alert.id.isEmpty) continue;
+        out.add(alert);
+      } catch (_) {}
     }
     return out;
   }

@@ -19,8 +19,12 @@ class InvestApiException implements Exception {
 enum AuthCheckStatus { authenticated, unauthenticated, offline }
 
 class AuthCheckResult {
-  const AuthCheckResult(this.status);
+  const AuthCheckResult(this.status, {this.phone});
   final AuthCheckStatus status;
+
+  /// Phone the server bound to this cookie. Empty when the status route
+  /// did not report one.
+  final String? phone;
   bool get isAuthenticated =>
       status == AuthCheckStatus.authenticated ||
       status == AuthCheckStatus.offline;
@@ -89,6 +93,9 @@ class InvestApiClient {
     Map<String, dynamic>? body,
     Duration? timeout,
   }) async {
+    if (_sessionCookie == null || _sessionCookie!.isEmpty) {
+      restoreSessionCookie();
+    }
     final headers = <String, String>{
       'Accept': 'application/json',
       if (body != null) 'Content-Type': 'application/json; charset=utf-8',
@@ -99,42 +106,25 @@ class InvestApiClient {
     final wait = timeout ?? this.timeout;
 
     try {
-      late http.Response response;
-      switch (method) {
-        case 'GET':
-          response = await _client.get(uri, headers: headers).timeout(wait);
-        case 'POST':
-          response = await _client
-              .post(
-                uri,
-                headers: headers,
-                body: body == null ? null : jsonEncode(body),
-              )
-              .timeout(wait);
-        case 'PUT':
-          response = await _client
-              .put(
-                uri,
-                headers: headers,
-                body: body == null ? null : jsonEncode(body),
-              )
-              .timeout(wait);
-        case 'PATCH':
-          response = await _client
-              .patch(
-                uri,
-                headers: headers,
-                body: body == null ? null : jsonEncode(body),
-              )
-              .timeout(wait);
-        case 'DELETE':
-          response =
-              await _client.delete(uri, headers: headers).timeout(wait);
-        default:
-          throw InvestApiException('متد HTTP پشتیبانی نمی‌شود: $method');
-      }
+      final request = http.Request(method, uri);
+      // A login redirect must stay a 302. Following it turns the API call
+      // into an HTML page, which used to abort the whole dashboard load.
+      request.followRedirects = false;
+      request.headers.addAll(headers);
+      if (body != null) request.body = jsonEncode(body);
+      final streamed = await _client.send(request).timeout(wait);
+      final response = await http.Response.fromStream(streamed);
 
-      await _captureSessionCookie(response);
+      if (response.statusCode >= 300 && response.statusCode < 400) {
+        throw InvestApiException(
+          'سرور درخواست را به صفحه دیگری برد.',
+          statusCode: response.statusCode,
+          errorCode: 'redirect',
+        );
+      }
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        await _captureSessionCookie(response);
+      }
       return _parseJson(response);
     } on InvestApiException {
       rethrow;
@@ -184,25 +174,26 @@ class InvestApiClient {
       throw InvestApiException(
         'پاسخ سرور نامعتبر است (${response.statusCode}).',
         statusCode: response.statusCode,
+        errorCode: 'not_json',
       );
     }
 
     if (response.statusCode == 401) {
       throw InvestApiException(
-        (data['message'] as String?) ?? 'ابتدا وارد شوید.',
+        _text(data['message']) ?? 'ابتدا وارد شوید.',
         statusCode: 401,
-        errorCode: (data['error'] as String?) ?? 'auth_required',
+        errorCode: _text(data['error']) ?? 'auth_required',
       );
     }
 
     if (response.statusCode >= 400 || data['success'] == false) {
-      final message = (data['message'] as String?)?.trim();
+      final message = _text(data['message'])?.trim();
       throw InvestApiException(
         (message != null && message.isNotEmpty)
             ? message
             : _fallbackHttpError(response.statusCode),
         statusCode: response.statusCode,
-        errorCode: data['error'] as String?,
+        errorCode: _text(data['error']),
       );
     }
 
@@ -217,7 +208,7 @@ class InvestApiClient {
       body: {'phone': phone},
       timeout: const Duration(seconds: 20),
     );
-    return data['debug_code'] as String?;
+    return _text(data['debug_code']);
   }
 
   Future<void> verifyOtp(String phone, String code) async {
@@ -238,7 +229,11 @@ class InvestApiClient {
     try {
       final data = await get('/invest/api/v1/auth/status');
       if (data['authenticated'] == true) {
-        return const AuthCheckResult(AuthCheckStatus.authenticated);
+        final phone = _text(data['phone'])?.trim() ?? '';
+        return AuthCheckResult(
+          AuthCheckStatus.authenticated,
+          phone: phone.isEmpty ? null : phone,
+        );
       }
       return const AuthCheckResult(AuthCheckStatus.unauthenticated);
     } on InvestApiException catch (e) {
@@ -253,6 +248,13 @@ class InvestApiClient {
   Future<void> logout() async {
     _sessionCookie = null;
     await _session.clearAuth();
+  }
+
+  static String? _text(Object? value) {
+    if (value == null) return null;
+    if (value is String) return value;
+    if (value is num || value is bool) return value.toString();
+    return null;
   }
 
   Future<String?> fetchApiVersion() async {

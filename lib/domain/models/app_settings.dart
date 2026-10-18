@@ -1,4 +1,5 @@
 import 'package:invest/config/app_config.dart';
+import 'package:invest/domain/utils/json_values.dart';
 import 'package:invest/domain/models/price_alert.dart';
 import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/models/year_nav_entry.dart';
@@ -310,19 +311,26 @@ class AppSettings {
   }
 
   factory AppSettings.fromJson(Map<String, dynamic> s) {
+    String text(Object? value, String fallback) {
+      final parsed = jsonText(value).trim();
+      return parsed.isEmpty ? fallback : parsed;
+    }
+
     return AppSettings(
-      calendar: (s['calendar'] as String?) ?? AppConfig.calendarJalali,
-      currency: (s['currency'] as String?) ?? AppConfig.currencyToman,
-      theme: (s['theme'] as String?) ?? AppConfig.themeDark,
+      calendar: text(s['calendar'], AppConfig.calendarJalali),
+      currency: text(s['currency'], AppConfig.currencyToman),
+      theme: text(s['theme'], AppConfig.themeDark),
       livePricesEnabled: _on(s['live_prices_enabled']),
       usdtApiEnabled: _on(s['usdt_api_enabled']),
       goldApiEnabled: _on(s['gold_api_enabled']),
-      wallexUrl: (s['wallex_url'] as String?) ??
-          (s['wallex_markets_url'] as String?) ??
-          AppConfig.defaultWallexUrl,
-      persianToolboxUrl: (s['persian_toolbox_url'] as String?) ??
-          (s['persiantoolbox_url'] as String?) ??
-          AppConfig.defaultPersianToolboxUrl,
+      wallexUrl: text(
+        s['wallex_url'] ?? s['wallex_markets_url'],
+        AppConfig.defaultWallexUrl,
+      ),
+      persianToolboxUrl: text(
+        s['persian_toolbox_url'] ?? s['persiantoolbox_url'],
+        AppConfig.defaultPersianToolboxUrl,
+      ),
       usdtTmnRate: _d(s['usdt_tmn_rate']),
       goldTmnPerGram: _d(s['gold_tmn_per_gram']),
       notificationsEnabled: _on(s['notifications_enabled']),

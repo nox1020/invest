@@ -1,3 +1,5 @@
+import 'package:invest/domain/utils/json_values.dart';
+
 double computeWithdrawableAmount({
   required double realizedPnl,
   required double withdrawnTotal,
@@ -30,15 +32,15 @@ class Withdrawal {
       };
 
   factory Withdrawal.fromMap(Map<String, Object?> m) {
-    final idVal = m['id'];
+    final created = jsonText(m['created_at']);
     return Withdrawal(
-      id: idVal is int ? idVal : (idVal as num?)?.toInt(),
-      amount: (m['amount'] as num?)?.toDouble() ?? 0,
-      note: (m['note'] as String?) ?? '',
-      status: (m['status'] as String?) ?? 'completed',
-      createdAt: (m['created_at'] as String?) ??
-          (m['createdAt'] as String?) ??
-          '',
+      id: jsonInt(m['id']),
+      amount: jsonDouble(m['amount']) ?? 0,
+      note: jsonText(m['note']),
+      status: jsonText(m['status']).trim().isEmpty
+          ? 'completed'
+          : jsonText(m['status']),
+      createdAt: created.isNotEmpty ? created : jsonText(m['createdAt']),
     );
   }
 

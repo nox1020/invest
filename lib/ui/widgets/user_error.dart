@@ -4,6 +4,24 @@ import 'package:flutter/material.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 
+/// Short diagnosis for the dashboard banner: exception class, HTTP status,
+/// or API error code. No response body and no account data.
+String refreshFailureCode(Object error) {
+  if (error is InvestApiException) {
+    final code = error.errorCode?.trim();
+    final status = error.statusCode;
+    if (code != null &&
+        code.isNotEmpty &&
+        (status == null || status < 400)) {
+      return 'InvestApiException/$code';
+    }
+    if (status != null) return 'InvestApiException/$status';
+    if (code != null && code.isNotEmpty) return 'InvestApiException/$code';
+    return 'InvestApiException';
+  }
+  return error.runtimeType.toString();
+}
+
 /// Turns engine/API exceptions into a short Persian sentence for the APK.
 String formatUserError(Object error) {
   if (error is InvestApiException) {

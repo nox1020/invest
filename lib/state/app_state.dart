@@ -53,6 +53,21 @@ import 'package:invest/ui/widgets/user_error.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
+class _StepFailure {
+  _StepFailure(this.step, this.error);
+  final String step;
+  final Object error;
+}
+
+class _RefreshStepException implements Exception {
+  _RefreshStepException(this.step, this.cause);
+  final String step;
+  final Object cause;
+
+  @override
+  String toString() => '$step: $cause';
+}
+
 /// App-wide state — online (Vinor API), offline cache, or local SQLite.
 class AppState extends ChangeNotifier {
   AppState({http.Client? httpClient}) : _httpClient = httpClient;
@@ -255,6 +270,7 @@ class AppState extends ChangeNotifier {
       userPhone = _session!.phone;
 
       final auth = await _api!.checkAuthDetailed();
+      _noteServerPhone(auth.phone);
       switch (auth.status) {
         case AuthCheckStatus.authenticated:
           offline = false;
@@ -437,7 +453,7 @@ class AppState extends ChangeNotifier {
       useRemote = true;
       authenticated = true;
       userPhone = _session?.phone;
-      await _fetchRemotePortfolio(
+      error = await _fetchRemotePortfolio(
         includeQuotes: true,
         fetchSettings: true,
         checkApiVersion: true,
@@ -456,7 +472,11 @@ class AppState extends ChangeNotifier {
     if (_api == null) return false;
     try {
       final auth = await _api!.checkAuthDetailed();
-      return auth.status == AuthCheckStatus.authenticated;
+      if (auth.status == AuthCheckStatus.authenticated) {
+        _noteServerPhone(auth.phone);
+        return true;
+      }
+      return false;
     } catch (_) {
       return false;
     }
@@ -1353,109 +1373,260 @@ class AppState extends ChangeNotifier {
         }
       }
 
-      if (plan.includeQuotes && settings.livePricesEnabled) {
-        await _syncLiveQuotes();
-      }
       if (useRemote && !offline) {
-        await _fetchRemotePortfolio(
-          includeQuotes: false,
+        error = await _fetchRemotePortfolio(
+          includeQuotes: plan.includeQuotes,
           fetchSettings: plan.fetchSettings,
           checkApiVersion: plan.checkApiVersion,
         );
       } else if (!useRemote) {
         await _publishLocalPortfolio();
+        error = null;
       }
-      error = null;
-      await _dispatchProfitAlerts();
+      try {
+        await _dispatchProfitAlerts();
+      } catch (e, st) {
+        debugPrint('Invest refresh alerts failed: $e\n$st');
+      }
+    } on _RefreshStepException catch (e, st) {
+      await _handleRefreshFailure(e.step, e.cause, st);
     } on InvestApiException catch (e, st) {
-      if (e.statusCode == 401) {
-        await logout();
-      } else if (e.errorCode == 'network_error') {
-        offline = true;
-        final loaded = await _applyPortfolioCache();
-        if (loaded) {
-          readOnlyOffline = true;
-          error = null;
-        } else {
-          error = formatUserError(e);
-        }
-      } else {
-        debugPrint('Invest refresh failed: $e\n$st');
-        await _keepBookAfterRefreshFailure();
-      }
+      await _handleRefreshFailure('refresh', e, st);
     } catch (e, st) {
-      debugPrint('Invest refresh failed: $e\n$st');
-      await _keepBookAfterRefreshFailure();
+      await _handleRefreshFailure('refresh', e, st);
     } finally {
       refreshing = false;
       notifyListeners();
     }
   }
 
-  Future<void> _fetchRemotePortfolio({
+  /// Cookie is the account. A mismatch is logged and the label follows the
+  /// server phone. The stored cookie is not replaced and the user is not
+  /// logged out.
+  void _noteServerPhone(String? serverPhone) {
+    final server = (serverPhone ?? '').trim();
+    if (server.isEmpty) return;
+    final stored = (userPhone ?? _session?.phone ?? '').trim();
+    if (stored.isNotEmpty && stored != server) {
+      String tail(String value) =>
+          value.length <= 4 ? value : value.substring(value.length - 4);
+      debugPrint(
+        'session phone …${tail(stored)} differs from server …${tail(server)}',
+      );
+    }
+    userPhone = server;
+  }
+
+  Future<void> _handleRefreshFailure(
+    String step,
+    Object cause,
+    StackTrace st,
+  ) async {
+    final tag = '$step: ${refreshFailureCode(cause)}';
+    if (cause is InvestApiException && cause.statusCode == 401) {
+      await logout();
+      return;
+    }
+    if (cause is InvestApiException && cause.errorCode == 'network_error') {
+      debugPrint('Invest refresh failed: $cause\n$st');
+      offline = true;
+      final loaded = await _applyPortfolioCache();
+      if (loaded) {
+        readOnlyOffline = true;
+        error = null;
+      } else {
+        error = _refreshBanner(tag, showedServer: false, kept: false);
+      }
+      return;
+    }
+    debugPrint('Invest refresh failed: $cause\n$st');
+    await _keepBookAfterRefreshFailure(tag);
+  }
+
+  String _refreshBanner(
+    String tag, {
+    required bool showedServer,
+    required bool kept,
+  }) {
+    final tail = showedServer
+        ? 'داده‌های سرور نشان داده می‌شود.'
+        : kept
+            ? 'داده‌های ذخیره‌شده نشان داده می‌شود.'
+            : 'دوباره تلاش کنید.';
+    return 'به‌روزرسانی داشبورد انجام نشد ($tag). $tail';
+  }
+
+  String _failureTag(List<_StepFailure> failures) {
+    final tags = [
+      for (final failure in failures)
+        '${failure.step}: ${refreshFailureCode(failure.error)}',
+    ];
+    if (tags.length <= 4) return tags.join(', ');
+    return '${tags.take(4).join(', ')} +${tags.length - 4}';
+  }
+
+  /// Each sub-request fails on its own. A non-empty assets or trades list
+  /// from the server is shown and written over an empty snapshot.
+  ///
+  /// Returns a banner when a side step failed, or null when the book loaded
+  /// cleanly. Throws [_RefreshStepException] only when assets, open trades,
+  /// and closed trades all failed (or the session is 401).
+  Future<String?> _fetchRemotePortfolio({
     required bool includeQuotes,
     required bool fetchSettings,
     required bool checkApiVersion,
   }) async {
-    if (includeQuotes && settings.livePricesEnabled) {
-      await _syncLiveQuotes();
-    }
-    if (checkApiVersion) {
-      await _syncApiVersion();
-    }
-    RemoteSettingsBundle? settingsBundle;
-    if (fetchSettings) {
-      final prevRefresh = settings.autoRefreshSeconds;
-      settingsBundle = await remote!.fetchSettings();
-      await _applyRemoteSettingsBundle(settingsBundle, migrate: true);
-      _normalizeGoldApiUrl();
-      if (settings.autoRefreshSeconds != prevRefresh) {
-        _startAutoRefreshTimer(immediate: false);
+    final failures = <_StepFailure>[];
+
+    Future<T?> guard<T>(String step, Future<T> Function() run) async {
+      try {
+        return await run();
+      } catch (e, st) {
+        debugPrint('Invest refresh $step failed: $e\n$st');
+        if (e is InvestApiException && e.statusCode == 401) {
+          throw _RefreshStepException(step, e);
+        }
+        failures.add(_StepFailure(step, e));
+        return null;
       }
     }
-    final svc = remote!;
-    // Fetch into locals first, then publish + overlay under a UI hold so a
-    // concurrent index tick cannot rebuild the dashboard on bare server marks.
-    final dashF = svc.fetchDashboard(settings.calendar);
-    final assetsF = svc.assets.listAll();
-    final openF = svc.listOpen();
-    final closedF = svc.listClosed();
-    final wdF = svc.listWithdrawals();
 
-    final dash = await dashF;
+    final svc = remote!;
+    final assetsF = guard('assets', () => svc.assets.listAll());
+    final openF = guard('trades-open', () => svc.listOpen());
+    final closedF = guard('trades-closed', () => svc.listClosed());
+    final withdrawalsF = guard('withdrawals', () => svc.listWithdrawals());
+    final insightsF = guard('insights', () => svc.fetchInsights());
+    final settingsF = fetchSettings
+        ? guard('settings', () => svc.fetchSettings())
+        : Future<RemoteSettingsBundle?>.value(null);
+    final healthF = checkApiVersion
+        ? guard('health', () => _syncApiVersion())
+        : Future<void>.value();
+
     final serverAssets = await assetsF;
     final serverOpen = await openF;
     final serverClosed = await closedF;
-    final remoteWithdrawals = await wdF;
-    final shown = await _mergeLocalBook(
-      serverAssets: serverAssets,
-      serverOpen: serverOpen,
-      serverClosed: serverClosed,
-    );
+    final assetsOk = serverAssets != null;
+    final openOk = serverOpen != null;
+    final closedOk = serverClosed != null;
+    if (!assetsOk && !openOk && !closedOk) {
+      final book = failures.where(
+        (f) =>
+            f.step == 'assets' ||
+            f.step == 'trades-open' ||
+            f.step == 'trades-closed',
+      );
+      final first = book.isEmpty ? failures.first : book.first;
+      throw _RefreshStepException(first.step, first.error);
+    }
+
+    final settingsBundle = await settingsF;
+    if (settingsBundle != null) {
+      await guard('settings', () async {
+        final prevRefresh = settings.autoRefreshSeconds;
+        await _applyRemoteSettingsBundle(settingsBundle, migrate: true);
+        _normalizeGoldApiUrl();
+        if (settings.autoRefreshSeconds != prevRefresh) {
+          _startAutoRefreshTimer(immediate: false);
+        }
+      });
+    }
+    await healthF;
+    final dash =
+        await guard('dashboard', () => svc.fetchDashboard(settings.calendar));
+    if (dash != null && svc.growthSeriesError != null) {
+      failures.add(_StepFailure('snapshots', svc.growthSeriesError!));
+    }
+    final remoteWithdrawals = await withdrawalsF;
+    final withdrawalsFailed = failures.any((f) => f.step == 'withdrawals');
+    await insightsF;
+
+    final bookComplete = assetsOk && openOk && closedOk;
+    final merged = bookComplete
+        ? await guard(
+            'merge',
+            () => _mergeLocalBook(
+              serverAssets: serverAssets,
+              serverOpen: serverOpen,
+              serverClosed: serverClosed,
+            ),
+          )
+        : null;
+    final nextAssets = assetsOk ? (merged?.assets ?? serverAssets) : assets;
+    final nextOpen = openOk ? (merged?.open ?? serverOpen) : openTrades;
+    final nextClosed = closedOk ? (merged?.closed ?? serverClosed) : closedTrades;
+    final showedServer = (assetsOk && serverAssets.isNotEmpty) ||
+        (openOk && serverOpen.isNotEmpty) ||
+        (closedOk && serverClosed.isNotEmpty);
 
     _holdUiNotifications = true;
     try {
-      metrics = dash;
-      assets = shown.assets;
-      openTrades = shown.open;
-      closedTrades = shown.closed;
-      await _applyWithdrawalsAfterFetch(
-        remote: svc,
-        remoteItems: remoteWithdrawals,
-        settingsBundle: settingsBundle,
-      );
-      await _applyChecksAfterFetch(settingsBundle);
-      await _overlayLiveMarks();
+      if (dash != null) {
+        metrics = dash;
+      } else if (metrics == null && showedServer) {
+        metrics = _zeroMetrics();
+      }
+      assets = nextAssets;
+      openTrades = nextOpen;
+      closedTrades = nextClosed;
+      if (!withdrawalsFailed) {
+        await guard(
+          'withdrawals',
+          () => _applyWithdrawalsAfterFetch(
+            remote: svc,
+            remoteItems: remoteWithdrawals,
+            settingsBundle: settingsBundle,
+          ),
+        );
+      }
+      await guard('checks', () => _applyChecksAfterFetch(settingsBundle));
+      if (includeQuotes && settings.livePricesEnabled) {
+        await guard('quotes', () => _syncLiveQuotes());
+      } else {
+        await guard('quotes', () => _overlayLiveMarks());
+      }
       lastSyncedAt = DateTime.now();
-      await _savePortfolioUnlessEmptyWipesCache();
+      final nextEmpty = nextAssets.isEmpty &&
+          nextOpen.isEmpty &&
+          nextClosed.isEmpty;
+      if (showedServer || (bookComplete && !nextEmpty)) {
+        if (metrics == null) metrics = _zeroMetrics();
+        await guard('snapshots', () => _savePortfolioUnlessEmptyWipesCache());
+      }
     } finally {
       _holdUiNotifications = false;
     }
+
+    if (failures.isEmpty) return null;
+    final kept = assets.isNotEmpty ||
+        openTrades.isNotEmpty ||
+        closedTrades.isNotEmpty;
+    return _refreshBanner(
+      _failureTag(failures),
+      showedServer: showedServer,
+      kept: kept,
+    );
+  }
+
+  DashboardMetrics _zeroMetrics() {
+    return DashboardMetrics(
+      totalValue: 0,
+      totalPnl: 0,
+      totalPnlPct: 0,
+      realizedPnl: 0,
+      unrealizedPnl: 0,
+      openCount: openTrades.length,
+      closedCount: closedTrades.length,
+      yearRealizedPnl: 0,
+      yearKey: '',
+      goldFund: const GoldFundMetrics(goldInG: 0, goldOutG: 0, goldHoldingG: 0),
+    );
   }
 
   /// A failed refresh must keep the book already on screen, or the last
-  /// snapshot, and say what happened. A 401 still logs out above.
-  Future<void> _keepBookAfterRefreshFailure() async {
+  /// snapshot, and say which step failed. A 401 still logs out above.
+  Future<void> _keepBookAfterRefreshFailure(String tag) async {
     final hadBook = assets.isNotEmpty ||
         openTrades.isNotEmpty ||
         closedTrades.isNotEmpty;
@@ -1468,12 +1639,11 @@ class AppState extends ChangeNotifier {
         kept = false;
       }
     }
-    error = kept
-        ? 'به‌روزرسانی داشبورد انجام نشد. داده‌های ذخیره‌شده نشان داده می‌شود.'
-        : 'به‌روزرسانی داشبورد انجام نشد. دوباره تلاش کنید.';
+    error = _refreshBanner(tag, showedServer: false, kept: kept);
   }
 
   /// An empty server book must not replace rows that still live on the phone.
+  /// A non-empty book is always written, even when dashboard metrics failed.
   Future<void> _savePortfolioUnlessEmptyWipesCache() async {
     final bookEmpty =
         assets.isEmpty && openTrades.isEmpty && closedTrades.isEmpty;
@@ -1481,8 +1651,8 @@ class AppState extends ChangeNotifier {
       debugPrint('skip empty portfolio snapshot; keeping the saved book');
       return;
     }
-    final snapMetrics = metrics;
-    if (snapMetrics == null) return;
+    final snapMetrics = metrics ?? _zeroMetrics();
+    metrics ??= snapMetrics;
     await OfflineCacheStore.savePortfolio(
       settings: settings,
       metrics: snapMetrics,

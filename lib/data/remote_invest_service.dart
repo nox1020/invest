@@ -29,9 +29,11 @@ class RemoteAssetRepository {
   Future<List<Asset>> listAll({String search = ''}) async {
     final query = search.trim().isEmpty ? null : {'q': search.trim()};
     final data = await _api.get('/invest/api/v1/assets', query: query);
-    return RemoteInvestService._maps(data['items'], 'assets')
-        .map((e) => Asset.fromMap(e))
-        .toList();
+    return RemoteInvestService.parseRows(
+      data['items'],
+      'assets',
+      Asset.fromMap,
+    );
   }
 
   Future<Asset> create(Asset asset) async {
@@ -83,6 +85,9 @@ class RemoteInvestService implements InvestMutations {
   final InvestApiClient _api;
   final RemoteAssetRepository assets;
 
+  /// Set when `growth_series` cannot be read. Metrics themselves still return.
+  Object? growthSeriesError;
+
   Future<DashboardMetrics> fetchDashboard(String calendar) async {
     final data = await _api.get('/invest/api/v1/dashboard');
     // `metrics as Map` threw when the field was missing or not an object,
@@ -116,8 +121,25 @@ class RemoteInvestService implements InvestMutations {
         goldOutG: _num(g['gold_out_g']),
         goldHoldingG: _num(g['gold_holding_g']),
       ),
-      growthSeries: SeriesPoint.fromJsonList(data['growth_series']),
+      growthSeries: _growthSeries(data['growth_series']),
     );
+  }
+
+  List<SeriesPoint> _growthSeries(Object? raw) {
+    growthSeriesError = null;
+    try {
+      return SeriesPoint.fromJsonList(raw);
+    } catch (e, st) {
+      growthSeriesError = e;
+      debugPrint('snapshots parse failed: $e\n$st');
+      return const [];
+    }
+  }
+
+  /// `GET /invest/api/v1/insights`. One bad row is skipped.
+  Future<List<RemoteInsight>> fetchInsights() async {
+    final data = await _api.get('/invest/api/v1/insights');
+    return parseRows(data['items'], 'insights', RemoteInsight.fromMap);
   }
 
   Future<List<Trade>> listOpen({String search = ''}) async {
@@ -597,14 +619,7 @@ class RemoteInvestService implements InvestMutations {
   }
 
   List<BankCheck> _checksFrom(Map<String, dynamic> data) {
-    final items = data['items'];
-    if (items is! List) return const [];
-    final out = <BankCheck>[];
-    for (final e in items) {
-      if (e is! Map) continue;
-      out.add(BankCheck.fromMap(Map<String, Object?>.from(e)));
-    }
-    return out;
+    return parseRows(data['items'], 'checks', BankCheck.fromMap);
   }
 
   BankCheck _checkItem(
@@ -622,11 +637,29 @@ class RemoteInvestService implements InvestMutations {
       e.statusCode == 404 && !e.message.contains('پیدا نشد');
 
   List<Trade> _tradesFrom(Map<String, dynamic> data) {
-    return _maps(data['items'], 'trades').map(Trade.fromMap).toList();
+    return parseRows(data['items'], 'trades', Trade.fromMap);
   }
 
   List<Withdrawal> _withdrawalsFrom(Map<String, dynamic> data) {
-    return _maps(data['items'], 'withdrawals').map(Withdrawal.fromMap).toList();
+    return parseRows(data['items'], 'withdrawals', Withdrawal.fromMap);
+  }
+
+  /// One unreadable row is skipped. The rest of the list still loads.
+  static List<T> parseRows<T>(
+    Object? raw,
+    String label,
+    T Function(Map<String, Object?>) parse,
+  ) {
+    final maps = _maps(raw, label);
+    final out = <T>[];
+    for (var i = 0; i < maps.length; i++) {
+      try {
+        out.add(parse(maps[i]));
+      } catch (e, st) {
+        debugPrint('skip $label row $i (${e.runtimeType}): $e\n$st');
+      }
+    }
+    return out;
   }
 
   /// Skip a non-list body or a non-object row instead of failing the refresh.
@@ -687,12 +720,7 @@ class CheckReminders {
     List<BankCheck> parse(String key) {
       final raw = data[key];
       if (raw is! List) return const [];
-      final out = <BankCheck>[];
-      for (final e in raw) {
-        if (e is! Map) continue;
-        out.add(BankCheck.fromMap(Map<String, Object?>.from(e)));
-      }
-      return out;
+      return RemoteInvestService.parseRows(raw, key, BankCheck.fromMap);
     }
 
     final window = data['within_days'];
@@ -797,20 +825,21 @@ class RemoteSettingsBundle {
       for (final k in raw.keys) k.toString(),
     };
 
+    String text(Object? value, String fallback) {
+      final parsed = jsonText(value).trim();
+      return parsed.isEmpty ? fallback : parsed;
+    }
+
     final settings = AppSettings(
-      calendar: (s['calendar'] as String?) ?? AppConfig.calendarJalali,
-      currency: (s['currency'] as String?) ?? AppConfig.currencyToman,
-      theme: (s['theme'] as String?) ?? AppConfig.themeDark,
+      calendar: text(s['calendar'], AppConfig.calendarJalali),
+      currency: text(s['currency'], AppConfig.currencyToman),
+      theme: text(s['theme'], AppConfig.themeDark),
       livePricesEnabled: on(s['live_prices_enabled']),
       usdtApiEnabled: on(s['usdt_api_enabled']),
       goldApiEnabled: on(s['gold_api_enabled']),
-      wallexUrl: (s['wallex_markets_url'] as String?)?.trim().isNotEmpty == true
-          ? (s['wallex_markets_url'] as String)
-          : AppConfig.defaultWallexUrl,
+      wallexUrl: text(s['wallex_markets_url'], AppConfig.defaultWallexUrl),
       persianToolboxUrl:
-          (s['persiantoolbox_url'] as String?)?.trim().isNotEmpty == true
-              ? (s['persiantoolbox_url'] as String)
-              : AppConfig.defaultPersianToolboxUrl,
+          text(s['persiantoolbox_url'], AppConfig.defaultPersianToolboxUrl),
       usdtTmnRate: rate(s['usdt_tmn_rate'] ?? raw['usdt_tmn_rate']),
       goldTmnPerGram: rate(s['gold_tmn_per_gram'] ?? raw['gold_tmn_per_gram']),
       notificationsEnabled: on(
@@ -1011,5 +1040,53 @@ class RemoteSettingsBundle {
       return (list: sent, present: true);
     }
     return (list: echoed, present: true);
+  }
+}
+
+/// One row from `GET /invest/api/v1/insights`.
+class RemoteInsight {
+  const RemoteInsight({
+    required this.id,
+    required this.title,
+    required this.summary,
+    required this.priority,
+    required this.relatedAssets,
+    required this.relatedTrades,
+  });
+
+  final String id;
+  final String title;
+  final String summary;
+  final int priority;
+  final List<String> relatedAssets;
+  final List<int> relatedTrades;
+
+  factory RemoteInsight.fromMap(Map<String, Object?> m) {
+    List<String> strings(Object? raw) {
+      if (raw is! List) return const [];
+      return [
+        for (final item in raw)
+          if (jsonText(item).isNotEmpty) jsonText(item),
+      ];
+    }
+
+    List<int> ints(Object? raw) {
+      if (raw is! List) return const [];
+      final out = <int>[];
+      for (final item in raw) {
+        final value = jsonInt(item);
+        if (value != null) out.add(value);
+      }
+      return out;
+    }
+
+    return RemoteInsight(
+      id: jsonText(m['id']),
+      title: jsonText(m['title']),
+      summary: jsonText(m['summary']),
+      priority: jsonInt(m['priority']) ?? 0,
+      relatedAssets: strings(m['related_assets']),
+      relatedTrades: ints(m['related_trades']),
+    );
   }
 }
