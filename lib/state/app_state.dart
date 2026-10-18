@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/app_lock_store.dart';
 import 'package:invest/data/app_database.dart';
@@ -53,7 +54,9 @@ import 'package:sqflite/sqflite.dart';
 
 /// App-wide state — online (Vinor API), offline cache, or local SQLite.
 class AppState extends ChangeNotifier {
-  AppState();
+  AppState({http.Client? httpClient}) : _httpClient = httpClient;
+
+  final http.Client? _httpClient;
 
   bool useRemote = true;
   bool authenticated = false;
@@ -230,17 +233,20 @@ class AppState extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      await _loadAppLock();
+      // The login screen only needs this client. App lock, biometrics, and
+      // local storage must not run first: if they throw, OTP used to fail
+      // with «API آماده نیست» because the client was never created.
+      await _ensureRemoteClient();
+      try {
+        await _loadAppLock();
+      } catch (_) {}
 
       if (testDb != null) {
         await _bootLocalWorkspace(testDb);
         return;
       }
 
-      _session = await SessionStore.load();
-      baseUrl = _session!.baseUrl;
-      _api = InvestApiClient(_session!);
-      remote = RemoteInvestService(_api!);
+      await _ensureRemoteClient();
       commodityIndexService = CommodityIndexService();
       iranInflationService = IranInflationService();
       quotes = QuoteClients();
@@ -472,13 +478,25 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  /// Builds the Vinor client even when [init] has not finished or an earlier
+  /// startup step failed. Login calls this directly.
+  Future<void> _ensureRemoteClient() async {
+    if (_api != null && _session != null) return;
+    _session ??= await SessionStore.load();
+    final url = _session!.baseUrl.trim();
+    baseUrl = url.isEmpty ? AppConfig.defaultBaseUrl : url;
+    _api ??= InvestApiClient(_session!, client: _httpClient);
+    remote ??= RemoteInvestService(_api!);
+    quotes ??= QuoteClients();
+  }
+
   Future<String?> requestOtp(String phone) async {
-    if (_api == null) throw StateError('API آماده نیست');
+    await _ensureRemoteClient();
     return _api!.requestOtp(phone);
   }
 
   Future<void> verifyOtp(String phone, String code) async {
-    if (_api == null) throw StateError('API آماده نیست');
+    await _ensureRemoteClient();
     loading = true;
     error = null;
     notifyListeners();

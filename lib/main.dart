@@ -34,13 +34,18 @@ Future<void> main() async {
     ),
   );
   await WidgetsBinding.instance.endOfFrame;
-  try {
-    await NotificationService.instance.init();
-  } catch (_) {}
-  try {
-    await BackgroundPriceWorker.initialize();
-  } catch (_) {}
+  // Open the Vinor client before notification plugins. A hung or throwing
+  // plugin used to leave login with no API client.
+  final pluginStartup = () async {
+    try {
+      await NotificationService.instance.init();
+    } catch (_) {}
+    try {
+      await BackgroundPriceWorker.initialize();
+    } catch (_) {}
+  }();
   try {
     await state.init();
   } catch (_) {}
+  await pluginStartup;
 }

@@ -4,39 +4,54 @@ import 'package:invest/config/app_config.dart';
 
 /// Persists Vinor session cookie, server URL, and logged-in phone.
 class SessionStore {
-  SessionStore._(this._prefs);
+  SessionStore._(this._prefs) : _memory = null;
 
-  final SharedPreferences _prefs;
+  /// Used when plugin storage throws, so login can still call Vinor.
+  SessionStore._memory()
+      : _prefs = null,
+        _memory = <String, Object?>{};
+
+  final SharedPreferences? _prefs;
+  final Map<String, Object?>? _memory;
 
   static Future<SessionStore> load() async {
-    return SessionStore._(await SharedPreferences.getInstance());
+    try {
+      return SessionStore._(await SharedPreferences.getInstance());
+    } catch (_) {
+      return SessionStore._memory();
+    }
   }
 
-  String get baseUrl =>
-      _prefs.getString(AppConfig.prefBaseUrl) ?? AppConfig.defaultBaseUrl;
+  String get baseUrl {
+    final stored = _string(AppConfig.prefBaseUrl)?.trim() ?? '';
+    if (stored.isEmpty) return AppConfig.defaultBaseUrl;
+    return stored;
+  }
 
   Future<void> setBaseUrl(String url) async {
-    await _prefs.setString(AppConfig.prefBaseUrl, _normalizeBaseUrl(url));
+    final normalized = _normalizeBaseUrl(url);
+    await _setString(
+      AppConfig.prefBaseUrl,
+      normalized.isEmpty ? null : normalized,
+    );
   }
 
-  String? get sessionCookie => _prefs.getString(AppConfig.prefSessionCookie);
+  String? get sessionCookie => _string(AppConfig.prefSessionCookie);
 
   Future<void> setSessionCookie(String? cookie) async {
-    if (cookie == null || cookie.isEmpty) {
-      await _prefs.remove(AppConfig.prefSessionCookie);
-    } else {
-      await _prefs.setString(AppConfig.prefSessionCookie, cookie);
-    }
+    await _setString(
+      AppConfig.prefSessionCookie,
+      (cookie == null || cookie.isEmpty) ? null : cookie,
+    );
   }
 
-  String? get phone => _prefs.getString(AppConfig.prefUserPhone);
+  String? get phone => _string(AppConfig.prefUserPhone);
 
   Future<void> setPhone(String? value) async {
-    if (value == null || value.isEmpty) {
-      await _prefs.remove(AppConfig.prefUserPhone);
-    } else {
-      await _prefs.setString(AppConfig.prefUserPhone, value);
-    }
+    await _setString(
+      AppConfig.prefUserPhone,
+      (value == null || value.isEmpty) ? null : value,
+    );
   }
 
   Future<void> clearAuth() async {
@@ -44,13 +59,38 @@ class SessionStore {
     await setPhone(null);
   }
 
-  String? get apiVersion => _prefs.getString(AppConfig.prefApiVersion);
+  String? get apiVersion => _string(AppConfig.prefApiVersion);
 
   Future<void> setApiVersion(String? value) async {
-    if (value == null || value.isEmpty) {
-      await _prefs.remove(AppConfig.prefApiVersion);
+    await _setString(
+      AppConfig.prefApiVersion,
+      (value == null || value.isEmpty) ? null : value,
+    );
+  }
+
+  /// A value stored under the wrong type must not take down login.
+  String? _string(String key) {
+    try {
+      final Object? value =
+          _memory != null ? _memory[key] : _prefs!.get(key);
+      if (value is String && value.trim().isNotEmpty) return value;
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _setString(String key, String? value) async {
+    if (_memory != null) {
+      if (value == null) {
+        _memory.remove(key);
+      } else {
+        _memory[key] = value;
+      }
+      return;
+    }
+    if (value == null) {
+      await _prefs!.remove(key);
     } else {
-      await _prefs.setString(AppConfig.prefApiVersion, value);
+      await _prefs!.setString(key, value);
     }
   }
 
