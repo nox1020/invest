@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
@@ -103,5 +104,56 @@ void main() {
     expect(find.text('تتر'), findsOneWidget);
     expect(find.text('طلا'), findsOneWidget);
     expect(find.text('قابل برداشت'), findsOneWidget);
+  });
+
+  testWidgets('dashboard hero names the open-cheque contribution', (tester) async {
+    final state = AppState()
+      ..loading = false
+      ..authenticated = true
+      ..settings = AppSettings(calendar: AppConfig.calendarGregorian)
+      ..assets = [
+        Asset(
+          id: 1,
+          name: 'Cash',
+          quantity: 1,
+          avgBuyPrice: 1000,
+          currentPrice: 1000,
+        ),
+      ]
+      ..checks = [
+        BankCheck(
+          direction: checkDirectionReceivable,
+          amount: 400,
+          issueDate: '2026-10-01',
+          dueDate: '2026-12-01',
+        ),
+        BankCheck(
+          direction: checkDirectionPayable,
+          amount: 150,
+          issueDate: '2026-10-01',
+          dueDate: '2026-12-01',
+        ),
+      ];
+
+    tester.view.physicalSize = const Size(420, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: state,
+        child: const MaterialApp(
+          locale: Locale('fa', 'IR'),
+          home: Scaffold(body: DashboardPage()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('شامل چک باز'), findsOneWidget);
+    expect(find.textContaining('+400 تومان'), findsOneWidget);
+    expect(find.textContaining('−150 تومان'), findsOneWidget);
+    expect(find.textContaining('1,250 تومان'), findsWidgets);
   });
 }

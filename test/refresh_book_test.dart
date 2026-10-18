@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -15,6 +16,8 @@ import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+// ignore: depend_on_referenced_packages
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class _BookServer {
@@ -646,4 +649,127 @@ void main() {
     expect(prefs.getString('vinor_session_cookie'), 'vinor_session=keep-me');
     expect(state.authenticated, isFalse);
   });
+
+  test('shared preferences channel failures do not fail the server book', () async {
+    final store = _BrokenPrefsStore();
+    SharedPreferencesStorePlatform.instance = store;
+    SharedPreferences.resetStatic();
+    final server = _BookServer();
+    server.assets.add({
+      'id': 7,
+      'name': 'سرور',
+      'symbol': 'SVR',
+      'quantity': 3,
+      'avg_buy_price': 1,
+      'current_price': 1,
+      'notes': '',
+    });
+    final state = await _stateFor(server);
+
+    await state.refreshAll(includeQuotes: true);
+
+    expect(state.assets.map((a) => a.name), ['سرور']);
+    expect(state.error, isNull);
+    expect(store.droppedHeavyKey, isTrue);
+    final snap = await OfflineCacheStore.loadPortfolio();
+    expect(snap!.assets.map((a) => a.name), ['سرور']);
+  });
+
+  test('a broken sqlite file is recreated and the server book stays', () async {
+    var opens = 0;
+    AppDatabase.instance.debugOpenDatabase = () async {
+      opens++;
+      if (opens == 1) {
+        throw PlatformException(
+          code: 'sqlite_error',
+          message: 'database disk image is malformed',
+        );
+      }
+      return _openDb();
+    };
+    final server = _BookServer();
+    server.assets.add({
+      'id': 8,
+      'name': 'سرور',
+      'symbol': 'SVR',
+      'quantity': 2,
+      'avg_buy_price': 4,
+      'current_price': 5,
+      'notes': '',
+    });
+    final state = await _stateFor(server);
+
+    await state.refreshAll(includeQuotes: true);
+
+    expect(opens, greaterThanOrEqualTo(2));
+    expect(state.assets.map((a) => a.name), ['سرور']);
+    expect(state.error, isNull);
+    expect(server.postCount, 0);
+  });
+
+  test('sqlite that keeps failing does not blank the server book', () async {
+    AppDatabase.instance.debugOpenDatabase = () async {
+      throw PlatformException(
+        code: 'sqlite_error',
+        message: 'unable to open database file',
+      );
+    };
+    final server = _BookServer();
+    server.assets.add({
+      'id': 9,
+      'name': 'سرور',
+      'symbol': 'SVR',
+      'quantity': 1,
+      'avg_buy_price': 1,
+      'current_price': 1,
+      'notes': '',
+    });
+    final state = await _stateFor(server);
+
+    await state.refresh();
+
+    expect(state.assets.map((a) => a.name), ['سرور']);
+    expect(state.error, isNull);
+    expect(server.postCount, 0);
+  });
+}
+
+class _BrokenPrefsStore extends SharedPreferencesStorePlatform {
+  final data = <String, Object>{
+    'flutter.offline_portfolio_snapshot_v1': 'x' * 32,
+    'flutter.vinor_session_cookie': 'vinor_session=keep',
+  };
+
+  bool droppedHeavyKey = false;
+  bool _poisoned = true;
+
+  @override
+  Future<bool> clear() async => true;
+
+  @override
+  Future<Map<String, Object>> getAll() async {
+    if (_poisoned && data.containsKey('flutter.offline_portfolio_snapshot_v1')) {
+      throw PlatformException(
+        code: 'channel-error',
+        message: 'TransactionTooLargeException: data parcel size',
+      );
+    }
+    return Map<String, Object>.from(data);
+  }
+
+  @override
+  Future<bool> remove(String key) async {
+    data.remove(key);
+    if (key.endsWith('offline_portfolio_snapshot_v1')) {
+      droppedHeavyKey = true;
+      _poisoned = false;
+    }
+    return true;
+  }
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    data[key] = value;
+    return true;
+  }
 }

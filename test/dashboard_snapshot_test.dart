@@ -1,8 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/bank_check.dart';
+import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
+import 'package:invest/state/app_state.dart';
 
 void main() {
   test('dashboard market value follows live holding marks, not stale metrics', () {
@@ -100,5 +103,118 @@ void main() {
     );
     expect(snap.goldHoldingG, 3);
     expect(snap.openLotCount, 2);
+  });
+
+  test('pending cheques move NAV and leave trading pnl unchanged', () {
+    final snap = DashboardSnapshot.compute(
+      assets: [
+        Asset(
+          id: 1,
+          name: 'Bitcoin',
+          quantity: 1,
+          avgBuyPrice: 100,
+          currentPrice: 140,
+        ),
+      ],
+      openTrades: const [],
+      closedTrades: const [],
+      usdtTmn: 50,
+      calendar: AppConfig.calendarGregorian,
+      checks: [
+        BankCheck(
+          direction: checkDirectionReceivable,
+          amount: 30,
+          issueDate: '2026-10-01',
+          dueDate: '2026-11-01',
+          status: checkStatusPending,
+        ),
+        BankCheck(
+          direction: checkDirectionPayable,
+          amount: 10,
+          issueDate: '2026-10-01',
+          dueDate: '2026-11-01',
+          status: checkStatusPending,
+        ),
+        BankCheck(
+          direction: checkDirectionReceivable,
+          amount: 999,
+          issueDate: '2026-09-01',
+          dueDate: '2026-09-15',
+          status: checkStatusBounced,
+        ),
+        BankCheck(
+          direction: checkDirectionPayable,
+          amount: 888,
+          issueDate: '2026-09-01',
+          dueDate: '2026-09-15',
+          status: checkStatusCleared,
+        ),
+        BankCheck(
+          direction: checkDirectionReceivable,
+          amount: 777,
+          issueDate: '2026-08-01',
+          dueDate: '2026-08-20',
+          status: checkStatusCancelled,
+        ),
+        BankCheck(
+          direction: checkDirectionReceivable,
+          amount: 666,
+          issueDate: '2026-08-01',
+          dueDate: '2026-08-20',
+          status: checkStatusEndorsed,
+        ),
+      ],
+    );
+
+    expect(snap.holdingsValue, 140);
+    expect(snap.chequeNav.pendingReceivable, 30);
+    expect(snap.chequeNav.pendingPayable, 10);
+    expect(snap.chequeNav.net, 20);
+    expect(snap.marketValue, 160);
+    expect(snap.unrealizedPnl, 40);
+    expect(snap.costBasis, 100);
+    expect(snap.marketValueUsd, closeTo(3.2, 1e-9));
+  });
+
+  test('the capital chart stamps today with cheque-adjusted NAV', () {
+    final state = AppState()
+      ..assets = [
+        Asset(
+          id: 1,
+          name: 'Bitcoin',
+          quantity: 1,
+          avgBuyPrice: 80,
+          currentPrice: 100,
+        ),
+      ]
+      ..checks = [
+        BankCheck(
+          direction: checkDirectionReceivable,
+          amount: 25,
+          issueDate: '2026-10-01',
+          dueDate: '2026-12-01',
+        ),
+        BankCheck(
+          direction: checkDirectionPayable,
+          amount: 5,
+          issueDate: '2026-10-01',
+          dueDate: '2026-12-01',
+        ),
+      ]
+      ..metrics = const DashboardMetrics(
+        totalValue: 100,
+        totalPnl: 20,
+        totalPnlPct: 25,
+        realizedPnl: 0,
+        unrealizedPnl: 20,
+        openCount: 1,
+        closedCount: 0,
+        yearRealizedPnl: 0,
+        yearKey: '2026',
+        goldFund: GoldFundMetrics(goldInG: 0, goldOutG: 0, goldHoldingG: 0),
+        growthSeries: [SeriesPoint(date: '2020-01-01', value: 80)],
+      );
+
+    expect(state.capitalGrowthSeries.last.value, 120);
   });
 }

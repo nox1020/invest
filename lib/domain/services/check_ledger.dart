@@ -6,6 +6,57 @@ enum CheckListFilter { all, receivable, payable, pending, due, bounced, settled 
 /// Open cheques that should raise a due reminder (overdue through 7 days).
 const checkReminderWithinDays = 7;
 
+/// Pending cheques that move portfolio value.
+///
+/// A pending receivable (دریافتی، نزد صندوق) is money still owed to us, so it
+/// adds. A pending payable (پرداختی، صادرشده) is money we still owe, so it
+/// subtracts. Cleared, endorsed, and cancelled cheques are finished. A bounce
+/// stays in the cheque book as a claim, but it is not cash in the portfolio,
+/// so it does not change NAV.
+class ChequeNavEffect {
+  const ChequeNavEffect({
+    this.pendingReceivable = 0,
+    this.pendingPayable = 0,
+    this.pendingReceivableCount = 0,
+    this.pendingPayableCount = 0,
+  });
+
+  final double pendingReceivable;
+  final double pendingPayable;
+  final int pendingReceivableCount;
+  final int pendingPayableCount;
+
+  static const zero = ChequeNavEffect();
+
+  double get net => pendingReceivable - pendingPayable;
+
+  bool get affectsNav =>
+      pendingReceivable.abs() > 1e-9 || pendingPayable.abs() > 1e-9;
+
+  static ChequeNavEffect of(Iterable<BankCheck> checks) {
+    var receivable = 0.0;
+    var payable = 0.0;
+    var receivableCount = 0;
+    var payableCount = 0;
+    for (final check in checks) {
+      if (check.status != checkStatusPending) continue;
+      if (check.isReceivable) {
+        receivable += check.amount;
+        receivableCount++;
+      } else if (check.isPayable) {
+        payable += check.amount;
+        payableCount++;
+      }
+    }
+    return ChequeNavEffect(
+      pendingReceivable: receivable,
+      pendingPayable: payable,
+      pendingReceivableCount: receivableCount,
+      pendingPayableCount: payableCount,
+    );
+  }
+}
+
 /// Totals for open cheques, debts, and due dates.
 class CheckLedger {
   const CheckLedger({

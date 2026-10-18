@@ -83,6 +83,7 @@ class _DashboardBodyState extends State<_DashboardBody>
       usdtTmn: usdt,
       calendar: state.settings.calendar,
       metrics: state.metrics,
+      checks: state.checks,
     );
     final growth = ensureChartSeries(
       state.metrics?.growthSeries ?? const [],
@@ -228,7 +229,7 @@ class _DashboardBodyState extends State<_DashboardBody>
                     const SizedBox(height: 12),
                     _CompositionTeaser(
                       holdings: snap.holdings,
-                      total: snap.marketValue,
+                      total: snap.holdingsValue,
                       onOpenAssets: () => _openTradesTab(context),
                     ),
                   ],
@@ -504,6 +505,19 @@ class _NavHero extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (snap.chequeNav.affectsNav) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'شامل چک باز: دریافتی ${formatMoney(snap.chequeNav.pendingReceivable, showSign: true)}'
+                          ' · پرداختی ${formatMoney(-snap.chequeNav.pendingPayable, showSign: true)}',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            color: AppTheme.muted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                       SizedBox(
                         height: 26,
                         child: usd == null

@@ -1,7 +1,6 @@
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
-
+import 'package:invest/data/local_platform.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/utils/json_values.dart';
 import 'package:invest/domain/models/asset.dart';
@@ -30,8 +29,9 @@ class OfflineCacheStore {
     double? liveUsdt,
     double? liveGold,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final payload = {
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return;
+    final payload = <String, Object?>{
       'saved_at': DateTime.now().toIso8601String(),
       'settings': settings.toJson(),
       'metrics': {
@@ -58,11 +58,19 @@ class OfflineCacheStore {
       'live_usdt': liveUsdt,
       'live_gold': liveGold,
     };
-    await prefs.setString(_keySnapshot, jsonEncode(payload));
+    final encoded = jsonEncode(payload);
+    if (await LocalPrefs.setString(prefs, _keySnapshot, encoded)) return;
+    // A growth series of thousands of points can exceed the Android binder
+    // limit. Keep the book and drop the chart history from this cache write.
+    final metricsMap = Map<String, Object?>.from(payload['metrics']! as Map);
+    metricsMap['growth_series'] = <Object>[];
+    payload['metrics'] = metricsMap;
+    await LocalPrefs.setString(prefs, _keySnapshot, jsonEncode(payload));
   }
 
   static Future<OfflinePortfolioSnapshot?> loadPortfolio() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return null;
     final raw = prefs.getString(_keySnapshot);
     if (raw == null || raw.isEmpty) return null;
     try {
@@ -118,7 +126,8 @@ class OfflineCacheStore {
 
   /// Drop all offline user snapshots (call on logout).
   static Future<void> clearUserData() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return;
     await prefs.remove(_keySnapshot);
     await prefs.remove(_keyCommodities);
     await prefs.remove(_keyWallex);
@@ -129,9 +138,15 @@ class OfflineCacheStore {
     List<CommodityQuote> quotes, {
     List<CommodityQuote> wallexMarkets = const [],
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyCommodities, jsonEncode(_quotesPayload(quotes)));
-    await prefs.setString(
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return;
+    await LocalPrefs.setString(
+      prefs,
+      _keyCommodities,
+      jsonEncode(_quotesPayload(quotes)),
+    );
+    await LocalPrefs.setString(
+      prefs,
       _keyWallex,
       jsonEncode(_quotesPayload(wallexMarkets)),
     );
@@ -143,12 +158,14 @@ class OfflineCacheStore {
       };
 
   static Future<void> saveIranInflation(IranInflationSnapshot snap) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyInflation, jsonEncode(snap.toJson()));
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return;
+    await LocalPrefs.setString(prefs, _keyInflation, jsonEncode(snap.toJson()));
   }
 
   static Future<IranInflationSnapshot?> loadIranInflation() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return null;
     final raw = prefs.getString(_keyInflation);
     if (raw == null || raw.isEmpty) return null;
     try {
@@ -161,7 +178,8 @@ class OfflineCacheStore {
   }
 
   static Future<OfflineCommoditySnapshot?> loadCommodities() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return null;
     final essentials = _decodeQuotes(prefs.getString(_keyCommodities));
     final wallex = _decodeQuotes(prefs.getString(_keyWallex));
     if (essentials == null && wallex == null) return null;

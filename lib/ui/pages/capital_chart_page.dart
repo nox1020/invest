@@ -60,6 +60,7 @@ class _CapitalChartPageState extends State<CapitalChartPage>
       usdtTmn: usdt,
       calendar: calendar,
       metrics: state.metrics,
+      checks: state.checks,
     );
     final growth = state.capitalGrowthSeries;
     final year = state.yearRealizedChartSeries;
@@ -169,7 +170,8 @@ class _CapitalChartPageState extends State<CapitalChartPage>
               const SizedBox(height: 16),
               const _Footnote(
                 text:
-                    'NAV از موجودی زنده محاسبه می‌شود. برای مقایسهٔ سالانه، ارزش '
+                    'NAV از موجودی زنده به‌اضافهٔ چک دریافتی باز و منهای چک پرداختی باز '
+                    'محاسبه می‌شود. برای مقایسهٔ سالانه، ارزش '
                     'پایان‌سال (تومان) و در صورت نیاز دلار دستی را ثبت کنید؛ نمودار '
                     'رشد سالانه هر دو ارز را نشان می‌دهد. تخصیص در تب معاملات است.',
               ),
@@ -524,12 +526,28 @@ class _BalanceSheet extends StatelessWidget {
           _LedgerRow(
             label: 'ارزش بازار (NAV)',
             value: formatMoney(snap.marketValue),
-            caption: snap.marketValueUsd == null
-                ? 'علامت زنده تومانی'
-                : 'معادل ${formatUsd(snap.marketValueUsd!)}',
+            caption: [
+              if (snap.chequeNav.affectsNav) 'شامل چک‌های باز',
+              snap.marketValueUsd == null
+                  ? 'علامت زنده تومانی'
+                  : 'معادل ${formatUsd(snap.marketValueUsd!)}',
+            ].join(' · '),
             tone: AppTheme.title,
             showDivider: true,
           ),
+          if (snap.chequeNav.affectsNav)
+            _LedgerRow(
+              label: 'چک‌های باز',
+              value: formatMoney(snap.chequeNav.net, showSign: true),
+              caption:
+                  'دریافتی ${formatMoney(snap.chequeNav.pendingReceivable)}'
+                  ' · پرداختی ${formatMoney(snap.chequeNav.pendingPayable)}'
+                  ' · وصول‌شده و برگشتی حساب نمی‌شود',
+              tone: snap.chequeNav.net >= 0
+                  ? AppTheme.positive
+                  : AppTheme.negative,
+              showDivider: true,
+            ),
           _LedgerRow(
             label: 'سود شناور',
             value: formatMoney(snap.unrealizedPnl, showSign: true),

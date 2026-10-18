@@ -8,6 +8,7 @@ import 'package:invest/data/app_lock_store.dart';
 import 'package:invest/data/app_database.dart';
 import 'package:invest/data/check_repository.dart';
 import 'package:invest/data/invest_api_client.dart';
+import 'package:invest/data/local_platform.dart';
 import 'package:invest/data/notification_inbox_store.dart';
 import 'package:invest/data/offline_cache_store.dart';
 import 'package:invest/data/remote_invest_service.dart';
@@ -28,6 +29,7 @@ import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/services/backup_payload.dart';
 import 'package:invest/domain/services/backup_service.dart';
 import 'package:invest/domain/services/chart_series.dart';
+import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/check_ledger.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/iran_inflation_service.dart';
@@ -185,15 +187,18 @@ class AppState extends ChangeNotifier {
   }
 
   List<SeriesPoint> get capitalGrowthSeries {
-    final holdings = HoldingMetrics.activeHoldings(
+    final snap = DashboardSnapshot.compute(
       assets: assets,
       openTrades: openTrades,
+      closedTrades: closedTrades,
+      usdtTmn: liveUsdt ?? settings.usdtTmnRate,
+      calendar: settings.calendar,
+      metrics: metrics,
+      checks: checks,
     );
-    final liveValue =
-        holdings.fold<double>(0, (s, h) => s + h.metrics.marketValue);
     return ensureChartSeries(
       metrics?.growthSeries ?? const [],
-      todayValue: liveValue,
+      todayValue: snap.marketValue,
     );
   }
 
@@ -589,13 +594,17 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> refreshBiometricCapability() async {
-    biometricDeviceSupported = await BiometricAuth.isDeviceSupported();
-    biometricAvailable = await BiometricAuth.hasEnrolledBiometrics();
-    if (biometricDeviceSupported) {
-      biometricLabel =
-          BiometricAuth.labelForTypes(await BiometricAuth.availableTypes());
+    try {
+      biometricDeviceSupported = await BiometricAuth.isDeviceSupported();
+      biometricAvailable = await BiometricAuth.hasEnrolledBiometrics();
+      if (biometricDeviceSupported) {
+        biometricLabel =
+            BiometricAuth.labelForTypes(await BiometricAuth.availableTypes());
+      }
+      notifyListeners();
+    } catch (e, st) {
+      logLocalFailure('biometric', e, st);
     }
-    notifyListeners();
   }
 
   Future<bool> unlockWithBiometric() async {
@@ -1183,6 +1192,26 @@ class AppState extends ChangeNotifier {
     await repo.saveMap(s.toStorageMap());
   }
 
+  /// Local cache, keystore, and background-worker failures must not fail an
+  /// online refresh. A broken SQLite file is recreated empty and refilled
+  /// from the server book already in memory.
+  Future<T?> _local<T>(String where, Future<T> Function() body) async {
+    try {
+      return await body();
+    } catch (e, st) {
+      logLocalFailure(where, e, st);
+      if (isDatabaseFailure(e)) {
+        settingsRepo = null;
+        trades = null;
+        portfolio = null;
+        _withdrawalsRepo = null;
+        _checksRepo = null;
+        await AppDatabase.instance.discardBroken();
+      }
+      return null;
+    }
+  }
+
   Future<void> _ensureLocalSettingsRepo() async {
     if (settingsRepo != null) return;
     try {
@@ -1276,21 +1305,31 @@ class AppState extends ChangeNotifier {
     required bool migrate,
   }) async {
     settings = bundle.settings;
-    var filledGaps = await PriceAlertPrefs.fillGapsOnto(settings);
+    var filledGaps = false;
+    final gaps = await _local(
+      'settings-prefs',
+      () => PriceAlertPrefs.fillGapsOnto(settings),
+    );
+    filledGaps = gaps ?? false;
     // Also heal from SQLite when Vinor returns empty year-nav history.
     if (settings.yearNavHistory.isEmpty) {
-      await _ensureLocalSettingsRepo();
-      final map = await settingsRepo?.loadAll();
-      final fromDb = YearNavList.parse(map?[AppConfig.settingYearNavHistory]);
-      if (fromDb.isNotEmpty) {
-        settings.yearNavHistory = fromDb;
-        filledGaps = true;
-      }
+      await _local('settings-sqlite', () async {
+        await _ensureLocalSettingsRepo();
+        final map = await settingsRepo?.loadAll();
+        final fromDb = YearNavList.parse(map?[AppConfig.settingYearNavHistory]);
+        if (fromDb.isNotEmpty) {
+          settings.yearNavHistory = fromDb;
+          filledGaps = true;
+        }
+      });
     }
-    await _applyRemoteLockFromBundle(bundle, migrateLocal: migrate);
-    await _persistSettingsLocal(settings);
-    await PriceAlertPrefs.saveFrom(settings);
-    await BackgroundPriceWorker.sync(settings);
+    await _local(
+      'settings-lock',
+      () => _applyRemoteLockFromBundle(bundle, migrateLocal: migrate),
+    );
+    await _local('settings-persist', () => _persistSettingsLocal(settings));
+    await _local('settings-prefs-save', () => PriceAlertPrefs.saveFrom(settings));
+    await _local('settings-worker', () => BackgroundPriceWorker.sync(settings));
 
     final shouldMigrateLock = migrate &&
         bundle.appLockHash == null &&
@@ -1645,6 +1684,14 @@ class AppState extends ChangeNotifier {
   /// An empty server book must not replace rows that still live on the phone.
   /// A non-empty book is always written, even when dashboard metrics failed.
   Future<void> _savePortfolioUnlessEmptyWipesCache() async {
+    try {
+      await _savePortfolioCache();
+    } catch (e, st) {
+      logLocalFailure('snapshots', e, st);
+    }
+  }
+
+  Future<void> _savePortfolioCache() async {
     final bookEmpty =
         assets.isEmpty && openTrades.isEmpty && closedTrades.isEmpty;
     if (bookEmpty && await OfflineCacheStore.hasPortfolioCache()) {
@@ -1708,7 +1755,13 @@ class AppState extends ChangeNotifier {
     } catch (e, st) {
       debugPrint('local portfolio read failed: $e\n$st');
     }
-    final snap = await OfflineCacheStore.loadPortfolio();
+    OfflinePortfolioSnapshot? snap;
+    try {
+      snap = await OfflineCacheStore.loadPortfolio();
+    } catch (e, st) {
+      logLocalFailure('merge-cache', e, st);
+      return _PhoneBook.empty;
+    }
     if (snap == null) return _PhoneBook.empty;
     return _PhoneBook(
       assets: snap.assets,
@@ -2811,12 +2864,24 @@ class AppState extends ChangeNotifier {
     if (fetchedUsdt != null) {
       liveUsdt = fetchedUsdt;
       settings.usdtTmnRate = fetchedUsdt;
-      await settingsRepo?.set(AppConfig.settingUsdtTmn, fetchedUsdt.toString());
+      await _local(
+        'quotes-settings',
+        () async => settingsRepo?.set(
+          AppConfig.settingUsdtTmn,
+          fetchedUsdt.toString(),
+        ),
+      );
     }
     if (fetchedGold != null) {
       liveGold = fetchedGold;
       settings.goldTmnPerGram = fetchedGold;
-      await settingsRepo?.set(AppConfig.settingGoldTmn, fetchedGold.toString());
+      await _local(
+        'quotes-settings',
+        () async => settingsRepo?.set(
+          AppConfig.settingGoldTmn,
+          fetchedGold.toString(),
+        ),
+      );
     }
 
     if (!useRemote && trades != null) {
@@ -2829,7 +2894,7 @@ class AppState extends ChangeNotifier {
       );
     }
     await _overlayLiveMarks();
-    await _dispatchPriceAlerts();
+    await _local('quotes-alerts', _dispatchPriceAlerts);
   }
 
   /// Replace شاخص / live gold with the free 18k bazaar feed when Vinor is stale.

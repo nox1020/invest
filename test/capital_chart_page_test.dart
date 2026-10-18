@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/year_nav_entry.dart';
@@ -105,6 +106,77 @@ void main() {
     expect(find.text('پایان سال‌های گذشته'), findsOneWidget);
     expect(find.text('افزودن سال گذشته'), findsOneWidget);
     expect(find.textContaining('Bitcoin'), findsNothing);
+  });
+
+  testWidgets('capital desk shows the open-cheque line in the balance sheet',
+      (tester) async {
+    final state = AppState()
+      ..loading = false
+      ..authenticated = true
+      ..settings = AppSettings(calendar: AppConfig.calendarGregorian)
+      ..assets = [
+        Asset(
+          id: 1,
+          name: 'Cash',
+          quantity: 1,
+          avgBuyPrice: 1000,
+          currentPrice: 1000,
+        ),
+      ]
+      ..checks = [
+        BankCheck(
+          direction: checkDirectionReceivable,
+          amount: 400,
+          issueDate: '2026-10-01',
+          dueDate: '2026-12-01',
+        ),
+        BankCheck(
+          direction: checkDirectionPayable,
+          amount: 150,
+          issueDate: '2026-10-01',
+          dueDate: '2026-12-01',
+        ),
+        BankCheck(
+          direction: checkDirectionReceivable,
+          amount: 9999,
+          issueDate: '2026-09-01',
+          dueDate: '2026-09-20',
+          status: checkStatusBounced,
+        ),
+      ]
+      ..metrics = const DashboardMetrics(
+        totalValue: 1000,
+        totalPnl: 0,
+        totalPnlPct: 0,
+        realizedPnl: 0,
+        unrealizedPnl: 0,
+        openCount: 0,
+        closedCount: 0,
+        yearRealizedPnl: 0,
+        yearKey: '2026',
+        goldFund: GoldFundMetrics(goldInG: 0, goldOutG: 0, goldHoldingG: 0),
+      );
+
+    tester.view.physicalSize = const Size(800, 2800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: state,
+        child: const MaterialApp(
+          locale: Locale('fa', 'IR'),
+          home: CapitalChartPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('چک‌های باز'), findsOneWidget);
+    expect(find.textContaining('شامل چک‌های باز'), findsOneWidget);
+    expect(find.textContaining('1,250 تومان'), findsWidgets);
+    expect(find.textContaining('+250 تومان'), findsOneWidget);
   });
 
   testWidgets('capital desk shows YoY growth chart when prior year NAV exists',

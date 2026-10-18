@@ -31,6 +31,31 @@ void main() {
     );
   }
 
+  test('only pending cheques change portfolio value', () {
+    final effect = ChequeNavEffect.of([
+      cheque(amount: 2000),
+      cheque(direction: checkDirectionPayable, amount: 500),
+      cheque(amount: 400, status: checkStatusBounced),
+      cheque(
+        direction: checkDirectionPayable,
+        amount: 200,
+        status: checkStatusBounced,
+      ),
+      cheque(amount: 900, status: checkStatusCleared),
+      cheque(amount: 100, status: checkStatusEndorsed),
+      cheque(
+        direction: checkDirectionPayable,
+        amount: 50,
+        status: checkStatusCancelled,
+      ),
+    ]);
+    expect(effect.pendingReceivable, 2000);
+    expect(effect.pendingReceivableCount, 1);
+    expect(effect.pendingPayable, 500);
+    expect(effect.pendingPayableCount, 1);
+    expect(effect.net, 1500);
+  });
+
   test('splits receivables, debts, bounces, and due dates', () {
     final book = CheckLedger.summarize(
       [

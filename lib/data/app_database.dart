@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/check_repository.dart';
+import 'package:invest/data/local_platform.dart';
 import 'package:invest/domain/utils/dates.dart';
 
 class AppDatabase {
@@ -12,9 +14,15 @@ class AppDatabase {
 
   Database? _db;
 
+  /// Test hook. When set, opening skips path_provider and uses this instead.
+  @visibleForTesting
+  Future<Database> Function()? debugOpenDatabase;
+
   Future<Database> get database async {
-    if (_db != null) return _db!;
-    _db = await _open();
+    final existing = _db;
+    if (existing != null && existing.isOpen) return existing;
+    _db = null;
+    _db = await _openRecovering();
     return _db!;
   }
 
@@ -24,8 +32,66 @@ class AppDatabase {
   }
 
   Future<void> close() async {
-    await _db?.close();
+    final db = _db;
     _db = null;
+    debugOpenDatabase = null;
+    if (db == null) return;
+    try {
+      await db.close();
+    } catch (e, st) {
+      logLocalFailure('sqlite-close', e, st);
+    }
+  }
+
+  /// A corrupt or unreadable cache file is deleted and created again.
+  /// Server data is not touched. Callers still have to tolerate a second failure.
+  Future<void> discardBroken() async {
+    final db = _db;
+    _db = null;
+    if (db != null) {
+      try {
+        await db.close();
+      } catch (e, st) {
+        logLocalFailure('sqlite-close', e, st);
+      }
+    }
+    await _deleteLocalFiles();
+    try {
+      _db = await _openOnce();
+    } catch (e, st) {
+      _db = null;
+      logLocalFailure('sqlite-reopen', e, st);
+    }
+  }
+
+  Future<Database> _openRecovering() async {
+    try {
+      return await _openOnce();
+    } catch (e, st) {
+      logLocalFailure('sqlite-open', e, st);
+      await _deleteLocalFiles();
+      try {
+        return await _openOnce();
+      } catch (e2, st2) {
+        logLocalFailure('sqlite-reopen', e2, st2);
+        Error.throwWithStackTrace(e2, st2);
+      }
+    }
+  }
+
+  Future<Database> _openOnce() {
+    final hook = debugOpenDatabase;
+    if (hook != null) return hook();
+    return _open();
+  }
+
+  Future<void> _deleteLocalFiles() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      await deleteDatabase(p.join(dir.path, 'invest.db'));
+    } catch (e, st) {
+      logLocalFailure('sqlite-delete', e, st);
+    }
   }
 
   Future<Database> _open() async {

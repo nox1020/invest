@@ -1,12 +1,22 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 
 /// Short diagnosis for the dashboard banner: exception class, HTTP status,
 /// or API error code. No response body and no account data.
 String refreshFailureCode(Object error) {
+  if (error is PlatformException) {
+    final code = error.code.trim();
+    final message =
+        (error.message ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+    final short = message.length > 80 ? message.substring(0, 80) : message;
+    if (code.isEmpty) return 'PlatformException';
+    if (short.isEmpty) return 'PlatformException/$code';
+    return 'PlatformException/$code: $short';
+  }
   if (error is InvestApiException) {
     final code = error.errorCode?.trim();
     final status = error.statusCode;

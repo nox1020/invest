@@ -52,6 +52,14 @@ class BackgroundPriceWorker {
 
   static Future<void> sync(AppSettings settings) async {
     if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _sync(settings);
+    } catch (e, st) {
+      debugPrint('Invest local workmanager: $e\n$st');
+    }
+  }
+
+  static Future<void> _sync(AppSettings settings) async {
     await initialize();
     if (!_initialized) return;
     final armedPrices = settings.priceAlertsOn &&

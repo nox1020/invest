@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:invest/data/local_platform.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/price_alert.dart';
@@ -19,8 +19,10 @@ class PriceAlertPrefs {
   static const positionsKey = 'vplus_profit_positions_v1';
 
   static Future<void> saveFrom(AppSettings s) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return;
+    await LocalPrefs.setString(
+      prefs,
       snapshotKey,
       jsonEncode({
         'notifications_enabled': s.notificationsEnabled,
@@ -94,7 +96,8 @@ class PriceAlertPrefs {
   }
 
   static Future<void> clear() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return;
     await prefs.remove(snapshotKey);
     await prefs.remove(latchKey);
     await prefs.remove(profitLatchKey);
@@ -102,7 +105,8 @@ class PriceAlertPrefs {
   }
 
   static Future<PriceAlertSnapshot?> loadSnapshot() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return null;
     final raw = prefs.getString(snapshotKey);
     if (raw == null || raw.isEmpty) return null;
     try {
@@ -129,15 +133,18 @@ class PriceAlertPrefs {
       _saveLatchMap(profitLatchKey, latches);
 
   static Future<void> savePositions(List<ProfitPosition> positions) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return;
+    await LocalPrefs.setString(
+      prefs,
       positionsKey,
       jsonEncode(positions.map((e) => e.toJson()).toList()),
     );
   }
 
   static Future<List<ProfitPosition>> loadPositions() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return const [];
     final raw = prefs.getString(positionsKey);
     if (raw == null || raw.isEmpty) return const [];
     try {
@@ -154,7 +161,8 @@ class PriceAlertPrefs {
   }
 
   static Future<Map<String, PriceAlertLatch>> _loadLatchMap(String key) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return {};
     final raw = prefs.getString(key);
     if (raw == null || raw.isEmpty) return {};
     try {
@@ -176,8 +184,10 @@ class PriceAlertPrefs {
     String key,
     Map<String, PriceAlertLatch> latches,
   ) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return;
+    await LocalPrefs.setString(
+      prefs,
       key,
       jsonEncode({
         for (final e in latches.entries) e.key: e.value.toJson(),

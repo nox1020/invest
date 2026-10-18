@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/ui/widgets/user_error.dart';
@@ -40,6 +41,22 @@ void main() {
     expect(
       formatUserError(TimeoutException('timed out')),
       'زمان اتصال به سرور تمام شد. دوباره تلاش کنید.',
+    );
+  });
+
+  test('names the platform channel code and message', () {
+    expect(
+      refreshFailureCode(
+        PlatformException(
+          code: 'channel-error',
+          message: 'TransactionTooLargeException: data parcel size',
+        ),
+      ),
+      'PlatformException/channel-error: TransactionTooLargeException: data parcel size',
+    );
+    expect(
+      refreshFailureCode(PlatformException(code: 'sqlite_error')),
+      'PlatformException/sqlite_error',
     );
   });
 

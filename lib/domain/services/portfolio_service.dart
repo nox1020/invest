@@ -1,6 +1,8 @@
 import 'package:invest/config/app_config.dart';
+import 'package:invest/data/check_repository.dart';
 import 'package:invest/data/repositories.dart';
 import 'package:invest/domain/models/metrics.dart';
+import 'package:invest/domain/services/check_ledger.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:sqflite/sqflite.dart';
@@ -18,11 +20,14 @@ class PortfolioService {
 
   Future<DashboardMetrics> getMetrics({String calendar = AppConfig.calendarJalali}) async {
     final allAssets = await assets.listAll();
-    final totalValue =
+    final holdingsValue =
         allAssets.fold<double>(0, (s, a) => s + a.totalValue);
+    final chequeNav =
+        ChequeNavEffect.of(await CheckRepository(_db).listAll());
+    final totalValue = holdingsValue + chequeNav.net;
     final totalCost =
         allAssets.fold<double>(0, (s, a) => s + a.costBasis);
-    final unrealized = totalValue - totalCost;
+    final unrealized = holdingsValue - totalCost;
     final stats = await trades.closedStats();
     final realized = stats['total_pnl'] ?? 0;
     final totalPnl = unrealized + realized;
@@ -88,8 +93,11 @@ class PortfolioService {
   }
 
   Future<void> recordSnapshot() async {
-    final value =
+    final holdingsValue =
         (await assets.listAll()).fold<double>(0, (s, a) => s + a.totalValue);
+    final chequeNav =
+        ChequeNavEffect.of(await CheckRepository(_db).listAll());
+    final value = holdingsValue + chequeNav.net;
     final date = todayIso();
     await _db.insert(
       'capital_snapshots',
