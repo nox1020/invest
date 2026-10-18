@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/domain/models/app_settings.dart';
@@ -18,6 +19,7 @@ import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/invest_mutations.dart';
 import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
+import 'package:invest/domain/utils/json_values.dart';
 
 /// Remote asset repository backed by Vinor Invest API.
 class RemoteAssetRepository {
@@ -27,9 +29,8 @@ class RemoteAssetRepository {
   Future<List<Asset>> listAll({String search = ''}) async {
     final query = search.trim().isEmpty ? null : {'q': search.trim()};
     final data = await _api.get('/invest/api/v1/assets', query: query);
-    final items = (data['items'] as List?) ?? const [];
-    return items
-        .map((e) => Asset.fromMap(Map<String, Object?>.from(e as Map)))
+    return RemoteInvestService._maps(data['items'], 'assets')
+        .map((e) => Asset.fromMap(e))
         .toList();
   }
 
@@ -84,16 +85,30 @@ class RemoteInvestService implements InvestMutations {
 
   Future<DashboardMetrics> fetchDashboard(String calendar) async {
     final data = await _api.get('/invest/api/v1/dashboard');
-    final m = Map<String, dynamic>.from(data['metrics'] as Map);
-    final g = Map<String, dynamic>.from(data['gold_fund'] as Map? ?? {});
+    // `metrics as Map` threw when the field was missing or not an object,
+    // and `open_count as num` threw when it arrived as a string. Either
+    // abort used to blank the dashboard.
+    final metricsRaw = data['metrics'];
+    if (metricsRaw is! Map) {
+      debugPrint(
+        'GET /dashboard metrics is ${metricsRaw.runtimeType}, not a map',
+      );
+    }
+    final m = metricsRaw is Map
+        ? Map<String, dynamic>.from(metricsRaw)
+        : const <String, dynamic>{};
+    final goldRaw = data['gold_fund'];
+    final g = goldRaw is Map
+        ? Map<String, dynamic>.from(goldRaw)
+        : const <String, dynamic>{};
     return DashboardMetrics(
       totalValue: _num(m['total_value']),
       totalPnl: _num(m['total_pnl']),
       totalPnlPct: _num(m['total_pnl_pct']),
       realizedPnl: _num(m['realized_pnl']),
       unrealizedPnl: _num(m['unrealized_pnl']),
-      openCount: (m['open_count'] as num?)?.toInt() ?? 0,
-      closedCount: (m['closed_count'] as num?)?.toInt() ?? 0,
+      openCount: jsonInt(m['open_count']) ?? 0,
+      closedCount: jsonInt(m['closed_count']) ?? 0,
       yearRealizedPnl: _num(m['year_realized_pnl']),
       yearKey: yearPeriodKey(todayIso(), calendar),
       goldFund: GoldFundMetrics(
@@ -119,7 +134,12 @@ class RemoteInvestService implements InvestMutations {
 
   Future<RemoteSettingsBundle> fetchSettings() async {
     final data = await _api.get('/invest/api/v1/settings');
-    return _bundleFrom(Map<String, dynamic>.from(data['settings'] as Map));
+    final raw = data['settings'];
+    if (raw is! Map) {
+      debugPrint('GET /settings is ${raw.runtimeType}, not a map');
+      return _bundleFrom(const {});
+    }
+    return _bundleFrom(Map<String, dynamic>.from(raw));
   }
 
   /// Persist full user prefs to Vinor (typed fields + extras in settings bag).
@@ -602,17 +622,29 @@ class RemoteInvestService implements InvestMutations {
       e.statusCode == 404 && !e.message.contains('پیدا نشد');
 
   List<Trade> _tradesFrom(Map<String, dynamic> data) {
-    final items = (data['items'] as List?) ?? const [];
-    return items
-        .map((e) => Trade.fromMap(Map<String, Object?>.from(e as Map)))
-        .toList();
+    return _maps(data['items'], 'trades').map(Trade.fromMap).toList();
   }
 
   List<Withdrawal> _withdrawalsFrom(Map<String, dynamic> data) {
-    final items = (data['items'] as List?) ?? const [];
-    return items
-        .map((e) => Withdrawal.fromMap(Map<String, Object?>.from(e as Map)))
-        .toList();
+    return _maps(data['items'], 'withdrawals').map(Withdrawal.fromMap).toList();
+  }
+
+  /// Skip a non-list body or a non-object row instead of failing the refresh.
+  static List<Map<String, Object?>> _maps(Object? raw, String label) {
+    if (raw == null) return const [];
+    if (raw is! List) {
+      debugPrint('GET $label items is ${raw.runtimeType}, not a list');
+      return const [];
+    }
+    final out = <Map<String, Object?>>[];
+    for (final item in raw) {
+      if (item is! Map) {
+        debugPrint('skip $label row of type ${item.runtimeType}');
+        continue;
+      }
+      out.add(Map<String, Object?>.from(item));
+    }
+    return out;
   }
 
   RemoteSettingsBundle _bundleFrom(Map<String, dynamic> s) =>

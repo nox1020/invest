@@ -1,3 +1,5 @@
+import 'package:invest/domain/utils/json_values.dart';
+
 class Asset {
   Asset({
     this.id,
@@ -28,15 +30,15 @@ class Asset {
       costBasis.abs() < 1e-12 ? 0 : unrealizedPnl / costBasis * 100;
 
   factory Asset.fromMap(Map<String, Object?> m) => Asset(
-        id: m['id'] as int?,
-        name: (m['name'] as String?) ?? '',
-        symbol: (m['symbol'] as String?) ?? '',
-        quantity: (m['quantity'] as num?)?.toDouble() ?? 0,
-        avgBuyPrice: (m['avg_buy_price'] as num?)?.toDouble() ?? 0,
-        currentPrice: (m['current_price'] as num?)?.toDouble() ?? 0,
-        notes: (m['notes'] as String?) ?? '',
-        createdAt: (m['created_at'] as String?) ?? '',
-        updatedAt: (m['updated_at'] as String?) ?? '',
+        id: jsonInt(m['id']),
+        name: jsonText(m['name']),
+        symbol: jsonText(m['symbol']),
+        quantity: jsonDouble(m['quantity']) ?? 0,
+        avgBuyPrice: jsonDouble(m['avg_buy_price']) ?? 0,
+        currentPrice: jsonDouble(m['current_price']) ?? 0,
+        notes: jsonText(m['notes']),
+        createdAt: jsonText(m['created_at']),
+        updatedAt: jsonText(m['updated_at']),
       );
 
   Map<String, Object?> toMap() => {

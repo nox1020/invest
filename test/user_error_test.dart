@@ -17,9 +17,13 @@ void main() {
         "NoSuchMethodError: Class 'RemoteInvestService' has no instance method 'createAsset'\n"
         "Receiver: Instance of 'RemoteInvestService'\n"
         "Tried calling: createAsset(buyDate: \"2026-09-16\")";
+    final message = formatUserError(Exception(raw));
+    expect(message, 'به‌روزرسانی انجام نشد. دوباره تلاش کنید.');
+    expect(message, isNot(contains('به‌روز کنید')));
+    expect(message, isNot(contains('برنامه را')));
     expect(
-      formatUserError(Exception(raw)),
-      'این عملیات در نسخه فعلی پشتیبانی نمی‌شود. برنامه را به‌روز کنید.',
+      formatUserError(Exception("TypeError: type 'String' is not a subtype of type 'int'")),
+      'به‌روزرسانی انجام نشد. دوباره تلاش کنید.',
     );
   });
 

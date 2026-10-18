@@ -1,6 +1,7 @@
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
+import 'package:invest/domain/utils/json_values.dart';
 
 class Trade {
   Trade({
@@ -106,46 +107,43 @@ class Trade {
       );
 
   factory Trade.fromMap(Map<String, Object?> m) {
-    final rawNote = (m['buy_note'] as String?) ?? '';
+    final rawNote = jsonText(m['buy_note']);
     final parsed = parseBuyNoteUsd(rawNote);
     final usd = readBuyPriceUsd(
       columnValue: m['buy_price_usd'] ?? m['buyPriceUsd'],
       buyNote: rawNote,
     );
-    int? asInt(Object? v) {
-      if (v == null) return null;
-      if (v is int) return v;
-      if (v is num) return v.toInt();
-      return int.tryParse('$v');
-    }
+    int? asInt(Object? v) => jsonInt(v);
 
     return Trade(
       id: asInt(m['id']),
       assetId: asInt(m['asset_id']) ?? 0,
-      status: (m['status'] as String?) ?? AppConfig.tradeOpen,
-      quantity: (m['quantity'] as num?)?.toDouble() ?? 0,
-      buyPrice: (m['buy_price'] as num?)?.toDouble() ?? 0,
+      status: jsonText(m['status'], fallback: AppConfig.tradeOpen),
+      quantity: jsonDouble(m['quantity']) ?? 0,
+      buyPrice: jsonDouble(m['buy_price']) ?? 0,
       buyPriceUsd: usd,
       buyUsdTmn: parsed.fx,
-      buyFee: (m['buy_fee'] as num?)?.toDouble() ?? 0,
-      buyDate: (m['buy_date'] as String?) ?? '',
+      buyFee: jsonDouble(m['buy_fee']) ?? 0,
+      buyDate: jsonText(m['buy_date']),
       buyNote: encodeBuyNoteUsd(
         usd: usd ?? parsed.usd,
         fx: parsed.fx,
         note: parsed.note,
       ),
-      sellPrice: (m['sell_price'] as num?)?.toDouble(),
-      sellFee: (m['sell_fee'] as num?)?.toDouble() ?? 0,
-      sellDate: m['sell_date'] as String?,
-      sellNote: (m['sell_note'] as String?) ?? '',
-      realizedPnl: (m['realized_pnl'] as num?)?.toDouble(),
-      returnPct: (m['return_pct'] as num?)?.toDouble(),
+      sellPrice: jsonDouble(m['sell_price']),
+      sellFee: jsonDouble(m['sell_fee']) ?? 0,
+      sellDate: jsonText(m['sell_date']).trim().isEmpty
+          ? null
+          : jsonText(m['sell_date']),
+      sellNote: jsonText(m['sell_note']),
+      realizedPnl: jsonDouble(m['realized_pnl']),
+      returnPct: jsonDouble(m['return_pct']),
       holdingDays: asInt(m['holding_days']),
-      createdAt: (m['created_at'] as String?) ?? '',
-      updatedAt: (m['updated_at'] as String?) ?? '',
-      assetName: (m['asset_name'] as String?) ?? '',
-      assetSymbol: (m['asset_symbol'] as String?) ?? '',
-      currentPrice: (m['current_price'] as num?)?.toDouble() ?? 0,
+      createdAt: jsonText(m['created_at']),
+      updatedAt: jsonText(m['updated_at']),
+      assetName: jsonText(m['asset_name']),
+      assetSymbol: jsonText(m['asset_symbol']),
+      currentPrice: jsonDouble(m['current_price']) ?? 0,
     );
   }
 

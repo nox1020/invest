@@ -74,8 +74,8 @@ String _fromApi(InvestApiException error) {
 }
 
 String _fromTechnical(String raw) {
-  if (raw.contains('NoSuchMethodError')) {
-    return 'این عملیات در نسخه فعلی پشتیبانی نمی‌شود. برنامه را به‌روز کنید.';
+  if (raw.contains('NoSuchMethodError') || raw.contains('TypeError')) {
+    return 'به‌روزرسانی انجام نشد. دوباره تلاش کنید.';
   }
   if (raw.contains('SocketException') ||
       raw.contains('HandshakeException') ||
@@ -96,6 +96,7 @@ String _fromTechnical(String raw) {
 
 bool _looksTechnical(String text) {
   if (text.contains('NoSuchMethodError') ||
+      text.contains('TypeError') ||
       text.contains('Null check operator') ||
       text.contains('Tried calling:') ||
       text.contains('Receiver:') ||

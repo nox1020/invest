@@ -1,3 +1,5 @@
+import 'package:invest/domain/utils/json_values.dart';
+
 class GoldFundMetrics {
   const GoldFundMetrics({
     required this.goldInG,
@@ -34,14 +36,13 @@ class SeriesPoint {
     for (final item in raw) {
       if (item is! Map) continue;
       final map = Map<String, dynamic>.from(item);
-      final date = (map['date'] as String?)?.trim() ?? '';
+      final date = jsonText(map['date']).trim();
       if (date.isEmpty) continue;
-      final usd = (map['usd'] as num?)?.toDouble() ??
-          (map['usdValue'] as num?)?.toDouble();
+      final usd = jsonDouble(map['usd']) ?? jsonDouble(map['usdValue']);
       out.add(
         SeriesPoint(
           date: date.length >= 10 ? date.substring(0, 10) : date,
-          value: (map['value'] as num?)?.toDouble() ?? 0,
+          value: jsonDouble(map['value']) ?? 0,
           usdValue: (usd != null && usd > 0) ? usd : null,
         ),
       );

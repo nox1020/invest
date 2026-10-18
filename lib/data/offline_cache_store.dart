@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:invest/domain/models/app_settings.dart';
+import 'package:invest/domain/utils/json_values.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
@@ -75,8 +76,8 @@ class OfflineCacheStore {
         totalPnlPct: _d(m['total_pnl_pct']),
         realizedPnl: _d(m['realized_pnl']),
         unrealizedPnl: _d(m['unrealized_pnl']),
-        openCount: (m['open_count'] as num?)?.toInt() ?? 0,
-        closedCount: (m['closed_count'] as num?)?.toInt() ?? 0,
+        openCount: jsonInt(m['open_count']) ?? 0,
+        closedCount: jsonInt(m['closed_count']) ?? 0,
         yearRealizedPnl: _d(m['year_realized_pnl']),
         yearKey: (m['year_key'] as String?) ?? '',
         goldFund: GoldFundMetrics(
@@ -88,21 +89,11 @@ class OfflineCacheStore {
           m['growth_series'] ?? map['growth_series'],
         ),
       );
-      final assets = ((map['assets'] as List?) ?? const [])
-          .map((e) => Asset.fromMap(_toObjMap(e as Map)))
-          .toList();
-      final open = ((map['open_trades'] as List?) ?? const [])
-          .map((e) => Trade.fromMap(_toObjMap(e as Map)))
-          .toList();
-      final closed = ((map['closed_trades'] as List?) ?? const [])
-          .map((e) => Trade.fromMap(_toObjMap(e as Map)))
-          .toList();
-      final withdrawals = ((map['withdrawals'] as List?) ?? const [])
-          .map((e) => Withdrawal.fromMap(_toObjMap(e as Map)))
-          .toList();
-      final checks = ((map['checks'] as List?) ?? const [])
-          .map((e) => BankCheck.fromMap(_toObjMap(e as Map)))
-          .toList();
+      final assets = _rows(map['assets'], Asset.fromMap);
+      final open = _rows(map['open_trades'], Trade.fromMap);
+      final closed = _rows(map['closed_trades'], Trade.fromMap);
+      final withdrawals = _rows(map['withdrawals'], Withdrawal.fromMap);
+      final checks = _rows(map['checks'], BankCheck.fromMap);
       return OfflinePortfolioSnapshot(
         savedAt: DateTime.tryParse(map['saved_at'] as String? ?? ''),
         settings: settings,
@@ -207,6 +198,21 @@ class OfflineCacheStore {
     }
   }
 
+  static List<T> _rows<T>(
+    Object? raw,
+    T Function(Map<String, Object?>) parse,
+  ) {
+    if (raw is! List) return [];
+    final out = <T>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      try {
+        out.add(parse(_toObjMap(item)));
+      } catch (_) {}
+    }
+    return out;
+  }
+
   static Map<String, Object?> _toObjMap(Map raw) =>
       raw.map((k, v) => MapEntry(k.toString(), v as Object?));
 
@@ -254,7 +260,7 @@ class OfflineCacheStore {
         'created_at': w.createdAt,
       };
 
-  static double _d(dynamic v) => (v as num?)?.toDouble() ?? 0;
+  static double _d(dynamic v) => jsonDouble(v) ?? 0;
 }
 
 class OfflinePortfolioSnapshot {

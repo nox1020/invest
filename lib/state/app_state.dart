@@ -33,6 +33,7 @@ import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/iran_inflation_service.dart';
 import 'package:invest/domain/services/notification_service.dart';
 import 'package:invest/domain/services/portfolio_service.dart';
+import 'package:invest/domain/services/portfolio_upload.dart';
 import 'package:invest/domain/services/price_alert_engine.dart';
 import 'package:invest/domain/services/price_alert_prefs.dart';
 import 'package:invest/domain/services/profit_alert_engine.dart';
@@ -1366,7 +1367,7 @@ class AppState extends ChangeNotifier {
       }
       error = null;
       await _dispatchProfitAlerts();
-    } on InvestApiException catch (e) {
+    } on InvestApiException catch (e, st) {
       if (e.statusCode == 401) {
         await logout();
       } else if (e.errorCode == 'network_error') {
@@ -1379,10 +1380,12 @@ class AppState extends ChangeNotifier {
           error = formatUserError(e);
         }
       } else {
-        error = formatUserError(e);
+        debugPrint('Invest refresh failed: $e\n$st');
+        await _keepBookAfterRefreshFailure();
       }
-    } catch (e) {
-      error = formatUserError(e);
+    } catch (e, st) {
+      debugPrint('Invest refresh failed: $e\n$st');
+      await _keepBookAfterRefreshFailure();
     } finally {
       refreshing = false;
       notifyListeners();
@@ -1420,17 +1423,22 @@ class AppState extends ChangeNotifier {
     final wdF = svc.listWithdrawals();
 
     final dash = await dashF;
-    final nextAssets = await assetsF;
-    final nextOpen = await openF;
-    final nextClosed = await closedF;
+    final serverAssets = await assetsF;
+    final serverOpen = await openF;
+    final serverClosed = await closedF;
     final remoteWithdrawals = await wdF;
+    final shown = await _mergeLocalBook(
+      serverAssets: serverAssets,
+      serverOpen: serverOpen,
+      serverClosed: serverClosed,
+    );
 
     _holdUiNotifications = true;
     try {
       metrics = dash;
-      assets = nextAssets;
-      openTrades = nextOpen;
-      closedTrades = nextClosed;
+      assets = shown.assets;
+      openTrades = shown.open;
+      closedTrades = shown.closed;
       await _applyWithdrawalsAfterFetch(
         remote: svc,
         remoteItems: remoteWithdrawals,
@@ -1439,20 +1447,234 @@ class AppState extends ChangeNotifier {
       await _applyChecksAfterFetch(settingsBundle);
       await _overlayLiveMarks();
       lastSyncedAt = DateTime.now();
-      await OfflineCacheStore.savePortfolio(
-        settings: settings,
-        metrics: metrics!,
-        assets: assets,
-        openTrades: openTrades,
-        closedTrades: closedTrades,
-        withdrawals: withdrawals,
-        checks: checks,
-        liveUsdt: liveUsdt,
-        liveGold: liveGold,
-      );
+      await _savePortfolioUnlessEmptyWipesCache();
     } finally {
       _holdUiNotifications = false;
     }
+  }
+
+  /// A failed refresh must keep the book already on screen, or the last
+  /// snapshot, and say what happened. A 401 still logs out above.
+  Future<void> _keepBookAfterRefreshFailure() async {
+    final hadBook = assets.isNotEmpty ||
+        openTrades.isNotEmpty ||
+        closedTrades.isNotEmpty;
+    var kept = hadBook;
+    if (!hadBook) {
+      try {
+        kept = await _applyPortfolioCache();
+      } catch (e, st) {
+        debugPrint('cached book restore failed: $e\n$st');
+        kept = false;
+      }
+    }
+    error = kept
+        ? 'به‌روزرسانی داشبورد انجام نشد. داده‌های ذخیره‌شده نشان داده می‌شود.'
+        : 'به‌روزرسانی داشبورد انجام نشد. دوباره تلاش کنید.';
+  }
+
+  /// An empty server book must not replace rows that still live on the phone.
+  Future<void> _savePortfolioUnlessEmptyWipesCache() async {
+    final bookEmpty =
+        assets.isEmpty && openTrades.isEmpty && closedTrades.isEmpty;
+    if (bookEmpty && await OfflineCacheStore.hasPortfolioCache()) {
+      debugPrint('skip empty portfolio snapshot; keeping the saved book');
+      return;
+    }
+    final snapMetrics = metrics;
+    if (snapMetrics == null) return;
+    await OfflineCacheStore.savePortfolio(
+      settings: settings,
+      metrics: snapMetrics,
+      assets: assets,
+      openTrades: openTrades,
+      closedTrades: closedTrades,
+      withdrawals: withdrawals,
+      checks: checks,
+      liveUsdt: liveUsdt,
+      liveGold: liveGold,
+    );
+  }
+
+  String get _portfolioUploadPendingKey =>
+      'portfolio_upload_pending_v1_${(userPhone ?? _session?.phone ?? '').trim()}';
+
+  Future<bool> _isPortfolioUploadPending() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_portfolioUploadPendingKey) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _setPortfolioUploadPending(bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (value) {
+        await prefs.setBool(_portfolioUploadPendingKey, true);
+      } else {
+        await prefs.remove(_portfolioUploadPendingKey);
+      }
+    } catch (e, st) {
+      debugPrint('portfolio upload flag failed: $e\n$st');
+    }
+  }
+
+  /// SQLite wins when it has rows. Otherwise the offline snapshot.
+  Future<_PhoneBook> _loadPhoneBook() async {
+    try {
+      final db = await AppDatabase.instance.database;
+      final storedAssets = await AssetRepository(db).listAll();
+      final tradeRepo = TradeRepository(db);
+      final open = await tradeRepo.listOpen();
+      final closed = await tradeRepo.listClosed();
+      if (storedAssets.isNotEmpty || open.isNotEmpty || closed.isNotEmpty) {
+        return _PhoneBook(
+          assets: storedAssets,
+          trades: [...open, ...closed],
+        );
+      }
+    } catch (e, st) {
+      debugPrint('local portfolio read failed: $e\n$st');
+    }
+    final snap = await OfflineCacheStore.loadPortfolio();
+    if (snap == null) return _PhoneBook.empty;
+    return _PhoneBook(
+      assets: snap.assets,
+      trades: [...snap.openTrades, ...snap.closedTrades],
+    );
+  }
+
+  /// Show and upload the phone book when the server lists are empty, or when
+  /// a previous upload is still unfinished. Server rows are never removed.
+  Future<({List<Asset> assets, List<Trade> open, List<Trade> closed})>
+      _mergeLocalBook({
+    required List<Asset> serverAssets,
+    required List<Trade> serverOpen,
+    required List<Trade> serverClosed,
+  }) async {
+    final local = await _loadPhoneBook();
+    final pending = await _isPortfolioUploadPending();
+    final serverEmpty = serverAssets.isEmpty &&
+        serverOpen.isEmpty &&
+        serverClosed.isEmpty;
+    if (!((serverEmpty && local.hasRows) || pending)) {
+      return (assets: serverAssets, open: serverOpen, closed: serverClosed);
+    }
+    final serverTrades = [...serverOpen, ...serverClosed];
+    final plan = planPortfolioUpload(
+      localAssets: local.assets,
+      localTrades: local.trades,
+      serverAssets: serverAssets,
+      serverTrades: serverTrades,
+    );
+    if (plan.isComplete) {
+      if (pending) await _setPortfolioUploadPending(false);
+    } else {
+      await _setPortfolioUploadPending(true);
+      await _pushPlannedPortfolio(
+        plan,
+        localTrades: local.trades,
+        serverTrades: serverTrades,
+      );
+    }
+    return (
+      assets: plan.displayAssets,
+      open: plan.displayOpen,
+      closed: plan.displayClosed,
+    );
+  }
+
+  /// Creates missing rows only. A failed row stays on the phone and the
+  /// pending flag makes the next refresh try it again.
+  Future<void> _pushPlannedPortfolio(
+    PortfolioUploadPlan plan, {
+    required List<Trade> localTrades,
+    required List<Trade> serverTrades,
+  }) async {
+    final svc = remote;
+    if (svc == null) return;
+    final ids = Map<String, int>.from(plan.assetIdsByKey);
+    for (final asset in plan.assetsToCreate) {
+      try {
+        final hasLots = assetHasLocalTrades(asset, localTrades);
+        final created = await svc.assets.create(Asset(
+          name: asset.name,
+          symbol: asset.symbol,
+          quantity: hasLots ? 0 : asset.quantity,
+          avgBuyPrice: hasLots ? 0 : asset.avgBuyPrice,
+          currentPrice: asset.currentPrice,
+          notes: asset.notes,
+        ));
+        final id = created.id;
+        if (id != null) {
+          ids[portfolioAssetKey(asset.name, asset.symbol)] = id;
+        }
+      } catch (e, st) {
+        debugPrint('portfolio asset upload failed: $e\n$st');
+      }
+    }
+    for (final trade in plan.tradesToCreate) {
+      try {
+        final key = portfolioAssetKey(trade.assetName, trade.assetSymbol);
+        if (trade.isClosed) {
+          final openMatch = _matchingOpenServerTrade(trade, serverTrades);
+          final openId = openMatch?.id;
+          if (openId != null) {
+            await svc.closeTrade(
+              tradeId: openId,
+              sellPrice: trade.sellPrice!,
+              sellFee: trade.sellFee,
+              sellDate: trade.sellDate,
+              sellNote: trade.sellNote,
+              quantity: trade.quantity,
+            );
+            continue;
+          }
+        }
+        final bought = await svc.registerBuy(
+          assetId: ids[key],
+          name: trade.assetName,
+          symbol: trade.assetSymbol,
+          quantity: trade.quantity,
+          buyPrice: trade.buyPrice,
+          buyPriceUsd: trade.buyPriceUsd,
+          buyUsdTmn: trade.buyUsdTmn,
+          buyFee: trade.buyFee,
+          buyDate: trade.buyDate.trim().isEmpty ? null : trade.buyDate,
+          buyNote: trade.buyNote,
+          currentPrice: trade.currentPrice > 0 ? trade.currentPrice : null,
+        );
+        if (trade.isClosed && bought.id != null) {
+          await svc.closeTrade(
+            tradeId: bought.id!,
+            sellPrice: trade.sellPrice!,
+            sellFee: trade.sellFee,
+            sellDate: trade.sellDate,
+            sellNote: trade.sellNote,
+            quantity: trade.quantity,
+          );
+        }
+      } catch (e, st) {
+        debugPrint('portfolio trade upload failed: $e\n$st');
+      }
+    }
+  }
+
+  Trade? _matchingOpenServerTrade(Trade local, List<Trade> serverTrades) {
+    final key = portfolioAssetKey(local.assetName, local.assetSymbol);
+    for (final server in serverTrades) {
+      if (!server.isOpen || server.id == null) continue;
+      if (portfolioAssetKey(server.assetName, server.assetSymbol) != key) {
+        continue;
+      }
+      if ((server.quantity - local.quantity).abs() > 0.0001) continue;
+      if ((server.buyPrice - local.buyPrice).abs() > 0.0001) continue;
+      if (server.buyDate != local.buyDate) continue;
+      return server;
+    }
+    return null;
   }
 
   Future<void> _publishLocalPortfolio() async {
@@ -2955,4 +3177,15 @@ class BackupRestoreReport {
   final BackupPayload payload;
   final bool remotePushed;
   final String? remoteWarning;
+}
+
+class _PhoneBook {
+  const _PhoneBook({required this.assets, required this.trades});
+
+  final List<Asset> assets;
+  final List<Trade> trades;
+
+  bool get hasRows => assets.isNotEmpty || trades.isNotEmpty;
+
+  static const empty = _PhoneBook(assets: [], trades: []);
 }
