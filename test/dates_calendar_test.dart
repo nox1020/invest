@@ -17,6 +17,8 @@ void main() {
 
   test('tryNormalizeToIso accepts jalali slash dates', () {
     expect(tryNormalizeToIso('1403/01/01'), '2024-03-20');
+    expect(tryNormalizeToIso('۱۴۰۳/۰۱/۰۱'), '2024-03-20');
+    expect(tryNormalizeToIso('1403-01-01'), '2024-03-20');
     expect(tryNormalizeToIso('2024-03-20'), '2024-03-20');
   });
 

@@ -517,6 +517,90 @@ class RemoteInvestService implements InvestMutations {
     }
   }
 
+  /// Null when this Vinor build has no `/checks` routes.
+  Future<List<BankCheck>?> listChecks() async {
+    try {
+      final data = await _api.get('/invest/api/v1/checks');
+      return _checksFrom(data);
+    } on InvestApiException catch (e) {
+      if (_missingRoute(e)) return null;
+      rethrow;
+    }
+  }
+
+  /// Null when `/checks/reminders` is not on this server.
+  Future<CheckReminders?> fetchCheckReminders({int withinDays = 7}) async {
+    try {
+      final data = await _api.get(
+        '/invest/api/v1/checks/reminders',
+        query: {'within_days': '$withinDays'},
+      );
+      return CheckReminders.fromApi(data);
+    } on InvestApiException catch (e) {
+      if (_missingRoute(e)) return null;
+      rethrow;
+    }
+  }
+
+  Future<BankCheck> createCheck(BankCheck item) async {
+    final data = await _api.post(
+      '/invest/api/v1/checks',
+      body: Map<String, dynamic>.from(item.toMap()),
+    );
+    return _checkItem(data, fallback: item);
+  }
+
+  Future<BankCheck> updateCheck(BankCheck item) async {
+    if (item.id == null || item.id! <= 0) {
+      throw ArgumentError('شناسه چک نامعتبر است.');
+    }
+    final data = await _api.patch(
+      '/invest/api/v1/checks/${item.id}',
+      body: Map<String, dynamic>.from(item.toMap()),
+    );
+    return _checkItem(data, fallback: item);
+  }
+
+  /// `DELETE /checks/<id>`, then `POST /checks/<id>/delete` when that verb
+  /// is missing. A missing cheque still raises the server's Persian 404.
+  Future<void> deleteCheck(int id) async {
+    try {
+      await _api.delete('/invest/api/v1/checks/$id');
+    } on InvestApiException catch (e) {
+      if (e.statusCode == 405 ||
+          (e.statusCode == 404 && !e.message.contains('پیدا نشد'))) {
+        await _api.post('/invest/api/v1/checks/$id/delete');
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  List<BankCheck> _checksFrom(Map<String, dynamic> data) {
+    final items = data['items'];
+    if (items is! List) return const [];
+    final out = <BankCheck>[];
+    for (final e in items) {
+      if (e is! Map) continue;
+      out.add(BankCheck.fromMap(Map<String, Object?>.from(e)));
+    }
+    return out;
+  }
+
+  BankCheck _checkItem(
+    Map<String, dynamic> data, {
+    required BankCheck fallback,
+  }) {
+    final item = data['item'];
+    if (item is Map) {
+      return BankCheck.fromMap(Map<String, Object?>.from(item));
+    }
+    return fallback;
+  }
+
+  static bool _missingRoute(InvestApiException e) =>
+      e.statusCode == 404 && !e.message.contains('پیدا نشد');
+
   List<Trade> _tradesFrom(Map<String, dynamic> data) {
     final items = (data['items'] as List?) ?? const [];
     return items
@@ -548,6 +632,45 @@ class RemoteInvestService implements InvestMutations {
       } catch (_) {}
     }
     return out;
+  }
+}
+
+/// Groups from `GET /invest/api/v1/checks/reminders`.
+class CheckReminders {
+  const CheckReminders({
+    this.withinDays = 7,
+    this.overdue = const [],
+    this.dueSoon = const [],
+    this.bounced = const [],
+    this.items = const [],
+  });
+
+  final int withinDays;
+  final List<BankCheck> overdue;
+  final List<BankCheck> dueSoon;
+  final List<BankCheck> bounced;
+  final List<BankCheck> items;
+
+  factory CheckReminders.fromApi(Map<String, dynamic> data) {
+    List<BankCheck> parse(String key) {
+      final raw = data[key];
+      if (raw is! List) return const [];
+      final out = <BankCheck>[];
+      for (final e in raw) {
+        if (e is! Map) continue;
+        out.add(BankCheck.fromMap(Map<String, Object?>.from(e)));
+      }
+      return out;
+    }
+
+    final window = data['within_days'];
+    return CheckReminders(
+      withinDays: window is int ? window : int.tryParse('$window') ?? 7,
+      overdue: parse('overdue'),
+      dueSoon: parse('due_soon'),
+      bounced: parse('bounced'),
+      items: parse('items'),
+    );
   }
 }
 
@@ -585,6 +708,9 @@ class RemoteSettingsBundle {
     this.hasClientWithdrawals = false,
     this.clientChecks = const [],
     this.hasClientChecks = false,
+    this.serverEchoedChecks = false,
+    this.echoedChecks = const [],
+    this.clientChecksError,
     this.appLockHash,
     this.appLockBiometric,
   });
@@ -595,6 +721,19 @@ class RemoteSettingsBundle {
   final bool hasClientWithdrawals;
   final List<BankCheck> clientChecks;
   final bool hasClientChecks;
+
+  /// True when this GET/PUT payload actually contained `client_checks`.
+  ///
+  /// Distinct from [hasClientChecks] after [mergePreserving], which keeps a
+  /// book the server dropped.
+  final bool serverEchoedChecks;
+
+  /// The list the server sent, before a dropped echo is filled back in.
+  final List<BankCheck> echoedChecks;
+
+  /// Persian message from `settings.client_checks_error`, when the mirror
+  /// rejected the book and kept the previous one.
+  final String? clientChecksError;
   final String? appLockHash;
   final bool? appLockBiometric;
 
@@ -687,6 +826,9 @@ class RemoteSettingsBundle {
     final clientChecks = _parseClientChecks(
       pick(AppConfig.settingClientChecks),
     );
+    final clientChecksError = _checksErrorMessage(
+      pick('client_checks_error'),
+    );
 
     return RemoteSettingsBundle(
       settings: settings,
@@ -695,6 +837,9 @@ class RemoteSettingsBundle {
       hasClientWithdrawals: hasKey(AppConfig.settingClientWithdrawals),
       clientChecks: clientChecks,
       hasClientChecks: hasKey(AppConfig.settingClientChecks),
+      serverEchoedChecks: hasKey(AppConfig.settingClientChecks),
+      echoedChecks: clientChecks,
+      clientChecksError: clientChecksError,
       appLockHash: appLockHash,
       appLockBiometric: appLockBiometric,
     );
@@ -720,6 +865,14 @@ class RemoteSettingsBundle {
       } catch (_) {}
     }
     return out;
+  }
+
+  static String? _checksErrorMessage(dynamic raw) {
+    if (raw is! Map) return null;
+    final message = raw['message'];
+    if (message is! String) return null;
+    final text = message.trim();
+    return text.isEmpty ? null : text;
   }
 
   static List<BankCheck> _parseClientChecks(dynamic raw) {
@@ -796,6 +949,11 @@ class RemoteSettingsBundle {
       hasClientWithdrawals: hasClientWithdrawals || clientWithdrawals != null,
       clientChecks: checks.list,
       hasClientChecks: checks.present,
+      serverEchoedChecks: hasClientChecks,
+      echoedChecks: hasClientChecks
+          ? List<BankCheck>.from(this.clientChecks)
+          : const [],
+      clientChecksError: clientChecksError,
       appLockHash: presentKeys.contains(AppConfig.settingAppLockHash)
           ? this.appLockHash
           : (appLockHash ?? this.appLockHash),

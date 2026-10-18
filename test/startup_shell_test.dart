@@ -57,6 +57,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('پورتفوی خالی است'), findsOneWidget);
-    expect(find.text('دفتر چک'), findsOneWidget);
+    expect(find.text('مدیریت چک‌ها'), findsOneWidget);
   });
 }

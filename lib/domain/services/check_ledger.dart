@@ -1,7 +1,10 @@
 import 'package:invest/domain/models/bank_check.dart';
 
 /// Which slice of the cheque book the list is showing.
-enum CheckListFilter { all, receivable, payable, due, bounced, settled }
+enum CheckListFilter { all, receivable, payable, pending, due, bounced, settled }
+
+/// Open cheques that should raise a due reminder (overdue through 7 days).
+const checkReminderWithinDays = 7;
 
 /// Totals for open cheques, debts, and due dates.
 class CheckLedger {
@@ -169,6 +172,7 @@ bool _matchesFilter(BankCheck c, CheckListFilter filter, DateTime today) {
     CheckListFilter.all => true,
     CheckListFilter.receivable => c.isReceivable,
     CheckListFilter.payable => c.isPayable,
+    CheckListFilter.pending => c.status == checkStatusPending,
     CheckListFilter.due => c.isOpen && c.daysUntilDue(today) <= 7,
     CheckListFilter.bounced => c.isBounced,
     CheckListFilter.settled => c.isSettled,
@@ -176,7 +180,7 @@ bool _matchesFilter(BankCheck c, CheckListFilter filter, DateTime today) {
 }
 
 bool _matchesQuery(BankCheck c, String query) {
-  final hay = [
+  final hay = asciiDigits([
     c.checkNumber,
     c.sayadId,
     c.bankName,
@@ -186,6 +190,82 @@ bool _matchesQuery(BankCheck c, String query) {
     c.note,
     c.directionLabel,
     c.statusLabel,
-  ].join(' ');
-  return hay.contains(query);
+    c.pendingPlaceLabel,
+  ].join(' '));
+  return hay.contains(asciiDigits(query));
+}
+
+bool sameCheckIds(Iterable<BankCheck> a, Iterable<BankCheck> b) {
+  final as = {for (final c in a) c.id};
+  final bs = {for (final c in b) c.id};
+  return as.length == bs.length && as.containsAll(bs);
+}
+
+/// Fields the server stores. Server labels and timestamps are ignored.
+bool sameCheckContent(BankCheck a, BankCheck b) {
+  return a.direction == b.direction &&
+      (a.amount - b.amount).abs() < 0.001 &&
+      a.issueDate == b.issueDate &&
+      a.dueDate == b.dueDate &&
+      a.checkNumber == b.checkNumber &&
+      a.sayadId == b.sayadId &&
+      a.bankName == b.bankName &&
+      a.branch == b.branch &&
+      a.counterparty == b.counterparty &&
+      a.purpose == b.purpose &&
+      a.note == b.note &&
+      a.status == b.status &&
+      (a.settledDate ?? '') == (b.settledDate ?? '');
+}
+
+/// Local rows the device still has to send before it can trust the server book.
+({List<BankCheck> toCreate, List<BankCheck> toUpdate}) planCheckUpload({
+  required List<BankCheck> local,
+  required List<BankCheck> remote,
+  required bool pushLocalEdits,
+}) {
+  final remoteById = <int, BankCheck>{
+    for (final row in remote)
+      if (row.id != null) row.id!: row,
+  };
+  final toCreate = <BankCheck>[];
+  final toUpdate = <BankCheck>[];
+  for (final row in local) {
+    final id = row.id;
+    if (id == null || !remoteById.containsKey(id)) {
+      toCreate.add(row);
+      continue;
+    }
+    if (pushLocalEdits && !sameCheckContent(row, remoteById[id]!)) {
+      toUpdate.add(row);
+    }
+  }
+  return (toCreate: toCreate, toUpdate: toUpdate);
+}
+
+/// Server rows win. Local rows the server does not have yet stay on the device.
+List<BankCheck> mergeRemoteBook({
+  required List<BankCheck> local,
+  required List<BankCheck> remote,
+}) {
+  final remoteIds = {for (final row in remote) row.id};
+  return [
+    ...remote,
+    for (final row in local)
+      if (row.id == null || !remoteIds.contains(row.id)) row,
+  ];
+}
+
+List<BankCheck> checksNeedingReminder(
+  Iterable<BankCheck> checks, {
+  DateTime? today,
+}) {
+  final now = today ?? DateTime.now();
+  return [
+    for (final c in checks)
+      if (c.isOpen &&
+          c.id != null &&
+          c.daysUntilDue(now) <= checkReminderWithinDays)
+        c,
+  ];
 }

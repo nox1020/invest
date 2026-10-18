@@ -53,7 +53,10 @@ class AppConfig {
   /// Withdrawals mirrored into settings when `/withdrawals` API is missing.
   static const settingClientWithdrawals = 'client_withdrawals';
 
-  /// Cheque book mirrored into settings (no dedicated checks API).
+  /// Cheque book. The app uses `/invest/api/v1/checks`. This settings key is
+  /// only the mirror (`PUT/GET /invest/api/v1/settings` field `client_checks`)
+  /// for a one-time upload and older builds. A missing key must not wipe the
+  /// device.
   static const settingClientChecks = 'client_checks';
 
   /// Shared with the desktop `price_refresh_seconds` key.

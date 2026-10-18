@@ -80,7 +80,7 @@ class ChecksDashboardCard extends StatelessWidget {
                   ),
                   const Spacer(),
                   const Text(
-                    'دفتر چک',
+                    'مدیریت چک‌ها',
                     style: TextStyle(
                       color: AppTheme.title,
                       fontWeight: FontWeight.w800,
@@ -112,7 +112,7 @@ class ChecksDashboardCard extends StatelessWidget {
                     Expanded(
                       child: _MiniStat(
                         label: 'بدهی',
-                        value: formatCompactToman(book.debts),
+                        value: formatMoney(book.debts),
                         hint: '${book.debtCount} چک پرداختی',
                         color: book.debts > 0
                             ? AppTheme.negative
@@ -123,7 +123,7 @@ class ChecksDashboardCard extends StatelessWidget {
                     Expanded(
                       child: _MiniStat(
                         label: 'دریافتی باز',
-                        value: formatCompactToman(book.openReceivable),
+                        value: formatMoney(book.openReceivable),
                         hint: '${book.openReceivableCount} نزد صندوق',
                         color: book.openReceivable > 0
                             ? AppTheme.positive
@@ -135,8 +135,8 @@ class ChecksDashboardCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   book.net >= 0
-                      ? 'خالص دریافتنی ${formatCompactToman(book.net)}'
-                      : 'خالص بدهی ${formatCompactToman(book.net.abs())}',
+                      ? 'خالص دریافتنی ${formatMoney(book.net)}'
+                      : 'خالص بدهی ${formatMoney(book.net.abs())}',
                   textAlign: TextAlign.right,
                   style: TextStyle(
                     color: book.net >= 0 ? AppTheme.positive : AppTheme.negative,
@@ -198,7 +198,7 @@ class _ChecksPageState extends State<ChecksPage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('دفتر چک')),
+        appBar: AppBar(title: const Text('مدیریت چک‌ها')),
         floatingActionButton: state.canMutate
             ? FloatingActionButton.extended(
                 onPressed: () => openCheckEditor(context),
@@ -210,6 +210,10 @@ class _ChecksPageState extends State<ChecksPage> {
         body: ListView(
           padding: shellPagePadding(extraForFab: state.canMutate),
           children: [
+            if (state.checksAwaitingServer) ...[
+              _SyncBanner(message: state.checkSyncError),
+              const SizedBox(height: 10),
+            ],
             _BookSummary(book: book),
             if (book.overdueCount > 0) ...[
               const SizedBox(height: 10),
@@ -276,7 +280,7 @@ class _BookSummary extends StatelessWidget {
             Expanded(
               child: _MiniStat(
                 label: 'بدهی',
-                value: formatCompactToman(book.debts),
+                value: formatMoney(book.debts),
                 hint: '${book.debtCount} چک',
                 color: book.debts > 0 ? AppTheme.negative : AppTheme.title,
               ),
@@ -285,7 +289,7 @@ class _BookSummary extends StatelessWidget {
             Expanded(
               child: _MiniStat(
                 label: 'دریافتی باز',
-                value: formatCompactToman(book.openReceivable),
+                value: formatMoney(book.openReceivable),
                 hint: '${book.openReceivableCount} چک',
                 color: book.openReceivable > 0
                     ? AppTheme.positive
@@ -301,14 +305,14 @@ class _BookSummary extends StatelessWidget {
               child: _MiniStat(
                 label: 'سررسید ۷ روز',
                 value: '${book.dueSoonCount}',
-                hint: formatCompactToman(book.dueSoonAmount),
+                hint: formatMoney(book.dueSoonAmount),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: _MiniStat(
                 label: 'برگشتی دریافتی',
-                value: formatCompactToman(book.bouncedReceivable),
+                value: formatMoney(book.bouncedReceivable),
                 hint: '${book.bouncedReceivableCount} مطالبه',
                 color: book.bouncedReceivableCount > 0
                     ? const Color(0xFFE0C46A)
@@ -379,6 +383,37 @@ class _MiniStat extends StatelessWidget {
   }
 }
 
+class _SyncBanner extends StatelessWidget {
+  const _SyncBanner({this.message});
+  final String? message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE0C46A).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFFE0C46A).withValues(alpha: 0.35),
+        ),
+      ),
+      child: Text(
+        (message != null && message!.trim().isNotEmpty)
+            ? message!.trim()
+            : 'دفتر روی دستگاه ذخیره است. سرور هنوز آن را برنگردانده و با اتصال بعدی دوباره فرستاده می‌شود.',
+        textAlign: TextAlign.right,
+        style: const TextStyle(
+          color: AppTheme.title,
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+          height: 1.4,
+        ),
+      ),
+    );
+  }
+}
+
 class _OverdueBanner extends StatelessWidget {
   const _OverdueBanner({required this.book});
   final CheckLedger book;
@@ -415,6 +450,7 @@ class _FilterRow extends StatelessWidget {
     CheckListFilter.all: 'همه',
     CheckListFilter.receivable: 'دریافتی',
     CheckListFilter.payable: 'پرداختی',
+    CheckListFilter.pending: 'در انتظار',
     CheckListFilter.due: 'سررسید',
     CheckListFilter.bounced: 'برگشتی',
     CheckListFilter.settled: 'تسویه‌شده',
@@ -533,15 +569,19 @@ class _CheckCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Text(
-                    formatMoney(item.amount),
-                    style: const TextStyle(
-                      color: AppTheme.title,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
+                  Flexible(
+                    child: Text(
+                      formatMoney(item.amount),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppTheme.title,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   _Tag(text: item.statusLabel, color: AppTheme.muted),
                   const SizedBox(width: 6),
                   _Tag(text: item.directionLabel, color: tone),
@@ -564,7 +604,13 @@ class _CheckCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                'سررسید ${formatDisplayDate(item.dueDate, calendar)} · ${item.dueRelativeLabel()}',
+                [
+                  if (item.pendingPlaceLabel.isNotEmpty &&
+                      item.pendingPlaceLabel != item.statusLabel)
+                    item.pendingPlaceLabel,
+                  'سررسید ${formatDisplayDate(item.dueDate, calendar)}',
+                  item.dueRelativeLabel(),
+                ].join(' · '),
                 textAlign: TextAlign.right,
                 style: TextStyle(
                   color: overdue ? AppTheme.negative : AppTheme.muted,
@@ -718,10 +764,13 @@ class _CheckDetailSheet extends StatelessWidget {
       final synced = await state.setCheckStatus(check, action.status);
       if (!context.mounted) return;
       if (!synced) {
+        final detail = state.checkSyncError;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'وضعیت روی دستگاه ذخیره شد. با اتصال بعدی به سرور می‌رسد.',
+              (detail != null && detail.trim().isNotEmpty)
+                  ? detail
+                  : 'وضعیت روی دستگاه ذخیره شد. سرور هنوز دفتر را برنگردانده.',
             ),
           ),
         );
@@ -762,10 +811,13 @@ class _CheckDetailSheet extends StatelessWidget {
       final synced = await state.deleteCheck(check);
       if (!context.mounted) return;
       if (!synced) {
+        final detail = state.checkSyncError;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'حذف روی دستگاه ماند. با اتصال بعدی از سرور هم پاک می‌شود.',
+              (detail != null && detail.trim().isNotEmpty)
+                  ? detail
+                  : 'حذف روی دستگاه ماند. سرور هنوز دفتر را برنگردانده.',
             ),
           ),
         );
@@ -814,28 +866,31 @@ class _StatusAction {
 }
 
 List<_StatusAction> _statusActions(BankCheck check) {
+  final cleared = _StatusAction(
+    check.isReceivable ? 'وصول شده' : 'پاس شده',
+    checkStatusCleared,
+  );
   if (check.status == checkStatusPending) {
     return [
-      _StatusAction(check.isReceivable ? 'وصول شد' : 'پاس شد', checkStatusCleared),
-      const _StatusAction('برگشت', checkStatusBounced),
+      cleared,
+      const _StatusAction('برگشتی', checkStatusBounced),
       if (check.isReceivable)
-        const _StatusAction('خرج شد', checkStatusEndorsed),
+        const _StatusAction('خرج شده', checkStatusEndorsed),
       const _StatusAction('باطل', checkStatusCancelled),
     ];
   }
+  final back = _StatusAction(
+    check.isReceivable ? 'نزد صندوق' : 'صادر شده',
+    checkStatusPending,
+  );
   if (check.status == checkStatusBounced) {
     return [
-      const _StatusAction('بازگشت به جریان', checkStatusPending),
-      _StatusAction(
-        check.isReceivable ? 'وصول شد' : 'پاس شد',
-        checkStatusCleared,
-      ),
+      back,
+      cleared,
       const _StatusAction('باطل', checkStatusCancelled),
     ];
   }
-  return const [
-    _StatusAction('بازگشت به جریان', checkStatusPending),
-  ];
+  return [back];
 }
 
 Future<void> openCheckEditor(BuildContext context, {BankCheck? existing}) {
@@ -865,6 +920,7 @@ class CheckEditorPage extends StatefulWidget {
 
 class _CheckEditorPageState extends State<CheckEditorPage> {
   late String _direction;
+  late String _status;
   late String _issue;
   late String _due;
   late final TextEditingController _amount;
@@ -882,8 +938,9 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
     super.initState();
     final e = widget.existing;
     _direction = e?.direction ?? checkDirectionReceivable;
+    _status = e?.status ?? checkStatusPending;
     _issue = e?.issueDate.isNotEmpty == true ? e!.issueDate : todayIso();
-    _due = e?.dueDate ?? '';
+    _due = e != null && e.dueDate.isNotEmpty ? e.dueDate : _issue;
     _amount = TextEditingController(
       text: e == null ? '' : formatNumber(e.amount),
     );
@@ -895,6 +952,16 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
     _purpose = TextEditingController(text: e?.purpose ?? '');
     _note = TextEditingController(text: e?.note ?? '');
   }
+
+  double? get _parsedAmount => parseCheckAmount(_amount.text);
+
+  List<String> get _editorStatuses => [
+        checkStatusPending,
+        checkStatusCleared,
+        checkStatusBounced,
+        if (_direction == checkDirectionReceivable) checkStatusEndorsed,
+        checkStatusCancelled,
+      ];
 
   @override
   void dispose() {
@@ -948,7 +1015,13 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
                 ),
               ],
               selected: {_direction},
-              onSelectionChanged: (v) => setState(() => _direction = v.first),
+              onSelectionChanged: (v) => setState(() {
+                _direction = v.first;
+                if (_direction == checkDirectionPayable &&
+                    _status == checkStatusEndorsed) {
+                  _status = checkStatusPending;
+                }
+              }),
             ),
             const SizedBox(height: 8),
             Text(
@@ -964,7 +1037,38 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               textAlign: TextAlign.right,
-              decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'مبلغ (تومان)',
+                helperText: 'مبلغ چک را به تومان بنویسید، نه ریال.',
+              ),
+            ),
+            if (_parsedAmount != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'معادل ${formatNumber(_parsedAmount! * 10)} ریال',
+                textAlign: TextAlign.right,
+                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              alignment: WrapAlignment.end,
+              children: [
+                for (final status in _editorStatuses)
+                  ChoiceChip(
+                    label: Text(
+                      labelForCheckStatus(
+                        status,
+                        receivable: _direction == checkDirectionReceivable,
+                      ),
+                    ),
+                    selected: _status == status,
+                    onSelected: (_) => setState(() => _status = status),
+                  ),
+              ],
             ),
             AppDateTile(
               label: 'تاریخ صدور',
@@ -1048,7 +1152,7 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
 
   Future<void> _save() async {
     if (_saving) return;
-    final amount = parseFlexibleNumber(_amount.text);
+    final amount = parseCheckAmount(_amount.text);
     final draft = BankCheck(
       id: widget.existing?.id,
       direction: _direction,
@@ -1062,7 +1166,7 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
       counterparty: _party.text,
       purpose: _purpose.text,
       note: _note.text,
-      status: widget.existing?.status ?? checkStatusPending,
+      status: _status,
       settledDate: widget.existing?.settledDate,
       createdAt: widget.existing?.createdAt ?? '',
     );
@@ -1073,10 +1177,13 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
       final messenger = ScaffoldMessenger.of(context);
       Navigator.pop(context);
       if (!result.synced) {
+        final detail = context.read<AppState>().checkSyncError;
         messenger.showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'چک روی دستگاه ذخیره شد. با اتصال بعدی به سرور فرستاده می‌شود.',
+              (detail != null && detail.trim().isNotEmpty)
+                  ? detail
+                  : 'چک روی دستگاه ذخیره شد. سرور هنوز دفتر را برنگردانده.',
             ),
           ),
         );

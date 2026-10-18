@@ -192,4 +192,120 @@ void main() {
     expect(again.statusLabel, 'پاس شده');
     expect(again.daysUntilDue(today), 3);
   });
+
+  test('pending labels match the server and aliases survive the payload', () {
+    final row = cheque(number: '1');
+    expect(row.statusLabel, 'نزد صندوق');
+    expect(row.pendingPlaceLabel, 'نزد صندوق');
+    final payable = cheque(direction: checkDirectionPayable, number: '2');
+    expect(payable.statusLabel, 'صادر شده');
+    expect(payable.pendingPlaceLabel, 'صادر شده');
+
+    final fromServer = BankCheck.fromMap({
+      'id': 3,
+      'direction': 'پرداختی',
+      'amount': '1,500,000',
+      'issue_date': '1403/01/01',
+      'due_date': '1403-02-01',
+      'status': 'برگشتی',
+      'check_number': '77',
+    });
+    expect(fromServer.isPayable, isTrue);
+    expect(fromServer.status, checkStatusBounced);
+    expect(fromServer.statusLabel, 'برگشتی');
+    expect(fromServer.amount, 1500000);
+    expect(fromServer.issueDate, '2024-03-20');
+    expect(fromServer.dueDate, isNotEmpty);
+
+    final labeled = BankCheck.fromMap({
+      'id': 9,
+      'direction': 'receivable',
+      'amount': 10,
+      'issue_date': '2026-10-01',
+      'due_date': '2026-10-20',
+      'check_number': '9',
+      'status': 'pending',
+      'status_label': 'نزد صندوق',
+      'due_label': 'سررسید فردا',
+      'days_until_due': 1,
+    });
+    expect(labeled.statusLabel, 'نزد صندوق');
+    expect(labeled.dueRelativeLabel(), 'سررسید فردا');
+    expect(labeled.daysUntilDue(), 1);
+  });
+
+  test('cancelled sayad and number can be reused', () {
+    final cancelled = cheque(
+      id: 1,
+      number: '1',
+      sayad: '1234567890123456',
+      status: checkStatusCancelled,
+    );
+    final reusedSayad = prepareBankCheck(
+      cheque(id: 2, number: '2', sayad: '1234567890123456'),
+      others: [cancelled],
+    );
+    expect(reusedSayad.sayadId, '1234567890123456');
+    final reusedNumber = prepareBankCheck(
+      cheque(id: 3, number: '1', bank: 'ملت'),
+      others: [cancelled],
+    );
+    expect(reusedNumber.checkNumber, '1');
+  });
+
+  test('upload keeps local-only rows and patches pending edits', () {
+    final local = [
+      cheque(id: 1, number: '1', amount: 10),
+      cheque(id: 2, number: '2', amount: 20),
+    ];
+    final remote = [
+      cheque(id: 1, number: '1', amount: 10),
+    ];
+    final quiet = planCheckUpload(
+      local: local,
+      remote: remote,
+      pushLocalEdits: false,
+    );
+    expect(quiet.toCreate.map((e) => e.id), [2]);
+    expect(quiet.toUpdate, isEmpty);
+
+    final edited = [
+      cheque(id: 1, number: '1', amount: 99),
+      cheque(id: 2, number: '2'),
+    ];
+    final pending = planCheckUpload(
+      local: edited,
+      remote: remote,
+      pushLocalEdits: true,
+    );
+    expect(pending.toUpdate.single.amount, 99);
+    final merged = mergeRemoteBook(
+      local: edited,
+      remote: [cheque(id: 1, number: '1', amount: 99)],
+    );
+    expect(merged.map((e) => e.id), [1, 2]);
+  });
+
+  test('reminder window is overdue through seven days', () {
+    final rows = checksNeedingReminder(
+      [
+        cheque(id: 1, due: '2026-10-10', number: '1'),
+        cheque(id: 2, due: '2026-10-24', number: '2'),
+        cheque(id: 3, due: '2026-10-25', number: '3'),
+        cheque(id: 4, due: '2026-10-20', number: '4', status: checkStatusCleared),
+      ],
+      today: today,
+    );
+    expect(rows.map((e) => e.id), [1, 2]);
+  });
+
+  test('search matches persian digits and در انتظار', () {
+    final rows = filterChecks(
+      [cheque(id: 1, number: '101')],
+      CheckListFilter.pending,
+      query: '۱۰۱',
+      today: today,
+    );
+    expect(rows, hasLength(1));
+  });
 }

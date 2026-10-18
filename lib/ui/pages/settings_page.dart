@@ -216,7 +216,7 @@ class _SettingsPageState extends State<SettingsPage> {
               TgSettingsTile(
                 icon: Icons.account_balance_wallet_outlined,
                 iconColor: const Color(0xFF7DCEA0),
-                title: 'دفتر چک',
+                title: 'مدیریت چک‌ها',
                 subtitle: state.checks.isEmpty
                     ? 'دریافتی، بدهی، سررسید و برگشتی'
                     : '${state.checks.length} چک در دفتر',

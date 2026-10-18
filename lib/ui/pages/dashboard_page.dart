@@ -243,7 +243,7 @@ class _DashboardBodyState extends State<_DashboardBody>
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _SectionLabel(
-                    title: 'چک‌ها',
+                    title: 'مدیریت چک‌ها',
                     subtitle: 'دریافتی، بدهی و سررسید',
                   ),
                   SizedBox(height: 12),

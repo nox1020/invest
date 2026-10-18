@@ -5,6 +5,7 @@ import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/price_alert.dart';
 import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/models/bank_check.dart';
+import 'package:invest/domain/services/check_ledger.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 
 void main() {
@@ -107,6 +108,7 @@ void main() {
     });
     expect(bundle.hasClientChecks, isTrue);
     expect(bundle.clientChecks.single.direction, 'payable');
+    expect(bundle.clientChecksError, isNull);
     expect(bundle.clientChecks.single.dueDate, '2026-11-01');
 
     final dropped = RemoteSettingsBundle.fromApiMap({
@@ -134,6 +136,45 @@ void main() {
       clientChecks: dropped.clientChecks,
     );
     expect(echoedEmpty.clientChecks.single.id, 9);
+    expect(echoedEmpty.serverEchoedChecks, isTrue);
+    expect(echoedEmpty.echoedChecks, isEmpty);
+
+    final omitted = RemoteSettingsBundle.fromApiMap({
+      'calendar': 'jalali',
+    }).mergePreserving(
+      sent: AppSettings(),
+      clientChecks: echoedEmpty.clientChecks,
+    );
+    expect(omitted.serverEchoedChecks, isFalse);
+    expect(omitted.echoedChecks, isEmpty);
+    expect(omitted.clientChecks.single.id, 9);
+    expect(
+      sameCheckIds(omitted.echoedChecks, omitted.clientChecks),
+      isFalse,
+    );
+  });
+
+  test('client_checks_error keeps the previous book message', () {
+    final bundle = RemoteSettingsBundle.fromApiMap({
+      'client_checks': [
+        {
+          'id': 1,
+          'direction': 'receivable',
+          'amount': 10,
+          'issue_date': '2026-01-01',
+          'due_date': '2026-02-01',
+          'check_number': '1',
+          'status': 'pending',
+        },
+      ],
+      'client_checks_error': {
+        'error': 'validation',
+        'message': 'مبلغ چک باید بزرگ‌تر از صفر باشد.',
+      },
+    });
+    expect(bundle.clientChecksError, 'مبلغ چک باید بزرگ‌تر از صفر باشد.');
+    expect(bundle.clientChecks.single.id, 1);
+    expect(bundle.serverEchoedChecks, isTrue);
   });
 
   test('empty app_lock_hash clears lock', () {

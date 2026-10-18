@@ -94,6 +94,7 @@ class InvestApiClient {
       if (body != null) 'Content-Type': 'application/json; charset=utf-8',
       if (_sessionCookie != null && _sessionCookie!.isNotEmpty)
         'Cookie': _sessionCookie!,
+      if (_bearerToken != null) 'Authorization': 'Bearer $_bearerToken',
     };
     final wait = timeout ?? this.timeout;
 
@@ -144,6 +145,17 @@ class InvestApiClient {
         errorCode: 'network_error',
       );
     }
+  }
+
+  /// Raw `vinor_session` value. Vinor accepts it as a Bearer token as well
+  /// as the session cookie.
+  String? get _bearerToken {
+    final cookie = _sessionCookie;
+    if (cookie == null || cookie.isEmpty) return null;
+    final match = RegExp(r'vinor_session=([^;,\s]+)').firstMatch(cookie);
+    if (match != null && match.group(1)!.isNotEmpty) return match.group(1);
+    if (!cookie.contains('=')) return cookie;
+    return null;
   }
 
   Future<void> _captureSessionCookie(http.Response response) async {

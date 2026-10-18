@@ -144,6 +144,58 @@ String formatPct(num value) {
   return '$sign${formatNumber(value, decimals: 2)}٪';
 }
 
+/// Cheque amount in toman.
+///
+/// Accepts Persian and Arabic digits. `/`, `٬`, and `,` are thousands
+/// separators. A single `.` followed by exactly three digits (`1.500`) is
+/// also a thousands separator; any other single dot is a decimal point.
+double? parseCheckAmount(String? raw) {
+  if (raw == null) return null;
+  final buf = StringBuffer();
+  for (final rune in raw.trim().runes) {
+    final ch = String.fromCharCode(rune);
+    const persian = '۰۱۲۳۴۵۶۷۸۹';
+    const arabic = '٠١٢٣٤٥٦٧٨٩';
+    final pi = persian.indexOf(ch);
+    if (pi >= 0) {
+      buf.write(pi);
+      continue;
+    }
+    final ai = arabic.indexOf(ch);
+    if (ai >= 0) {
+      buf.write(ai);
+      continue;
+    }
+    if (ch == ',' ||
+        ch == '٬' ||
+        ch == '/' ||
+        ch == ' ' ||
+        ch == '\u200f' ||
+        ch == '\u200e') {
+      continue;
+    }
+    if (ch == '٫') {
+      buf.write('.');
+      continue;
+    }
+    buf.write(ch);
+  }
+  var t = buf.toString().trim();
+  if (t.isEmpty) return null;
+  final dots = '.'.allMatches(t).length;
+  if (dots > 1) {
+    t = t.replaceAll('.', '');
+  } else if (dots == 1) {
+    final parts = t.split('.');
+    if (parts.length == 2 &&
+        parts[0].isNotEmpty &&
+        RegExp(r'^\d{3}$').hasMatch(parts[1])) {
+      t = '${parts[0]}${parts[1]}';
+    }
+  }
+  return double.tryParse(t);
+}
+
 /// Parses a user-entered amount (Latin/Persian/Arabic digits, commas).
 double? parseFlexibleNumber(String? raw) {
   if (raw == null) return null;

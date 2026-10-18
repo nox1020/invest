@@ -36,7 +36,7 @@ DateTime parseIsoDate(String value) {
 /// Accepts Gregorian ISO and common Jalali `1402/05/01` / `1402-05-01` forms.
 String? tryNormalizeToIso(String? raw) {
   if (raw == null) return null;
-  final t = raw.trim();
+  final t = _asciiDateDigits(raw).trim();
   if (t.isEmpty) return null;
   final iso = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(t);
   if (iso != null) {
@@ -106,6 +106,27 @@ int holdingDays(String buyDate, String sellDate) {
 }
 
 /// Calendar days an open lot has been held, never negative.
+String _asciiDateDigits(String raw) {
+  final buf = StringBuffer();
+  for (final rune in raw.runes) {
+    final ch = String.fromCharCode(rune);
+    const persian = '۰۱۲۳۴۵۶۷۸۹';
+    const arabic = '٠١٢٣٤٥٦٧٨٩';
+    final pi = persian.indexOf(ch);
+    if (pi >= 0) {
+      buf.write(pi);
+      continue;
+    }
+    final ai = arabic.indexOf(ch);
+    if (ai >= 0) {
+      buf.write(ai);
+      continue;
+    }
+    buf.write(ch);
+  }
+  return buf.toString();
+}
+
 int openHoldingDays(String buyDate, {String? asOf}) {
   if (buyDate.trim().isEmpty) return 0;
   final days = holdingDays(buyDate, asOf ?? todayIso());

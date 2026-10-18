@@ -48,6 +48,9 @@ class BankCheck {
     this.settledDate,
     this.createdAt = '',
     this.updatedAt = '',
+    this.statusLabelFromServer,
+    this.dueLabelFromServer,
+    this.daysUntilDueFromServer,
   });
 
   int? id;
@@ -73,6 +76,11 @@ class BankCheck {
   String createdAt;
   String updatedAt;
 
+  /// Read-only labels from `GET /checks`. Local text is used when absent.
+  String? statusLabelFromServer;
+  String? dueLabelFromServer;
+  int? daysUntilDueFromServer;
+
   bool get isReceivable => direction == checkDirectionReceivable;
   bool get isPayable => direction == checkDirectionPayable;
 
@@ -96,30 +104,44 @@ class BankCheck {
       status == checkStatusEndorsed ||
       status == checkStatusCancelled;
 
-  String get directionLabel =>
-      isReceivable ? 'دریافتی' : 'پرداختی';
+  String get directionLabel => switch (direction) {
+        checkDirectionReceivable => 'دریافتی',
+        checkDirectionPayable => 'پرداختی',
+        _ => 'نامشخص',
+      };
 
   String get counterpartyLabel => isReceivable ? 'صادرکننده' : 'در وجه';
 
-  String get statusLabel => switch (status) {
-        checkStatusPending => isReceivable ? 'نزد صندوق' : 'صادر شده',
-        checkStatusCleared => isReceivable ? 'وصول شده' : 'پاس شده',
-        checkStatusBounced => 'برگشتی',
-        checkStatusEndorsed => 'خرج شده',
-        checkStatusCancelled => 'باطل',
-        _ => status,
-      };
+  String get statusLabel {
+    final fromServer = statusLabelFromServer?.trim() ?? '';
+    if (fromServer.isNotEmpty) return fromServer;
+    return labelForCheckStatus(status, receivable: isReceivable);
+  }
+
+  /// Where a pending cheque sits. Matches the server badge.
+  String get pendingPlaceLabel => status == checkStatusPending
+      ? (isReceivable ? 'نزد صندوق' : 'صادر شده')
+      : '';
 
   /// Whole calendar days from [today] until [dueDate]. Negative means overdue.
+  ///
+  /// With no [today], a value returned by the server is kept so the device
+  /// clock cannot disagree with Vinor.
   int daysUntilDue([DateTime? today]) {
+    if (today == null && daysUntilDueFromServer != null) {
+      return daysUntilDueFromServer!;
+    }
     final due = _calendarDate(dueDate);
     final now = today ?? DateTime.now();
     final b = DateTime(now.year, now.month, now.day);
     return due.difference(b).inDays;
   }
 
-  String dueRelativeLabel([DateTime? today]) =>
-      dueRelativeText(daysUntilDue(today));
+  String dueRelativeLabel([DateTime? today]) {
+    final fromServer = dueLabelFromServer?.trim() ?? '';
+    if (today == null && fromServer.isNotEmpty) return fromServer;
+    return dueRelativeText(daysUntilDue(today));
+  }
 
   String get identityLabel {
     if (checkNumber.trim().isNotEmpty) return 'شماره ${checkNumber.trim()}';
@@ -145,7 +167,12 @@ class BankCheck {
     bool clearSettledDate = false,
     String? createdAt,
     String? updatedAt,
+    String? statusLabelFromServer,
+    String? dueLabelFromServer,
+    int? daysUntilDueFromServer,
   }) {
+    final statusChanged = status != null && status != this.status;
+    final dueChanged = dueDate != null && dueDate != this.dueDate;
     return BankCheck(
       id: id ?? this.id,
       direction: direction ?? this.direction,
@@ -164,6 +191,15 @@ class BankCheck {
           clearSettledDate ? null : (settledDate ?? this.settledDate),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      statusLabelFromServer: statusChanged
+          ? null
+          : (statusLabelFromServer ?? this.statusLabelFromServer),
+      dueLabelFromServer: dueChanged
+          ? null
+          : (dueLabelFromServer ?? this.dueLabelFromServer),
+      daysUntilDueFromServer: dueChanged
+          ? null
+          : (daysUntilDueFromServer ?? this.daysUntilDueFromServer),
     );
   }
 
@@ -175,10 +211,8 @@ class BankCheck {
       id: idVal is int ? idVal : (idVal as num?)?.toInt(),
       direction: _directionOf(m['direction']),
       amount: _amountOf(m['amount']),
-      issueDate: (m['issue_date'] as String?) ??
-          (m['issueDate'] as String?) ??
-          '',
-      dueDate: (m['due_date'] as String?) ?? (m['dueDate'] as String?) ?? '',
+      issueDate: _dateOf(m['issue_date'] ?? m['issueDate']),
+      dueDate: _dateOf(m['due_date'] ?? m['dueDate']),
       checkNumber: (m['check_number'] as String?) ??
           (m['checkNumber'] as String?) ??
           '',
@@ -190,13 +224,16 @@ class BankCheck {
       purpose: (m['purpose'] as String?) ?? '',
       note: (m['note'] as String?) ?? '',
       status: _statusOf(m['status']),
-      settledDate: (settled == null || settled.trim().isEmpty) ? null : settled,
+      settledDate: _optionalDateOf(settled),
       createdAt: (m['created_at'] as String?) ??
           (m['createdAt'] as String?) ??
           '',
       updatedAt: (m['updated_at'] as String?) ??
           (m['updatedAt'] as String?) ??
           '',
+      statusLabelFromServer: _optionalText(m['status_label']),
+      dueLabelFromServer: _optionalText(m['due_label']),
+      daysUntilDueFromServer: _optionalInt(m['days_until_due']),
     );
   }
 
@@ -268,21 +305,97 @@ String normalizeSayadId(String raw) =>
 String _foldLabel(String raw) =>
     raw.trim().replaceAll(RegExp(r'\s+'), ' ');
 
+String labelForCheckStatus(String status, {required bool receivable}) {
+  return switch (status) {
+    checkStatusPending => receivable ? 'نزد صندوق' : 'صادر شده',
+    checkStatusCleared => receivable ? 'وصول شده' : 'پاس شده',
+    checkStatusBounced => 'برگشتی',
+    checkStatusEndorsed => 'خرج شده',
+    checkStatusCancelled => 'باطل',
+    _ => status,
+  };
+}
+
 String _directionOf(Object? raw) {
   final t = '$raw'.trim();
-  if (t == checkDirectionPayable) return checkDirectionPayable;
-  return checkDirectionReceivable;
+  if (t.isEmpty) return checkDirectionReceivable;
+  if (t == checkDirectionPayable ||
+      t == 'پرداختی' ||
+      t == 'بدهی' ||
+      t == 'issued' ||
+      t == 'debt') {
+    return checkDirectionPayable;
+  }
+  if (t == checkDirectionReceivable || t == 'دریافتی' || t == 'receive') {
+    return checkDirectionReceivable;
+  }
+  return t;
 }
 
 String _statusOf(Object? raw) {
   final t = '$raw'.trim();
-  if (checkStatuses.contains(t)) return t;
-  return checkStatusPending;
+  if (t.isEmpty) return checkStatusPending;
+  const aliases = <String, String>{
+    checkStatusPending: checkStatusPending,
+    'در انتظار': checkStatusPending,
+    'نزد صندوق': checkStatusPending,
+    'صادر شده': checkStatusPending,
+    'issued': checkStatusPending,
+    'waiting': checkStatusPending,
+    checkStatusCleared: checkStatusCleared,
+    'passed': checkStatusCleared,
+    'paid': checkStatusCleared,
+    'collected': checkStatusCleared,
+    'پاس شده': checkStatusCleared,
+    'پاس شد': checkStatusCleared,
+    'وصول شده': checkStatusCleared,
+    'وصول شد': checkStatusCleared,
+    checkStatusBounced: checkStatusBounced,
+    'returned': checkStatusBounced,
+    'برگشتی': checkStatusBounced,
+    'برگشت': checkStatusBounced,
+    checkStatusEndorsed: checkStatusEndorsed,
+    'خرج شده': checkStatusEndorsed,
+    'خرج شد': checkStatusEndorsed,
+    checkStatusCancelled: checkStatusCancelled,
+    'canceled': checkStatusCancelled,
+    'void': checkStatusCancelled,
+    'باطل': checkStatusCancelled,
+    'باطل شده': checkStatusCancelled,
+  };
+  return aliases[t] ??
+      aliases[t.toLowerCase()] ??
+      (checkStatuses.contains(t) ? t : checkStatusPending);
+}
+
+String _dateOf(Object? raw) => tryNormalizeToIso('$raw') ?? '';
+
+String? _optionalText(Object? raw) {
+  if (raw == null) return null;
+  final text = '$raw'.trim();
+  if (text.isEmpty || text == 'null') return null;
+  return text;
+}
+
+int? _optionalInt(Object? raw) {
+  if (raw is int) return raw;
+  if (raw is num) return raw.toInt();
+  return int.tryParse('$raw'.trim());
+}
+
+String? _optionalDateOf(Object? raw) {
+  if (raw == null) return null;
+  final text = '$raw'.trim();
+  if (text.isEmpty || text == 'null') return null;
+  return tryNormalizeToIso(text);
 }
 
 double _amountOf(Object? raw) {
   if (raw is num) return raw.toDouble();
-  return double.tryParse('$raw'.trim().replaceAll(',', '')) ?? 0;
+  final parsed = double.tryParse(
+    asciiDigits('$raw').trim().replaceAll(',', '').replaceAll('٬', ''),
+  );
+  return parsed ?? 0;
 }
 
 /// Clean fields and reject incomplete or contradictory cheques.
@@ -349,9 +462,9 @@ BankCheck prepareBankCheck(
   final selfId = draft.id;
   for (final other in others) {
     if (other.id != null && other.id == selfId) continue;
+    // Cancelled rows release both the Sayad id and the bank number.
     if (other.status == checkStatusCancelled) continue;
-    if (sayad.isNotEmpty &&
-        normalizeSayadId(other.sayadId) == sayad) {
+    if (sayad.isNotEmpty && normalizeSayadId(other.sayadId) == sayad) {
       throw ArgumentError('این شناسه صیادی قبلاً ثبت شده است.');
     }
     if (number.isNotEmpty &&
