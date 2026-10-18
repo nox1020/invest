@@ -96,6 +96,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _requestOtp() async {
+    if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -121,6 +122,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _verify() async {
+    if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;

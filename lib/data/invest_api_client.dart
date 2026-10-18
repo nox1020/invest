@@ -210,7 +210,13 @@ class InvestApiClient {
   }
 
   Future<String?> requestOtp(String phone) async {
-    final data = await post('/auth/request-otp', body: {'phone': phone});
+    // sms.ir can take about 12 seconds. The shared client timeout is 10.
+    final data = await _request(
+      'POST',
+      _uri('/auth/request-otp'),
+      body: {'phone': phone},
+      timeout: const Duration(seconds: 20),
+    );
     return data['debug_code'] as String?;
   }
 
