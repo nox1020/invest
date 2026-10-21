@@ -205,6 +205,7 @@ class _PwoPageState extends State<PwoPage> {
       isScrollControlled: true,
       useSafeArea: true,
       builder: (ctx) => _MonthEditor(
+        store: _store,
         existing: existing,
         people: _store.ledger.peopleFor(existing),
         defaultYear: _year ??
@@ -525,10 +526,12 @@ class _MonthEditor extends StatefulWidget {
     required this.people,
     required this.defaultYear,
     this.onDelete,
+    this.store,
   });
   final PwoMonth? existing;
   final List<PwoPerson> people;
   final int defaultYear;
+  final PwoStore? store;
   final VoidCallback? onDelete;
 
   @override
@@ -537,10 +540,13 @@ class _MonthEditor extends StatefulWidget {
 
 class _MonthEditorState extends State<_MonthEditor> {
   late int _year = widget.existing?.year ?? widget.defaultYear;
+
+  /// A month with single withdrawals keeps its month/year (they belong to it).
+  bool get _locked => (widget.existing?.txs.isNotEmpty ?? false);
   late int _month = widget.existing?.month ?? _nextMonth();
   late final List<TextEditingController> _c = [
     for (final p in widget.people)
-      TextEditingController(text: _millionsText(widget.existing?.of(p.id) ?? 0)),
+      TextEditingController(text: _millionsText(widget.existing?.baseOf(p.id) ?? 0)),
   ];
   String? _error;
 
@@ -592,7 +598,9 @@ class _MonthEditorState extends State<_MonthEditor> {
                         DropdownMenuItem(
                             value: m, child: Text(pwoMonthNames[m - 1])),
                     ],
-                    onChanged: (v) => setState(() => _month = v ?? _month),
+                    onChanged: _locked
+                        ? null
+                        : (v) => setState(() => _month = v ?? _month),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -605,7 +613,9 @@ class _MonthEditorState extends State<_MonthEditor> {
                       for (final y in years)
                         DropdownMenuItem(value: y, child: Text('$y')),
                     ],
-                    onChanged: (v) => setState(() => _year = v ?? _year),
+                    onChanged: _locked
+                        ? null
+                        : (v) => setState(() => _year = v ?? _year),
                   ),
                 ),
               ],
@@ -622,12 +632,21 @@ class _MonthEditorState extends State<_MonthEditor> {
                 ],
                 decoration: InputDecoration(
                   labelText: 'برداشت ${widget.people[i].name} (میلیون تومان)',
+                  helperText: (widget.existing?.txOf(widget.people[i].id) ?? 0) > 0
+                      ? '+ برداشت‌های تکی: ${_mil(widget.existing!.txOf(widget.people[i].id))}'
+                      : null,
                 ),
               ),
               const SizedBox(height: 8),
             ],
             if (_error != null)
               Text(_error!, style: const TextStyle(color: _bad)),
+            if (widget.existing != null && widget.store != null)
+              _MonthTxSection(
+                store: widget.store!,
+                year: widget.existing!.year,
+                month: widget.existing!.month,
+              ),
       ],
     );
   }
@@ -1027,3 +1046,230 @@ String pwoChartLabel(int month, double slot) {
 
 /// Largest accepted amount (toman), same cap as the server.
 const pwoMaxToman = 1e15;
+
+
+/// Single withdrawals of one month: list with edit/delete + «ثبت برداشت».
+class _MonthTxSection extends StatelessWidget {
+  const _MonthTxSection(
+      {required this.store, required this.year, required this.month});
+  final PwoStore store;
+  final int year, month;
+
+  Future<void> _open(BuildContext context, PwoTx? tx) async {
+    final people = [
+      ...store.ledger.activePeople,
+      if (tx != null &&
+          !store.ledger.activePeople.any((p) => p.id == tx.personId) &&
+          store.ledger.personById(tx.personId) != null)
+        store.ledger.personById(tx.personId)!,
+    ];
+    final res = await showModalBottomSheet<_TxResult>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _TxEditor(
+        title: '${pwoMonthNames[month - 1]} $year',
+        people: people,
+        tx: tx,
+      ),
+    );
+    if (res == null || !context.mounted) return;
+    await _guard(context, () async {
+      if (tx?.id != null) {
+        await store.updateTx(tx!.id!, res.personId, res.toman, note: res.note);
+      } else {
+        await store.addTx(year, month, res.personId, res.toman, note: res.note);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        final l = store.ledger;
+        final txs = l.months[pwoMonthKey(year, month)]?.txs ?? const <PwoTx>[];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('برداشت‌های تکی این ماه',
+                      style: Theme.of(context).textTheme.titleSmall),
+                ),
+                FilledButton.tonalIcon(
+                  key: const ValueKey('pwo-add-tx'),
+                  onPressed: () => _open(context, null),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('ثبت برداشت'),
+                ),
+              ],
+            ),
+            if (txs.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('هنوز برداشت تکی ثبت نشده.'),
+              ),
+            for (final t in txs)
+              ListTile(
+                key: ValueKey('pwo-tx-${t.id}'),
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: Text(
+                    '${l.personById(t.personId)?.name ?? t.personId}: ${_mil(t.amount)}'),
+                subtitle: t.note.isEmpty ? null : Text(t.note),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      key: ValueKey('pwo-tx-edit-${t.id}'),
+                      tooltip: 'ویرایش',
+                      icon: const Icon(Icons.edit_rounded),
+                      onPressed: () => _open(context, t),
+                    ),
+                    IconButton(
+                      key: ValueKey('pwo-tx-del-${t.id}'),
+                      tooltip: 'حذف',
+                      icon: const Icon(Icons.delete_outline_rounded, color: _bad),
+                      onPressed: () async {
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (c) => Directionality(
+                            textDirection: TextDirection.rtl,
+                            child: AlertDialog(
+                              content: Text('این برداشت (${_mil(t.amount)}) حذف شود؟'),
+                              actions: [
+                                TextButton(
+                                    onPressed: () => Navigator.pop(c, false),
+                                    child: const Text('انصراف')),
+                                FilledButton(
+                                    key: const ValueKey('pwo-tx-del-confirm'),
+                                    style: FilledButton.styleFrom(backgroundColor: _bad),
+                                    onPressed: () => Navigator.pop(c, true),
+                                    child: const Text('حذف')),
+                              ],
+                            ),
+                          ),
+                        );
+                        if (ok == true && context.mounted && t.id != null) {
+                          await _guard(context, () => store.deleteTx(t.id!));
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _TxResult {
+  const _TxResult(this.personId, this.toman, this.note);
+  final String personId;
+  final double toman;
+  final String note;
+}
+
+class _TxEditor extends StatefulWidget {
+  const _TxEditor({required this.title, required this.people, this.tx});
+  final String title;
+  final List<PwoPerson> people;
+  final PwoTx? tx;
+
+  @override
+  State<_TxEditor> createState() => _TxEditorState();
+}
+
+class _TxEditorState extends State<_TxEditor> {
+  late String? _person = widget.tx?.personId ??
+      (widget.people.isNotEmpty ? widget.people.first.id : null);
+  late final _amount =
+      TextEditingController(text: _millionsText(widget.tx?.amount ?? 0));
+  late final _note = TextEditingController(text: widget.tx?.note ?? '');
+  String? _error;
+  bool _done = false;
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_done) return;
+    final v = _parseToman(_amount.text);
+    if (_person == null) {
+      setState(() => _error = 'برداشت‌کننده را انتخاب کنید.');
+      return;
+    }
+    if (v == null || v <= 0) {
+      setState(() => _error = 'مبلغ برداشت باید بیشتر از صفر باشد.');
+      return;
+    }
+    if (v * 1000000 > pwoMaxToman) {
+      setState(() => _error = 'مبلغ بیش از حد بزرگ است.');
+      return;
+    }
+    _done = true;
+    Navigator.pop(context,
+        _TxResult(_person!, (v * 1000000).roundToDouble(), _note.text.trim()));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      footer: Row(
+        children: [
+          const Spacer(),
+          FilledButton(
+            key: const ValueKey('pwo-tx-save'),
+            onPressed: _submit,
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+      children: [
+        Text('ثبت برداشت · ${widget.title}',
+            style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          key: const ValueKey('pwo-tx-person'),
+          isExpanded: true,
+          initialValue: _person,
+          decoration: const InputDecoration(labelText: 'برداشت‌کننده'),
+          items: [
+            for (final p in widget.people)
+              DropdownMenuItem(value: p.id, child: Text(p.name)),
+          ],
+          onChanged: (v) => setState(() => _person = v),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          key: const ValueKey('pwo-tx-amount'),
+          controller: _amount,
+          autofocus: widget.tx == null,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[0-9.۰-۹٠-٩٫]'))
+          ],
+          decoration: const InputDecoration(labelText: 'مبلغ (میلیون تومان)'),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          key: const ValueKey('pwo-tx-note'),
+          controller: _note,
+          maxLength: 200,
+          decoration: const InputDecoration(labelText: 'توضیح (اختیاری)'),
+        ),
+        if (_error != null) Text(_error!, style: const TextStyle(color: _bad)),
+      ],
+    );
+  }
+}

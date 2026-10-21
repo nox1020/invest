@@ -159,8 +159,9 @@ class PwoStore extends ChangeNotifier {
         // Never import over an account that already has data (reinstall,
         // cleared storage, another phone). Server is the source of truth.
         final current = await remote.fetch();
-        final hasData = current['entries'] is List &&
-            (current['entries'] as List).isNotEmpty;
+        bool nonEmpty(Object? v) => v is List && v.isNotEmpty;
+        final hasData =
+            nonEmpty(current['entries']) || nonEmpty(current['transactions']);
         if (hasData) {
           snap = current;
           if (prefs != null) {
@@ -245,9 +246,16 @@ class PwoStore extends ChangeNotifier {
     _ensureWritable();
     if (!isRemote) {
       return _local(() {
+        final keep = <PwoTx>[
+          ...?_ledger.months[m.key]?.txs,
+          if (replacing != null && replacing.key != m.key) ...replacing.txs,
+        ];
         if (replacing != null && replacing.key != m.key) {
           _ledger.remove(replacing.year, replacing.month);
         }
+        m.txs
+          ..clear()
+          ..addAll(keep);
         _ledger.upsert(m);
       });
     }
@@ -265,9 +273,13 @@ class PwoStore extends ChangeNotifier {
     if (!isRemote) return _local(() => _ledger.remove(year, month));
     final m = _ledger.months[pwoMonthKey(year, month)];
     final ids = m?.entryIds.values.toList() ?? const <int>[];
-    if (ids.isEmpty) return _write((r) => r.fetch());
+    final txIds = [for (final t in m?.txs ?? const <PwoTx>[]) if (t.id != null) t.id!];
+    if (ids.isEmpty && txIds.isEmpty) return _write((r) => r.fetch());
     for (final id in ids) {
       await _write((r) => r.deleteEntry(id));
+    }
+    for (final id in txIds) {
+      await _write((r) => r.deleteTx(id));
     }
   }
 
@@ -329,6 +341,83 @@ class PwoStore extends ChangeNotifier {
     _checkUnique(p.name, except: id);
     if (!isRemote) return _local(() => p.active = true);
     await _write((r) => r.patchWithdrawer(id, archived: false));
+  }
+
+  int _localTxSeq = -1;
+
+  int _nextLocalTxId() {
+    var id = _localTxSeq;
+    final used = {
+      for (final m in _ledger.months.values)
+        for (final t in m.txs) t.id
+    };
+    while (used.contains(id)) {
+      id--;
+    }
+    _localTxSeq = id - 1;
+    return id;
+  }
+
+  PwoMonth? _monthOfTx(int id) {
+    for (final m in _ledger.months.values) {
+      if (m.txs.any((t) => t.id == id)) return m;
+    }
+    return null;
+  }
+
+  /// Adds one withdrawal (toman) to a month; it is summed into the month.
+  Future<void> addTx(int year, int month, String personId, double toman,
+      {String note = ''}) async {
+    _ensureWritable();
+    if (!toman.isFinite || toman <= 0) {
+      throw ArgumentError('مبلغ برداشت باید بیشتر از صفر باشد.');
+    }
+    if (_ledger.personById(personId) == null) {
+      throw ArgumentError('برداشت‌کننده پیدا نشد.');
+    }
+    final n = note.trim();
+    if (!isRemote) {
+      return _local(() {
+        _ledger.months
+            .putIfAbsent(pwoMonthKey(year, month),
+                () => PwoMonth(year: year, month: month))
+            .txs
+            .add(PwoTx(
+                id: _nextLocalTxId(), personId: personId, amount: toman, note: n));
+      });
+    }
+    await _write((r) => r.addTx(personId, year, month, toman, n));
+  }
+
+  Future<void> updateTx(int id, String personId, double toman,
+      {String note = ''}) async {
+    _ensureWritable();
+    if (!toman.isFinite || toman <= 0) {
+      throw ArgumentError('مبلغ برداشت باید بیشتر از صفر باشد.');
+    }
+    final n = note.trim();
+    if (!isRemote) {
+      final m = _monthOfTx(id);
+      if (m == null) throw ArgumentError('برداشت پیدا نشد.');
+      return _local(() {
+        final t = m.txs.firstWhere((t) => t.id == id);
+        t
+          ..personId = personId
+          ..amount = toman
+          ..note = n;
+      });
+    }
+    await _write((r) => r.patchTx(id, personId, toman, n));
+  }
+
+  Future<void> deleteTx(int id) async {
+    _ensureWritable();
+    if (!isRemote) {
+      final m = _monthOfTx(id);
+      if (m == null) return;
+      return _local(() => m.txs.removeWhere((t) => t.id == id));
+    }
+    await _write((r) => r.deleteTx(id));
   }
 
   @visibleForTesting

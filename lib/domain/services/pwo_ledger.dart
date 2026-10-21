@@ -34,14 +34,43 @@ class PwoPerson {
   Map<String, dynamic> toJson() => {'id': id, 'name': name, 'active': active};
 }
 
+/// One manually added withdrawal inside a month (summed into that month).
+class PwoTx {
+  PwoTx({this.id, required this.personId, required this.amount, this.note = ''});
+  int? id;
+  String personId;
+  double amount;
+  String note;
+
+  Map<String, dynamic> toJson() =>
+      {'id': id, 'p': personId, 'a': amount, if (note.isNotEmpty) 'n': note};
+
+  static PwoTx? fromJson(Object? r) {
+    if (r is! Map) return null;
+    final a = r['a'], p = r['p'];
+    if (a is! num || !a.isFinite || a <= 0 || p == null) return null;
+    final id = r['id'];
+    return PwoTx(
+        id: id is num ? id.toInt() : null,
+        personId: p.toString(),
+        amount: a.toDouble(),
+        note: r['n']?.toString() ?? '');
+  }
+}
+
 class PwoMonth {
   PwoMonth({
     required this.year,
     required this.month,
     Map<String, double>? amounts,
     Map<String, int>? entryIds,
+    List<PwoTx>? txs,
   })  : amounts = Map<String, double>.from(amounts ?? const {}),
-        entryIds = Map<String, int>.from(entryIds ?? const {});
+        entryIds = Map<String, int>.from(entryIds ?? const {}),
+        txs = List<PwoTx>.from(txs ?? const []);
+
+  /// Single withdrawals added on top of the base [amounts].
+  final List<PwoTx> txs;
 
   /// Server entry id per person id (remote mode only).
   final Map<String, int> entryIds;
@@ -49,16 +78,30 @@ class PwoMonth {
   final int year;
   final int month;
 
-  /// person id -> toman.
+  /// Base (month-form) amount per person id, toman.
   final Map<String, double> amounts;
 
   String get key => pwoMonthKey(year, month);
-  double get total => amounts.values.fold(0.0, (a, b) => a + b);
-  double of(String id) => amounts[id] ?? 0;
+  double get total =>
+      amounts.values.fold(0.0, (a, b) => a + b) +
+      txs.fold(0.0, (a, t) => a + t.amount);
+  double baseOf(String id) => amounts[id] ?? 0;
+  double txOf(String id) =>
+      txs.where((t) => t.personId == id).fold(0.0, (a, t) => a + t.amount);
+
+  /// Person's monthly amount = base + single withdrawals.
+  double of(String id) => baseOf(id) + txOf(id);
+  Set<String> get personIds => {...amounts.keys, ...txs.map((t) => t.personId)};
   bool meets(double target) => total >= target;
 
   Map<String, dynamic> toJson() =>
-      {'y': year, 'm': month, 'a': amounts, if (entryIds.isNotEmpty) 'e': entryIds};
+      {
+        'y': year,
+        'm': month,
+        'a': amounts,
+        if (entryIds.isNotEmpty) 'e': entryIds,
+        if (txs.isNotEmpty) 't': txs.map((t) => t.toJson()).toList(),
+      };
 
   /// Accepts v2 maps and v1 positional lists (mapped to p0, p1, p2...).
   static PwoMonth? fromJson(Object? raw) {
@@ -87,8 +130,20 @@ class PwoMonth {
         if (v is num) ids[k.toString()] = v.toInt();
       });
     }
+    final txs = <PwoTx>[];
+    final t = raw['t'];
+    if (t is List) {
+      for (final r in t) {
+        final x = PwoTx.fromJson(r);
+        if (x != null) txs.add(x);
+      }
+    }
     return PwoMonth(
-        year: y.toInt(), month: m.toInt(), amounts: vals, entryIds: ids);
+        year: y.toInt(),
+        month: m.toInt(),
+        amounts: vals,
+        entryIds: ids,
+        txs: txs);
   }
 }
 
@@ -240,6 +295,26 @@ class PwoLedger {
         if (eid is num) mo.entryIds[wid] = eid.toInt();
       }
     }
+    final ts = snap['transactions'];
+    if (ts is List) {
+      for (final e in ts) {
+        if (e is! Map) continue;
+        final y = e['year'], m = e['month'], a = e['amount'], id = e['id'];
+        if (y is! num || m is! num || m < 1 || m > 12 || id is! num) continue;
+        final wid = e['withdrawer_id']?.toString();
+        final amt = a is num ? a.toDouble() : double.tryParse('$a') ?? 0;
+        if (wid == null || !amt.isFinite || amt <= 0) continue;
+        months
+            .putIfAbsent(pwoMonthKey(y.toInt(), m.toInt()),
+                () => PwoMonth(year: y.toInt(), month: m.toInt()))
+            .txs
+            .add(PwoTx(
+                id: id.toInt(),
+                personId: wid,
+                amount: amt,
+                note: e['note']?.toString() ?? ''));
+      }
+    }
     final l = PwoLedger(
       people: people,
       target: (t is num && t > 0) ? t.toDouble() : pwoDefaultTarget,
@@ -247,7 +322,7 @@ class PwoLedger {
       tags: {pwoSeedTag},
     );
     for (final m in months.values) {
-      for (final id in m.amounts.keys) {
+      for (final id in m.personIds) {
         if (l.personById(id) == null) {
           l.people.add(PwoPerson(id: id, name: id, active: false));
         }
@@ -264,7 +339,7 @@ class PwoLedger {
         ],
         'entries': [
           for (final m in months.values)
-            for (final e in m.amounts.entries)
+            for (final e in {for (final k in m.personIds) k: m.of(k)}.entries)
               if (e.value > 0 && personById(e.key) != null)
                 {
                   'withdrawer': personById(e.key)!.name,
@@ -332,7 +407,7 @@ class PwoLedger {
           people: people, target: target, months: months, tags: tags);
       // Any id referenced by a month but unknown becomes an archived person.
       for (final m in months.values) {
-        for (final id in m.amounts.keys) {
+        for (final id in m.personIds) {
           if (l.personById(id) == null) {
             l.people.add(PwoPerson(id: id, name: id, active: false));
           }

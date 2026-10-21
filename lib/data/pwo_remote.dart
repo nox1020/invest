@@ -45,4 +45,25 @@ class PwoRemote {
 
   Future<Map<String, dynamic>> deleteEntry(int id) async =>
       _snap(await _api.delete('$_base/entries/$id'));
+
+  Future<Map<String, dynamic>> addTx(
+          String withdrawerId, int year, int month, double toman, String note) async =>
+      _snap(await _api.post('$_base/transactions', body: {
+        'withdrawer_id': int.tryParse(withdrawerId) ?? withdrawerId,
+        'year': year,
+        'month': month,
+        'amount': toman,
+        'note': note,
+      }));
+
+  Future<Map<String, dynamic>> patchTx(
+          int id, String withdrawerId, double toman, String note) async =>
+      _snap(await _api.patch('$_base/transactions/$id', body: {
+        'withdrawer_id': int.tryParse(withdrawerId) ?? withdrawerId,
+        'amount': toman,
+        'note': note,
+      }));
+
+  Future<Map<String, dynamic>> deleteTx(int id) async =>
+      _snap(await _api.delete('$_base/transactions/$id'));
 }

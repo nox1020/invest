@@ -17,6 +17,7 @@ class FakePwoServer {
   double target = 100000000;
   final ws = <Map<String, dynamic>>[];
   final es = <Map<String, dynamic>>[];
+  final txs = <Map<String, dynamic>>[];
   final calls = <String>[];
   final bodies = <String, List<Map<String, dynamic>>>{};
   int _id = 0;
@@ -27,7 +28,7 @@ class FakePwoServer {
   String? failWith;
 
   Map<String, dynamic> snap() =>
-      {'target': target, 'withdrawers': ws, 'entries': es, 'totals': {}};
+      {'target': target, 'withdrawers': ws, 'entries': es, 'transactions': txs, 'totals': {}};
 
   int addWithdrawerForTest(String name) => _w(name);
   void addEntryForTest(int wid, int y, int m, double amt) => _upsert(wid, y, m, amt);
@@ -92,6 +93,18 @@ class FakePwoServer {
       final y = int.parse(parts[2]), m = int.parse(parts[3]);
       (body['amounts'] as Map).forEach((k, v) =>
           _upsert(int.parse(k as String), y, m, v as num));
+    } else if (key == 'POST /transactions') {
+      txs.add({'id': ++_id, 'withdrawer_id': body['withdrawer_id'], 'year': body['year'],
+        'month': body['month'], 'amount': body['amount'], 'note': body['note'] ?? ''});
+    } else if (r.method == 'PATCH' && path.startsWith('/transactions/')) {
+      final id = int.parse(path.split('/')[2]);
+      final t = txs.firstWhere((t) => t['id'] == id);
+      t['amount'] = body['amount'];
+      t['note'] = body['note'];
+      t['withdrawer_id'] = body['withdrawer_id'];
+    } else if (r.method == 'DELETE' && path.startsWith('/transactions/')) {
+      final id = int.parse(path.split('/')[2]);
+      txs.removeWhere((t) => t['id'] == id);
     } else if (key == 'PUT /target') {
       target = (body['target'] as num).toDouble();
     } else if (key == 'POST /withdrawers') {
