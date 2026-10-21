@@ -2,14 +2,54 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:shamsi_date/shamsi_date.dart';
+
 
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/domain/services/pwo_ledger.dart';
 import 'package:invest/domain/utils/money.dart';
+import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 
 const _good = AppTheme.positive;
+
+/// Binds [store] to the signed-in Vinor account (server mode) when there is
+/// one, otherwise loads the device-only ledger.
+Future<void> ensurePwoReady(BuildContext context, PwoStore store,
+    {bool refresh = true}) {
+  AppState? app;
+  try {
+    app = Provider.of<AppState>(context, listen: false);
+  } catch (_) {
+    app = null;
+  }
+  final phone = (app?.userPhone ?? '').trim();
+  final remote = app?.remote;
+  if (app != null && app.useRemote && remote != null && phone.isNotEmpty) {
+    if (!refresh && store.account == phone && (store.loaded || store.syncing)) {
+      return Future.value();
+    }
+    return store.bindAccount(remote.pwo, phone);
+  }
+  if (app != null && store.isRemote) store.unbind();
+  return store.load();
+}
+
+Future<bool> _guard(BuildContext context, Future<void> Function() op) async {
+  try {
+    await op();
+    return true;
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Invalid argument(s): ', ''))),
+      );
+    }
+    return false;
+  }
+}
+
 const _bad = AppTheme.negative;
 
 /// PWO — monthly personal withdrawals vs. monthly target.
@@ -28,7 +68,9 @@ class _PwoPageState extends State<PwoPage> {
   @override
   void initState() {
     super.initState();
-    _store.load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ensurePwoReady(context, _store);
+    });
   }
 
   @override
@@ -55,6 +97,12 @@ class _PwoPageState extends State<PwoPage> {
           listenable: _store,
           builder: (context, _) {
             if (!_store.loaded) {
+              if (_store.lastError != null && !_store.syncing) {
+                return _ErrorRetry(
+                  message: _store.lastError!,
+                  onRetry: () => _store.refresh(),
+                );
+              }
               return const Center(child: CircularProgressIndicator());
             }
             final l = _store.ledger;
@@ -63,9 +111,27 @@ class _PwoPageState extends State<PwoPage> {
                 ? _year!
                 : (years.isNotEmpty ? years.first : Jalali.now().year);
             final months = l.monthsOf(year);
-            return ListView(
+            return RefreshIndicator(
+              onRefresh: () => _store.refresh(),
+              child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
               children: [
+                if (_store.showingCache && _store.lastError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Material(
+                      key: const ValueKey('pwo-offline'),
+                      color: _bad.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Text(
+                            'نمایش دادهٔ ذخیره‌شده. ${_store.lastError}',
+                            style: const TextStyle(color: _bad)),
+                      ),
+                    ),
+                  ),
                 if (years.length > 1)
                   Wrap(
                     spacing: 8,
@@ -119,6 +185,7 @@ class _PwoPageState extends State<PwoPage> {
                     onTap: () => _edit(m),
                   ),
               ],
+            ),
             );
           },
         ),
@@ -142,7 +209,8 @@ class _PwoPageState extends State<PwoPage> {
             ? null
             : () async {
                 Navigator.pop(ctx);
-                await _store.deleteMonth(existing.year, existing.month);
+                await _guard(context,
+                    () => _store.deleteMonth(existing.year, existing.month));
               },
       ),
     );
@@ -166,11 +234,10 @@ class _PwoPageState extends State<PwoPage> {
       );
       if (ok != true) return;
     }
-    if (existing != null && existing.key != res.key) {
-      await _store.deleteMonth(existing.year, existing.month);
-    }
-    await _store.saveMonth(res);
-    setState(() => _year = res.year);
+    if (!mounted) return;
+    final ok = await _guard(
+        context, () => _store.saveMonth(res, replacing: existing));
+    if (ok && mounted) setState(() => _year = res.year);
   }
 }
 
@@ -552,7 +619,7 @@ class _MonthEditorState extends State<_MonthEditor> {
         setState(() => _error = 'مبلغ نامعتبر است.');
         return;
       }
-      if (v > 0) vals[widget.people[i].id] = (v * 1000000).roundToDouble();
+      vals[widget.people[i].id] = (v * 1000000).roundToDouble();
     }
     // Keep amounts of people not shown in this form (never drop data).
     final old = widget.existing;
@@ -616,7 +683,7 @@ class _SheetFrame extends StatelessWidget {
 
 /// Target + withdrawers editor (also opened from Settings).
 Future<void> showPwoSettingsSheet(BuildContext context, PwoStore store) async {
-  await store.load();
+  await ensurePwoReady(context, store);
   if (!context.mounted) return;
   await showModalBottomSheet<void>(
     context: context,
@@ -652,14 +719,32 @@ class _PwoSettingsSheetState extends State<_PwoSettingsSheet> {
     super.dispose();
   }
 
+  bool _busy = false;
+
+  /// Runs a store call; shows the server's error text in the sheet.
+  Future<bool> _try(Future<void> Function() op) async {
+    setState(() {
+      _busy = true;
+      _err = null;
+    });
+    try {
+      await op();
+      return true;
+    } catch (e) {
+      if (mounted) setState(() => _err = e.toString());
+      return false;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _add() async {
     final name = await showDialog<String>(
       context: context,
       builder: (c) => const _NameDialog(),
     );
     if (name == null || name.trim().isEmpty) return;
-    await widget.store.addPerson(name);
-    if (mounted) setState(() {});
+    await _try(() => widget.store.addPerson(name));
   }
 
   Future<void> _remove(PwoPerson p) async {
@@ -692,8 +777,7 @@ class _PwoSettingsSheetState extends State<_PwoSettingsSheet> {
       ),
     );
     if (ok != true) return;
-    await widget.store.removePerson(p.id);
-    if (mounted) setState(() => _err = null);
+    await _try(() => widget.store.removePerson(p.id));
   }
 
   Future<void> _save() async {
@@ -702,11 +786,13 @@ class _PwoSettingsSheetState extends State<_PwoSettingsSheet> {
       setState(() => _err = 'هدف باید بیشتر از صفر باشد.');
       return;
     }
-    await widget.store.setTarget((t * 1000000).roundToDouble());
-    for (final e in _names.entries) {
-      await widget.store.setName(e.key, e.value.text);
-    }
-    if (mounted) Navigator.pop(context);
+    final ok = await _try(() async {
+      await widget.store.setTarget((t * 1000000).roundToDouble());
+      for (final e in _names.entries) {
+        await widget.store.setName(e.key, e.value.text);
+      }
+    });
+    if (ok && mounted) Navigator.pop(context);
   }
 
   @override
@@ -727,7 +813,7 @@ class _PwoSettingsSheetState extends State<_PwoSettingsSheet> {
           const Spacer(),
           FilledButton(
             key: const ValueKey('pwo-save-settings'),
-            onPressed: _save,
+            onPressed: _busy ? null : _save,
             child: const Text('ذخیره'),
           ),
         ],
@@ -777,8 +863,7 @@ class _PwoSettingsSheetState extends State<_PwoSettingsSheet> {
               title: Text(p.name),
               trailing: TextButton(
                 onPressed: () async {
-                  await widget.store.restorePerson(p.id);
-                  if (mounted) setState(() {});
+                  await _try(() => widget.store.restorePerson(p.id));
                 },
                 child: const Text('بازگردانی'),
               ),
@@ -797,7 +882,9 @@ class PwoEntryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = PwoStore.instance;
-    store.load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (context.mounted) ensurePwoReady(context, store, refresh: false);
+    });
     return ListenableBuilder(
       listenable: store,
       builder: (context, _) {
@@ -868,6 +955,32 @@ class _NameDialogState extends State<_NameDialog> {
               onPressed: () => Navigator.pop(context, _ctl.text),
               child: const Text('افزودن')),
         ],
+      ),
+    );
+  }
+}
+
+class _ErrorRetry extends StatelessWidget {
+  const _ErrorRetry({required this.message, required this.onRetry});
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(message,
+                key: const ValueKey('pwo-error'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _bad)),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: onRetry, child: const Text('تلاش دوباره')),
+          ],
+        ),
       ),
     );
   }

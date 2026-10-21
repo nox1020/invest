@@ -35,8 +35,16 @@ class PwoPerson {
 }
 
 class PwoMonth {
-  PwoMonth({required this.year, required this.month, Map<String, double>? amounts})
-      : amounts = Map<String, double>.from(amounts ?? const {});
+  PwoMonth({
+    required this.year,
+    required this.month,
+    Map<String, double>? amounts,
+    Map<String, int>? entryIds,
+  })  : amounts = Map<String, double>.from(amounts ?? const {}),
+        entryIds = Map<String, int>.from(entryIds ?? const {});
+
+  /// Server entry id per person id (remote mode only).
+  final Map<String, int> entryIds;
 
   final int year;
   final int month;
@@ -49,7 +57,8 @@ class PwoMonth {
   double of(String id) => amounts[id] ?? 0;
   bool meets(double target) => total >= target;
 
-  Map<String, dynamic> toJson() => {'y': year, 'm': month, 'a': amounts};
+  Map<String, dynamic> toJson() =>
+      {'y': year, 'm': month, 'a': amounts, if (entryIds.isNotEmpty) 'e': entryIds};
 
   /// Accepts v2 maps and v1 positional lists (mapped to p0, p1, p2...).
   static PwoMonth? fromJson(Object? raw) {
@@ -71,7 +80,15 @@ class PwoMonth {
     } else {
       return null;
     }
-    return PwoMonth(year: y.toInt(), month: m.toInt(), amounts: vals);
+    final ids = <String, int>{};
+    final e = raw['e'];
+    if (e is Map) {
+      e.forEach((k, v) {
+        if (v is num) ids[k.toString()] = v.toInt();
+      });
+    }
+    return PwoMonth(
+        year: y.toInt(), month: m.toInt(), amounts: vals, entryIds: ids);
   }
 }
 
@@ -190,6 +207,74 @@ class PwoLedger {
 
   void upsert(PwoMonth m) => months[m.key] = m;
   void remove(int year, int month) => months.remove(pwoMonthKey(year, month));
+
+  /// Server snapshot (`pwo` object) -> ledger. Amounts stay in toman.
+  static PwoLedger fromServer(Map<String, dynamic> snap) {
+    final people = <PwoPerson>[];
+    final ws = snap['withdrawers'];
+    if (ws is List) {
+      for (final w in ws) {
+        if (w is! Map || w['id'] == null) continue;
+        final id = w['id'].toString();
+        if (people.any((p) => p.id == id)) continue;
+        final name = w['name']?.toString().trim() ?? '';
+        people.add(PwoPerson(
+            id: id, name: name.isEmpty ? id : name, active: w['archived'] != true));
+      }
+    }
+    final t = snap['target'];
+    final months = <String, PwoMonth>{};
+    final es = snap['entries'];
+    if (es is List) {
+      for (final e in es) {
+        if (e is! Map) continue;
+        final y = e['year'], m = e['month'], a = e['amount'];
+        if (y is! num || m is! num || m < 1 || m > 12) continue;
+        final wid = e['withdrawer_id']?.toString();
+        if (wid == null) continue;
+        final mo = months.putIfAbsent(pwoMonthKey(y.toInt(), m.toInt()),
+            () => PwoMonth(year: y.toInt(), month: m.toInt()));
+        final amt = a is num ? a.toDouble() : double.tryParse('$a') ?? 0;
+        if (amt.isFinite && amt > 0) mo.amounts[wid] = amt;
+        final eid = e['id'];
+        if (eid is num) mo.entryIds[wid] = eid.toInt();
+      }
+    }
+    final l = PwoLedger(
+      people: people,
+      target: (t is num && t > 0) ? t.toDouble() : pwoDefaultTarget,
+      months: months,
+      tags: {pwoSeedTag},
+    );
+    for (final m in months.values) {
+      for (final id in m.amounts.keys) {
+        if (l.personById(id) == null) {
+          l.people.add(PwoPerson(id: id, name: id, active: false));
+        }
+      }
+    }
+    return l;
+  }
+
+  /// Payload for `POST /pwo/import` (names are the join key on the server).
+  Map<String, dynamic> toImportPayload() => {
+        'target': target,
+        'withdrawers': [
+          for (final p in people) {'name': p.name, 'archived': !p.active},
+        ],
+        'entries': [
+          for (final m in months.values)
+            for (final e in m.amounts.entries)
+              if (e.value > 0 && personById(e.key) != null)
+                {
+                  'withdrawer': personById(e.key)!.name,
+                  'year': m.year,
+                  'month': m.month,
+                  'amount': e.value,
+                },
+        ],
+        'overwrite': false,
+      };
 
   String encode() => jsonEncode({
         'v': 2,
