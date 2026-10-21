@@ -7,6 +7,7 @@ import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
+import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:invest/ui/widgets/tg_percent_wheel.dart';
@@ -72,6 +73,8 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
                   allowance.calendar,
                 ),
               ),
+              const SizedBox(height: 12),
+              const PwoEntryCard(),
               const SizedBox(height: 12),
               _CapacityHero(
                 allowance: allowance,

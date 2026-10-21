@@ -1,3 +1,6 @@
+import 'package:invest/data/pwo_store.dart';
+import 'package:invest/domain/utils/money.dart';
+import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:flutter/material.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
@@ -128,6 +131,25 @@ class _SettingsPageState extends State<SettingsPage> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: shellPagePadding(),
         children: [
+          TgSettingsSection(
+            title: 'PWO · برداشت ماهانه',
+            children: [
+              ListenableBuilder(
+                listenable: PwoStore.instance,
+                builder: (context, _) => TgSettingsTile(
+                  icon: Icons.flag_rounded,
+                  iconColor: const Color(0xFF30D158),
+                  title: 'هدف برداشت ماهانه و نام‌ها',
+                  value: PwoStore.instance.loaded
+                      ? formatCompactToman(PwoStore.instance.ledger.target)
+                      : null,
+                  onTap: () =>
+                      showPwoSettingsSheet(context, PwoStore.instance),
+                  showDivider: false,
+                ),
+              ),
+            ],
+          ),
           TgSettingsSection(
             title: 'امنیت',
             children: [
