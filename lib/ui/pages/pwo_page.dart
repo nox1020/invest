@@ -32,7 +32,7 @@ Future<void> ensurePwoReady(BuildContext context, PwoStore store,
     }
     return store.bindAccount(remote.pwo, phone);
   }
-  if (app != null && store.isRemote) store.unbind();
+  if (app != null && store.isRemote) store.detachRemote();
   return store.load();
 }
 
@@ -43,7 +43,7 @@ Future<bool> _guard(BuildContext context, Future<void> Function() op) async {
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Invalid argument(s): ', ''))),
+        SnackBar(content: Text(e.toString().replaceFirst('Invalid argument(s): ', '').replaceFirst('Bad state: ', ''))),
       );
     }
     return false;

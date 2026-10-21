@@ -21,10 +21,16 @@ class FakePwoServer {
   final bodies = <String, List<Map<String, dynamic>>>{};
   int _id = 0;
   bool down = false;
+
+  /// Server-side guard (vinor fix): import is a no-op once entries exist.
+  bool importGuard = true;
   String? failWith;
 
   Map<String, dynamic> snap() =>
       {'target': target, 'withdrawers': ws, 'entries': es, 'totals': {}};
+
+  int addWithdrawerForTest(String name) => _w(name);
+  void addEntryForTest(int wid, int y, int m, double amt) => _upsert(wid, y, m, amt);
 
   int _w(String name) {
     for (final w in ws) {
@@ -62,7 +68,9 @@ class FakePwoServer {
           headers: {'content-type': 'application/json; charset=utf-8'});
     }
     Map<String, dynamic> extra = {};
-    if (key == 'POST /import') {
+    if (key == 'POST /import' && importGuard && es.isNotEmpty && body['overwrite'] != true) {
+      extra = {'written': 0, 'skipped': (body['entries'] as List? ?? []).length};
+    } else if (key == 'POST /import') {
       for (final w in (body['withdrawers'] as List? ?? [])) {
         final name = w is Map ? w['name'] as String : w as String;
         final existed = ws.any((x) => x['name'] == name);
@@ -117,7 +125,7 @@ void main() {
     final server = FakePwoServer();
     final store = PwoStore.instance;
     await store.bindAccount(await remoteFor(server), '0912');
-    expect(server.calls, ['POST /import']);
+    expect(server.calls, ['GET ', 'POST /import']);
     final body = server.bodies['POST /import']!.single;
     final entries = body['entries'] as List;
     expect(entries.length, 18);
@@ -130,7 +138,7 @@ void main() {
     // Restart: migration flag is kept per account -> plain GET, no re-import.
     store.debugReset();
     await store.bindAccount(await remoteFor(server), '0912');
-    expect(server.calls, ['POST /import', 'GET ']);
+    expect(server.calls, ['GET ', 'POST /import', 'GET ']);
     expect(store.ledger.yearTotal(1405), 1786630000);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getBool(PwoStore.migratedKey('0912')), isTrue);

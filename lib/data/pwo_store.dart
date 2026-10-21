@@ -4,6 +4,14 @@ import 'package:invest/data/local_platform.dart';
 import 'package:invest/data/pwo_remote.dart';
 import 'package:invest/domain/services/pwo_ledger.dart';
 
+/// Thrown for writes while only a read-only account cache is shown.
+class PwoReadOnlyException implements Exception {
+  const PwoReadOnlyException();
+  @override
+  String toString() =>
+      'اتصال به حساب وینور برقرار نیست؛ PWO فعلاً فقط خواندنی است.';
+}
+
 /// PWO ledger state.
 ///
 /// * Local mode (no Vinor account bound): device-only, legacy key.
@@ -19,6 +27,12 @@ class PwoStore extends ChangeNotifier {
   static const legacyOwnerKey = 'vplus_pwo_legacy_owner_v1';
   static String cacheKey(String account) => 'vplus_pwo_cache_v1_$account';
   static String migratedKey(String account) => 'vplus_pwo_migrated_v1_$account';
+
+  /// Last account bound on this device. While set, device-only mode shows
+  /// that account's cache read-only instead of the legacy local ledger/seed.
+  static const lastAccountKey = 'vplus_pwo_last_account_v1';
+  bool _cacheOnly = false;
+  bool get readOnly => _cacheOnly;
 
   PwoLedger _ledger = PwoLedger();
   bool _loaded = false;
@@ -45,6 +59,10 @@ class PwoStore extends ChangeNotifier {
     final acc = account.trim();
     if (acc.isEmpty) return;
     _remote = remote;
+    if (_cacheOnly) {
+      _cacheOnly = false;
+      _account = null;
+    }
     if (_account != acc) {
       _account = acc;
       _loaded = false;
@@ -54,6 +72,7 @@ class PwoStore extends ChangeNotifier {
       _ledger = PwoLedger(people: []);
       final prefs = await LocalPrefs.open();
       if (_account != acc) return;
+      if (prefs != null) await prefs.setString(lastAccountKey, acc);
       final raw = prefs?.getString(cacheKey(acc));
       if (raw != null) {
         _ledger = PwoLedger.decode(raw);
@@ -64,8 +83,23 @@ class PwoStore extends ChangeNotifier {
     await refresh();
   }
 
+  /// App left server mode (e.g. offline start) without logging out: keep
+  /// the last account so [load] shows its cache, not the device seed.
+  void detachRemote() {
+    _remote = null;
+    _account = null;
+    _sync = null;
+    _loaded = false;
+    _cacheOnly = false;
+    notifyListeners();
+  }
+
   /// Back to device-only mode (logout).
   void unbind() {
+    _cacheOnly = false;
+    LocalPrefs.open().then((p) async {
+      await p?.remove(lastAccountKey);
+    });
     _remote = null;
     _account = null;
     _sync = null;
@@ -80,8 +114,21 @@ class PwoStore extends ChangeNotifier {
     if (isRemote) return _sync ?? refresh();
     if (_loaded) return;
     final prefs = await LocalPrefs.open();
-    final raw = prefs?.getString(prefsKey);
     if (isRemote) return;
+    final last = prefs?.getString(lastAccountKey);
+    if (last != null && last.isNotEmpty) {
+      // This device syncs PWO with a Vinor account: never fall back to the
+      // legacy device ledger / 1405 seed. Show that account's cache only.
+      _cacheOnly = true;
+      _account = last;
+      _ledger = PwoLedger.decode(prefs?.getString(cacheKey(last)));
+      _loaded = true;
+      showingCache = true;
+      lastError = const PwoReadOnlyException().toString();
+      notifyListeners();
+      return;
+    }
+    final raw = prefs?.getString(prefsKey);
     _ledger = PwoLedger.decode(raw);
     _loaded = true;
     if (_ledger.applySeed()) await _save();
@@ -107,8 +154,26 @@ class PwoStore extends ChangeNotifier {
     try {
       final prefs = await LocalPrefs.open();
       final migrated = prefs?.getBool(migratedKey(acc)) ?? false;
-      Map<String, dynamic> snap;
+      Map<String, dynamic>? snap;
       if (!migrated) {
+        // Never import over an account that already has data (reinstall,
+        // cleared storage, another phone). Server is the source of truth.
+        final current = await remote.fetch();
+        final hasData = current['entries'] is List &&
+            (current['entries'] as List).isNotEmpty;
+        if (hasData) {
+          snap = current;
+          if (prefs != null) {
+            await prefs.setBool(migratedKey(acc), true);
+            if (prefs.getString(legacyOwnerKey) == null) {
+              await prefs.setString(legacyOwnerKey, acc);
+            }
+          }
+        }
+      }
+      if (snap != null) {
+        // already resolved above
+      } else if (!migrated) {
         final owner = prefs?.getString(legacyOwnerKey);
         final PwoLedger source;
         if (owner == null || owner == acc) {
@@ -153,6 +218,7 @@ class PwoStore extends ChangeNotifier {
 
   /// Runs a server write and applies its snapshot. Throws the server error.
   Future<void> _write(Future<Map<String, dynamic>> Function(PwoRemote r) op) async {
+    _ensureWritable();
     final acc = _account;
     final snap = await op(_remote!);
     if (_account != acc) return;
@@ -162,7 +228,12 @@ class PwoStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _ensureWritable() {
+    if (_cacheOnly) throw const PwoReadOnlyException();
+  }
+
   Future<void> _local(void Function() change) async {
+    _ensureWritable();
     change();
     notifyListeners();
     await _save();
@@ -171,6 +242,7 @@ class PwoStore extends ChangeNotifier {
   /// Saves a month. [replacing] is the month being edited (its old key is
   /// cleared when the month/year changed).
   Future<void> saveMonth(PwoMonth m, {PwoMonth? replacing}) async {
+    _ensureWritable();
     if (!isRemote) {
       return _local(() {
         if (replacing != null && replacing.key != m.key) {
@@ -189,6 +261,7 @@ class PwoStore extends ChangeNotifier {
   }
 
   Future<void> deleteMonth(int year, int month) async {
+    _ensureWritable();
     if (!isRemote) return _local(() => _ledger.remove(year, month));
     final m = _ledger.months[pwoMonthKey(year, month)];
     final ids = m?.entryIds.values.toList() ?? const <int>[];
@@ -199,6 +272,7 @@ class PwoStore extends ChangeNotifier {
   }
 
   Future<void> setTarget(double v) async {
+    _ensureWritable();
     if (!v.isFinite || v <= 0) return;
     if (!isRemote) return _local(() => _ledger.target = v);
     if (v == _ledger.target) return;
@@ -212,6 +286,7 @@ class PwoStore extends ChangeNotifier {
   }
 
   Future<void> setName(String id, String name) async {
+    _ensureWritable();
     final s = name.trim().split(RegExp(r'\s+')).join(' ');
     final p = _ledger.personById(id);
     if (p == null || s.isEmpty || s == p.name) return;
@@ -221,6 +296,7 @@ class PwoStore extends ChangeNotifier {
   }
 
   Future<PwoPerson?> addPerson(String name) async {
+    _ensureWritable();
     final s = name.trim().split(RegExp(r'\s+')).join(' ');
     if (s.isEmpty) return null;
     _checkUnique(s);
@@ -235,6 +311,7 @@ class PwoStore extends ChangeNotifier {
   }
 
   Future<bool> removePerson(String id) async {
+    _ensureWritable();
     if (!isRemote) {
       final ok = _ledger.removePerson(id);
       if (ok) await _local(() {});
@@ -246,6 +323,7 @@ class PwoStore extends ChangeNotifier {
   }
 
   Future<void> restorePerson(String id) async {
+    _ensureWritable();
     final p = _ledger.personById(id);
     if (p == null) return;
     _checkUnique(p.name, except: id);
@@ -255,6 +333,7 @@ class PwoStore extends ChangeNotifier {
 
   @visibleForTesting
   void debugReset() {
+    _cacheOnly = false;
     _ledger = PwoLedger();
     _loaded = false;
     _remote = null;
