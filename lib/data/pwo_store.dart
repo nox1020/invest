@@ -50,10 +50,37 @@ class PwoStore extends ChangeNotifier {
     await _save();
   }
 
-  Future<void> setName(int i, String name) async {
+  Future<void> setName(String id, String name) async {
     final s = name.trim();
-    if (i < 0 || i > 2 || s.isEmpty) return;
-    _ledger.names[i] = s;
+    final p = _ledger.personById(id);
+    if (p == null || s.isEmpty) return;
+    p.name = s;
+    notifyListeners();
+    await _save();
+  }
+
+  Future<PwoPerson?> addPerson(String name) async {
+    final s = name.trim();
+    if (s.isEmpty) return null;
+    final p = _ledger.addPerson(s);
+    notifyListeners();
+    await _save();
+    return p;
+  }
+
+  Future<bool> removePerson(String id) async {
+    final ok = _ledger.removePerson(id);
+    if (ok) {
+      notifyListeners();
+      await _save();
+    }
+    return ok;
+  }
+
+  Future<void> restorePerson(String id) async {
+    final p = _ledger.personById(id);
+    if (p == null) return;
+    p.active = true;
     notifyListeners();
     await _save();
   }

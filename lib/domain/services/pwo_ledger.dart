@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-/// PWO: monthly personal withdrawals of three people against a monthly target.
+/// PWO: monthly personal withdrawals of N people against a monthly target.
 const pwoMonthNames = <String>[
   'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور',
   'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند',
@@ -23,29 +23,53 @@ const Map<int, List<double>> pwoSeed1405Millions = {
 String pwoMonthKey(int year, int month) =>
     '$year-${month.toString().padLeft(2, '0')}';
 
+class PwoPerson {
+  PwoPerson({required this.id, required this.name, this.active = true});
+  final String id;
+  String name;
+
+  /// Archived people keep their history but get no new entry fields.
+  bool active;
+
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'active': active};
+}
+
 class PwoMonth {
-  PwoMonth({required this.year, required this.month, List<double>? amounts})
-      : amounts = List<double>.from(amounts ?? const [0, 0, 0]);
+  PwoMonth({required this.year, required this.month, Map<String, double>? amounts})
+      : amounts = Map<String, double>.from(amounts ?? const {});
 
   final int year;
   final int month;
-  final List<double> amounts;
+
+  /// person id -> toman.
+  final Map<String, double> amounts;
 
   String get key => pwoMonthKey(year, month);
-  double get total => amounts.fold(0.0, (a, b) => a + b);
+  double get total => amounts.values.fold(0.0, (a, b) => a + b);
+  double of(String id) => amounts[id] ?? 0;
   bool meets(double target) => total >= target;
 
   Map<String, dynamic> toJson() => {'y': year, 'm': month, 'a': amounts};
 
+  /// Accepts v2 maps and v1 positional lists (mapped to p0, p1, p2...).
   static PwoMonth? fromJson(Object? raw) {
     if (raw is! Map) return null;
     final y = raw['y'], m = raw['m'], a = raw['a'];
-    if (y is! num || m is! num || a is! List) return null;
+    if (y is! num || m is! num) return null;
     if (m < 1 || m > 12) return null;
-    final vals = <double>[0, 0, 0];
-    for (var i = 0; i < 3 && i < a.length; i++) {
-      final v = a[i];
-      if (v is num && v.isFinite && v >= 0) vals[i] = v.toDouble();
+    final vals = <String, double>{};
+    void put(String k, Object? v) {
+      if (v is num && v.isFinite && v > 0) vals[k] = v.toDouble();
+    }
+
+    if (a is List) {
+      for (var i = 0; i < a.length; i++) {
+        put('p$i', a[i]);
+      }
+    } else if (a is Map) {
+      a.forEach((k, v) => put(k.toString(), v));
+    } else {
+      return null;
     }
     return PwoMonth(year: y.toInt(), month: m.toInt(), amounts: vals);
   }
@@ -53,36 +77,90 @@ class PwoMonth {
 
 class PwoLedger {
   PwoLedger({
-    List<String>? names,
+    List<PwoPerson>? people,
     this.target = pwoDefaultTarget,
     Map<String, PwoMonth>? months,
     Set<String>? tags,
-  })  : names = List<String>.from(names ?? pwoDefaultNames),
+  })  : people = people ??
+            [
+              for (var i = 0; i < pwoDefaultNames.length; i++)
+                PwoPerson(id: 'p$i', name: pwoDefaultNames[i]),
+            ],
         months = months ?? {},
         tags = tags ?? {};
 
-  final List<String> names;
+  final List<PwoPerson> people;
   double target;
   final Map<String, PwoMonth> months;
   final Set<String> tags;
 
+  List<PwoPerson> get activePeople => people.where((p) => p.active).toList();
+
+  PwoPerson? personById(String id) {
+    for (final p in people) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+
   /// Adds the 1405 Excel rows once. Never overwrites a month already present.
   bool applySeed() {
     if (tags.contains(pwoSeedTag)) return false;
+    for (var i = 0; i < pwoDefaultNames.length; i++) {
+      if (personById('p$i') == null) {
+        people.add(PwoPerson(id: 'p$i', name: pwoDefaultNames[i]));
+      }
+    }
     pwoSeed1405Millions.forEach((m, vals) {
-      final k = pwoMonthKey(1405, m);
       months.putIfAbsent(
-        k,
-        () => PwoMonth(
-          year: 1405,
-          month: m,
-          amounts: vals.map((v) => (v * 1000000).roundToDouble()).toList(),
-        ),
+        pwoMonthKey(1405, m),
+        () => PwoMonth(year: 1405, month: m, amounts: {
+          for (var i = 0; i < vals.length; i++)
+            'p$i': (vals[i] * 1000000).roundToDouble(),
+        }),
       );
     });
     tags.add(pwoSeedTag);
     return true;
   }
+
+  String _newId() {
+    var n = people.length;
+    while (personById('p$n') != null) {
+      n++;
+    }
+    return 'p$n';
+  }
+
+  PwoPerson addPerson(String name) {
+    final p = PwoPerson(id: _newId(), name: name.trim());
+    people.add(p);
+    return p;
+  }
+
+  bool hasEntries(String id) => months.values.any((m) => m.of(id) > 0);
+
+  /// Removes a person. With entries they are archived (history kept);
+  /// without entries they are deleted. The last active person stays.
+  bool removePerson(String id) {
+    final p = personById(id);
+    if (p == null || !p.active || activePeople.length <= 1) return false;
+    if (hasEntries(id)) {
+      p.active = false;
+    } else {
+      people.remove(p);
+    }
+    return true;
+  }
+
+  /// People shown for a given month: active + anyone with an amount there.
+  List<PwoPerson> peopleFor(PwoMonth? m) => people
+      .where((p) => p.active || (m != null && m.of(p.id) > 0))
+      .toList();
+
+  /// People shown in totals: active + archived with history.
+  List<PwoPerson> get peopleWithHistory =>
+      people.where((p) => p.active || hasEntries(p.id)).toList();
 
   List<int> get years {
     final ys = months.values.map((e) => e.year).toSet().toList()..sort();
@@ -98,20 +176,12 @@ class PwoLedger {
   double yearTotal(int year) =>
       monthsOf(year).fold(0.0, (a, b) => a + b.total);
 
-  List<double> personTotals(int year) {
-    final t = <double>[0, 0, 0];
-    for (final m in monthsOf(year)) {
-      for (var i = 0; i < 3; i++) {
-        t[i] += m.amounts[i];
-      }
-    }
-    return t;
-  }
+  double personTotal(int year, String id) =>
+      monthsOf(year).fold(0.0, (a, b) => a + b.of(id));
 
   int monthsMeeting(int year) =>
       monthsOf(year).where((m) => m.meets(target)).length;
 
-  /// Previous calendar month's total (crosses year boundary). Null when absent.
   PwoMonth? previousOf(PwoMonth m) {
     final py = m.month == 1 ? m.year - 1 : m.year;
     final pm = m.month == 1 ? 12 : m.month - 1;
@@ -122,8 +192,8 @@ class PwoLedger {
   void remove(int year, int month) => months.remove(pwoMonthKey(year, month));
 
   String encode() => jsonEncode({
-        'v': 1,
-        'names': names,
+        'v': 2,
+        'people': people.map((e) => e.toJson()).toList(),
         'target': target,
         'tags': tags.toList(),
         'months': months.values.map((e) => e.toJson()).toList(),
@@ -134,13 +204,30 @@ class PwoLedger {
     try {
       final j = jsonDecode(raw);
       if (j is! Map) return PwoLedger();
-      final names = <String>[...pwoDefaultNames];
-      final n = j['names'];
-      if (n is List) {
-        for (var i = 0; i < 3 && i < n.length; i++) {
-          final s = n[i]?.toString().trim() ?? '';
-          if (s.isNotEmpty) names[i] = s;
+      List<PwoPerson>? people;
+      final pp = j['people'];
+      if (pp is List) {
+        people = [];
+        for (final r in pp) {
+          if (r is! Map) continue;
+          final id = r['id']?.toString() ?? '';
+          final name = r['name']?.toString().trim() ?? '';
+          if (id.isEmpty || people.any((e) => e.id == id)) continue;
+          people.add(PwoPerson(
+              id: id, name: name.isEmpty ? id : name, active: r['active'] != false));
         }
+      } else if (j['names'] is List) {
+        // v1: fixed three names.
+        final n = j['names'] as List;
+        people = [
+          for (var i = 0; i < pwoDefaultNames.length; i++)
+            PwoPerson(
+              id: 'p$i',
+              name: (i < n.length && (n[i]?.toString().trim() ?? '').isNotEmpty)
+                  ? n[i].toString().trim()
+                  : pwoDefaultNames[i],
+            ),
+        ];
       }
       final t = j['target'];
       final target =
@@ -156,7 +243,24 @@ class PwoLedger {
       final tags = <String>{};
       final tg = j['tags'];
       if (tg is List) tags.addAll(tg.map((e) => e.toString()));
-      return PwoLedger(names: names, target: target, months: months, tags: tags);
+      final l = PwoLedger(
+          people: people, target: target, months: months, tags: tags);
+      // Any id referenced by a month but unknown becomes an archived person.
+      for (final m in months.values) {
+        for (final id in m.amounts.keys) {
+          if (l.personById(id) == null) {
+            l.people.add(PwoPerson(id: id, name: id, active: false));
+          }
+        }
+      }
+      if (l.activePeople.isEmpty) {
+        if (l.people.isNotEmpty) {
+          l.people.first.active = true;
+        } else {
+          l.people.add(PwoPerson(id: 'p0', name: pwoDefaultNames[0]));
+        }
+      }
+      return l;
     } catch (_) {
       return PwoLedger();
     }

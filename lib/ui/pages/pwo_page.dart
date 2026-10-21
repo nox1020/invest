@@ -63,7 +63,6 @@ class _PwoPageState extends State<PwoPage> {
                 ? _year!
                 : (years.isNotEmpty ? years.first : Jalali.now().year);
             final months = l.monthsOf(year);
-            final persons = l.personTotals(year);
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
               children: [
@@ -87,7 +86,10 @@ class _PwoPageState extends State<PwoPage> {
                   count: months.length,
                 ),
                 const SizedBox(height: 12),
-                _PersonsCard(names: l.names, totals: persons),
+                _PersonsCard(
+                  names: [for (final p in l.peopleWithHistory) p.active ? p.name : '${p.name} (بایگانی)'],
+                  totals: [for (final p in l.peopleWithHistory) l.personTotal(year, p.id)],
+                ),
                 const SizedBox(height: 12),
                 _Card(
                   title: 'نمودار ماهانه',
@@ -112,7 +114,7 @@ class _PwoPageState extends State<PwoPage> {
                   _MonthTile(
                     month: m,
                     prev: l.previousOf(m),
-                    names: l.names,
+                    ledger: l,
                     target: l.target,
                     onTap: () => _edit(m),
                   ),
@@ -128,9 +130,10 @@ class _PwoPageState extends State<PwoPage> {
     final res = await showModalBottomSheet<PwoMonth>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (ctx) => _MonthEditor(
         existing: existing,
-        names: _store.ledger.names,
+        people: _store.ledger.peopleFor(existing),
         defaultYear: _year ??
             (_store.ledger.years.isNotEmpty
                 ? _store.ledger.years.first
@@ -250,10 +253,14 @@ class _PersonsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return _Card(
       title: 'جمع هر نفر',
-      child: Row(
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 10,
+        alignment: WrapAlignment.spaceAround,
         children: [
-          for (var i = 0; i < 3; i++)
-            Expanded(
+          for (var i = 0; i < names.length; i++)
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 80),
               child: Column(
                 children: [
                   Text(names[i],
@@ -273,13 +280,13 @@ class _MonthTile extends StatelessWidget {
   const _MonthTile({
     required this.month,
     required this.prev,
-    required this.names,
+    required this.ledger,
     required this.target,
     required this.onTap,
   });
   final PwoMonth month;
   final PwoMonth? prev;
-  final List<String> names;
+  final PwoLedger ledger;
   final double target;
   final VoidCallback onTap;
 
@@ -326,8 +333,8 @@ class _MonthTile extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text([
-                for (var i = 0; i < 3; i++)
-                  '${names[i]}: ${_mil(month.amounts[i])}'
+                for (final p in ledger.peopleFor(month))
+                  '${p.name}: ${_mil(month.of(p.id))}'
               ].join('  ·  ')),
               if (delta != null)
                 Text(delta, style: TextStyle(color: dc, fontSize: 12)),
@@ -427,12 +434,12 @@ String _millionsText(double toman) {
 class _MonthEditor extends StatefulWidget {
   const _MonthEditor({
     required this.existing,
-    required this.names,
+    required this.people,
     required this.defaultYear,
     this.onDelete,
   });
   final PwoMonth? existing;
-  final List<String> names;
+  final List<PwoPerson> people;
   final int defaultYear;
   final VoidCallback? onDelete;
 
@@ -444,9 +451,8 @@ class _MonthEditorState extends State<_MonthEditor> {
   late int _year = widget.existing?.year ?? widget.defaultYear;
   late int _month = widget.existing?.month ?? _nextMonth();
   late final List<TextEditingController> _c = [
-    for (var i = 0; i < 3; i++)
-      TextEditingController(
-          text: _millionsText(widget.existing?.amounts[i] ?? 0)),
+    for (final p in widget.people)
+      TextEditingController(text: _millionsText(widget.existing?.of(p.id) ?? 0)),
   ];
   String? _error;
 
@@ -463,15 +469,26 @@ class _MonthEditorState extends State<_MonthEditor> {
   @override
   Widget build(BuildContext context) {
     final years = [for (var y = _year - 2; y <= _year + 1; y++) y];
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-            16, 16, 16, 16 + MediaQuery.of(context).viewInsets.bottom),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+    return _SheetFrame(
+      footer: Row(
+        children: [
+          if (widget.onDelete != null)
+            Flexible(
+              child: TextButton(
+                key: const ValueKey('pwo-delete-month'),
+                onPressed: widget.onDelete,
+                child: const Text('حذف ماه', style: TextStyle(color: _bad)),
+              ),
+            ),
+          const Spacer(),
+          FilledButton(
+            key: const ValueKey('pwo-save-month'),
+            onPressed: _submit,
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+      children: [
             Text(widget.existing == null ? 'ثبت برداشت ماه' : 'ویرایش ماه',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
@@ -479,6 +496,7 @@ class _MonthEditorState extends State<_MonthEditor> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<int>(
+                    isExpanded: true,
                     initialValue: _month,
                     decoration: const InputDecoration(labelText: 'ماه'),
                     items: [
@@ -492,6 +510,7 @@ class _MonthEditorState extends State<_MonthEditor> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: DropdownButtonFormField<int>(
+                    isExpanded: true,
                     initialValue: _year,
                     decoration: const InputDecoration(labelText: 'سال'),
                     items: [
@@ -504,7 +523,7 @@ class _MonthEditorState extends State<_MonthEditor> {
               ],
             ),
             const SizedBox(height: 12),
-            for (var i = 0; i < 3; i++) ...[
+            for (var i = 0; i < widget.people.length; i++) ...[
               TextField(
                 key: ValueKey('pwo-amount-$i'),
                 controller: _c[i],
@@ -514,108 +533,261 @@ class _MonthEditorState extends State<_MonthEditor> {
                   FilteringTextInputFormatter.allow(RegExp(r'[0-9.۰-۹٠-٩٫]'))
                 ],
                 decoration: InputDecoration(
-                  labelText: 'برداشت ${widget.names[i]} (میلیون تومان)',
+                  labelText: 'برداشت ${widget.people[i].name} (میلیون تومان)',
                 ),
               ),
               const SizedBox(height: 8),
             ],
             if (_error != null)
               Text(_error!, style: const TextStyle(color: _bad)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                if (widget.onDelete != null)
-                  TextButton(
-                    onPressed: widget.onDelete,
-                    child: const Text('حذف ماه', style: TextStyle(color: _bad)),
-                  ),
-                const Spacer(),
-                FilledButton(onPressed: _submit, child: const Text('ذخیره')),
-              ],
-            ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 
   void _submit() {
-    final vals = <double>[];
-    for (final c in _c) {
-      final v = _parseToman(c.text);
+    final vals = <String, double>{};
+    for (var i = 0; i < _c.length; i++) {
+      final v = _parseToman(_c[i].text);
       if (v == null) {
         setState(() => _error = 'مبلغ نامعتبر است.');
         return;
       }
-      vals.add((v * 1000000).roundToDouble());
+      if (v > 0) vals[widget.people[i].id] = (v * 1000000).roundToDouble();
+    }
+    // Keep amounts of people not shown in this form (never drop data).
+    final old = widget.existing;
+    if (old != null) {
+      old.amounts.forEach((k, v) {
+        if (!widget.people.any((p) => p.id == k)) vals[k] = v;
+      });
     }
     Navigator.pop(
         context, PwoMonth(year: _year, month: _month, amounts: vals));
   }
 }
 
-/// Target + names editor (also opened from Settings).
-Future<void> showPwoSettingsSheet(BuildContext context, PwoStore store) async {
-  await store.load();
-  if (!context.mounted) return;
-  final l = store.ledger;
-  final target = TextEditingController(text: _millionsText(l.target));
-  final names = [for (final n in l.names) TextEditingController(text: n)];
-  String? err;
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setS) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-              16, 16, 16, 16 + MediaQuery.of(ctx).viewInsets.bottom),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('تنظیمات PWO', style: Theme.of(ctx).textTheme.titleMedium),
-              const SizedBox(height: 12),
-              TextField(
-                key: const ValueKey('pwo-target'),
-                controller: target,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                    labelText: 'هدف برداشت ماهانه (میلیون تومان)'),
-              ),
-              const SizedBox(height: 8),
-              for (var i = 0; i < 3; i++) ...[
-                TextField(
-                  controller: names[i],
-                  decoration:
-                      InputDecoration(labelText: 'نام برداشت‌کننده ${i + 1}'),
+/// Bottom-sheet frame: scrollable body, pinned footer above keyboard and
+/// system nav bar, so action buttons never overlap fields or each other.
+class _SheetFrame extends StatelessWidget {
+  const _SheetFrame({required this.children, required this.footer});
+  final List<Widget> children;
+  final Widget footer;
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: mq.viewInsets.bottom),
+        child: SafeArea(
+          top: false,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: (mq.size.height - mq.viewInsets.bottom - mq.padding.top) * 0.95,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: children,
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 8),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: footer,
+                ),
               ],
-              if (err != null) Text(err!, style: const TextStyle(color: _bad)),
-              FilledButton(
-                onPressed: () async {
-                  final t = _parseToman(target.text);
-                  if (t == null || t <= 0) {
-                    setS(() => err = 'هدف باید بیشتر از صفر باشد.');
-                    return;
-                  }
-                  await store.setTarget((t * 1000000).roundToDouble());
-                  for (var i = 0; i < 3; i++) {
-                    await store.setName(i, names[i].text);
-                  }
-                  if (ctx.mounted) Navigator.pop(ctx);
-                },
-                child: const Text('ذخیره'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
-    ),
+    );
+  }
+}
+
+/// Target + withdrawers editor (also opened from Settings).
+Future<void> showPwoSettingsSheet(BuildContext context, PwoStore store) async {
+  await store.load();
+  if (!context.mounted) return;
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (ctx) => _PwoSettingsSheet(store: store),
   );
+}
+
+class _PwoSettingsSheet extends StatefulWidget {
+  const _PwoSettingsSheet({required this.store});
+  final PwoStore store;
+
+  @override
+  State<_PwoSettingsSheet> createState() => _PwoSettingsSheetState();
+}
+
+class _PwoSettingsSheetState extends State<_PwoSettingsSheet> {
+  late final TextEditingController _target =
+      TextEditingController(text: _millionsText(widget.store.ledger.target));
+  final Map<String, TextEditingController> _names = {};
+  String? _err;
+
+  TextEditingController _nameCtl(PwoPerson p) =>
+      _names.putIfAbsent(p.id, () => TextEditingController(text: p.name));
+
+  @override
+  void dispose() {
+    _target.dispose();
+    for (final c in _names.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _add() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (c) => const _NameDialog(),
+    );
+    if (name == null || name.trim().isEmpty) return;
+    await widget.store.addPerson(name);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _remove(PwoPerson p) async {
+    final l = widget.store.ledger;
+    if (l.activePeople.length <= 1) {
+      setState(() => _err = 'حداقل یک برداشت‌کننده لازم است.');
+      return;
+    }
+    final has = l.hasEntries(p.id);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text('حذف «${p.name}»؟'),
+          content: Text(has
+              ? 'این شخص برداشت ثبت‌شده دارد. سوابقش پاک نمی‌شود و در جمع ماه‌ها و سال باقی می‌ماند؛ فقط بایگانی می‌شود و در ثبت ماه‌های جدید نمی‌آید. بعداً می‌توانید برش گردانید.'
+              : 'این شخص برداشتی ندارد و کامل حذف می‌شود.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: const Text('انصراف')),
+            FilledButton(
+                key: const ValueKey('pwo-remove-confirm'),
+                style: FilledButton.styleFrom(backgroundColor: _bad),
+                onPressed: () => Navigator.pop(c, true),
+                child: Text(has ? 'بایگانی' : 'حذف')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    await widget.store.removePerson(p.id);
+    if (mounted) setState(() => _err = null);
+  }
+
+  Future<void> _save() async {
+    final t = _parseToman(_target.text);
+    if (t == null || t <= 0) {
+      setState(() => _err = 'هدف باید بیشتر از صفر باشد.');
+      return;
+    }
+    await widget.store.setTarget((t * 1000000).roundToDouble());
+    for (final e in _names.entries) {
+      await widget.store.setName(e.key, e.value.text);
+    }
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = widget.store.ledger;
+    final archived = l.people.where((p) => !p.active).toList();
+    return _SheetFrame(
+      footer: Row(
+        children: [
+          Flexible(
+            child: TextButton.icon(
+              key: const ValueKey('pwo-add-person'),
+              onPressed: _add,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: const Text('افزودن نفر'),
+            ),
+          ),
+          const Spacer(),
+          FilledButton(
+            key: const ValueKey('pwo-save-settings'),
+            onPressed: _save,
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+      children: [
+        Text('تنظیمات PWO', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        TextField(
+          key: const ValueKey('pwo-target'),
+          controller: _target,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+              labelText: 'هدف برداشت ماهانه (میلیون تومان)'),
+        ),
+        const SizedBox(height: 12),
+        Text('برداشت‌کننده‌ها', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        for (final p in l.activePeople)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: ValueKey('pwo-name-${p.id}'),
+                    controller: _nameCtl(p),
+                    decoration: const InputDecoration(labelText: 'نام'),
+                  ),
+                ),
+                IconButton(
+                  key: ValueKey('pwo-remove-${p.id}'),
+                  tooltip: 'حذف',
+                  onPressed: () => _remove(p),
+                  icon: const Icon(Icons.remove_circle_outline_rounded,
+                      color: _bad),
+                ),
+              ],
+            ),
+          ),
+        if (archived.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text('بایگانی‌شده', style: Theme.of(context).textTheme.bodySmall),
+          for (final p in archived)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: Text(p.name),
+              trailing: TextButton(
+                onPressed: () async {
+                  await widget.store.restorePerson(p.id);
+                  if (mounted) setState(() {});
+                },
+                child: const Text('بازگردانی'),
+              ),
+            ),
+        ],
+        if (_err != null) Text(_err!, style: const TextStyle(color: _bad)),
+      ],
+    );
+  }
 }
 
 /// Shortcut card shown at the top of the withdrawals tab.
@@ -655,6 +827,48 @@ class PwoEntryCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _NameDialog extends StatefulWidget {
+  const _NameDialog();
+
+  @override
+  State<_NameDialog> createState() => _NameDialogState();
+}
+
+class _NameDialogState extends State<_NameDialog> {
+  final _ctl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: const Text('برداشت‌کننده جدید'),
+        content: TextField(
+          key: const ValueKey('pwo-new-person'),
+          controller: _ctl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'نام'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('انصراف')),
+          FilledButton(
+              key: const ValueKey('pwo-add-confirm'),
+              onPressed: () => Navigator.pop(context, _ctl.text),
+              child: const Text('افزودن')),
+        ],
+      ),
     );
   }
 }
