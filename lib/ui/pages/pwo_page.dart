@@ -64,6 +64,7 @@ class PwoPage extends StatefulWidget {
 class _PwoPageState extends State<PwoPage> {
   late final PwoStore _store = widget.store ?? PwoStore.instance;
   int? _year;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -88,10 +89,15 @@ class _PwoPageState extends State<PwoPage> {
             ),
           ],
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () => _edit(null),
-          icon: const Icon(Icons.add_rounded),
-          label: const Text('ثبت ماه'),
+        floatingActionButton: ListenableBuilder(
+          listenable: _store,
+          builder: (context, _) => !_store.loaded
+              ? const SizedBox.shrink()
+              : FloatingActionButton.extended(
+                  onPressed: _saving ? null : () => _edit(null),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('ثبت ماه'),
+                ),
         ),
         body: ListenableBuilder(
           listenable: _store,
@@ -214,8 +220,9 @@ class _PwoPageState extends State<PwoPage> {
               },
       ),
     );
-    if (res == null) return;
-    if (existing == null && _store.ledger.months.containsKey(res.key)) {
+    if (res == null || _saving) return;
+    final clash = _store.ledger.months[res.key];
+    if (clash != null && res.key != existing?.key) {
       if (!mounted) return;
       final ok = await showDialog<bool>(
         context: context,
@@ -233,11 +240,23 @@ class _PwoPageState extends State<PwoPage> {
         ),
       );
       if (ok != true) return;
+      // Keep amounts the form did not show (e.g. archived people).
+      final shown = _store.ledger.peopleFor(existing).map((p) => p.id).toSet();
+      clash.amounts.forEach((k, v) {
+        if (!shown.contains(k) && !res.amounts.containsKey(k)) {
+          res.amounts[k] = v;
+        }
+      });
     }
     if (!mounted) return;
+    setState(() => _saving = true);
     final ok = await _guard(
         context, () => _store.saveMonth(res, replacing: existing));
-    if (ok && mounted) setState(() => _year = res.year);
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      if (ok) _year = res.year;
+    });
   }
 }
 
@@ -444,7 +463,7 @@ class _PwoChartPainter extends CustomPainter {
           r, Paint()..color = (m.meets(target) ? _good : _bad).withValues(alpha: 0.85));
       final tp = TextPainter(
         text: TextSpan(
-            text: pwoMonthNames[m.month - 1],
+            text: pwoChartLabel(m.month, slot),
             style: TextStyle(color: textColor, fontSize: 10)),
         textDirection: TextDirection.rtl,
       )..layout(maxWidth: slot);
@@ -494,8 +513,10 @@ double? _parseToman(String raw) {
 
 String _millionsText(double toman) {
   if (toman == 0) return '';
-  final m = toman / 1000000;
-  return m == m.roundToDouble() ? m.toStringAsFixed(0) : '${double.parse(m.toStringAsFixed(4))}';
+  // 6 decimals of a million = 1 toman: exact round-trip, no silent rounding.
+  var t = (toman / 1000000).toStringAsFixed(6);
+  t = t.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  return t;
 }
 
 class _MonthEditor extends StatefulWidget {
@@ -619,6 +640,10 @@ class _MonthEditorState extends State<_MonthEditor> {
         setState(() => _error = 'مبلغ نامعتبر است.');
         return;
       }
+      if (v * 1000000 > pwoMaxToman) {
+        setState(() => _error = 'مبلغ بیش از حد بزرگ است.');
+        return;
+      }
       vals[widget.people[i].id] = (v * 1000000).roundToDouble();
     }
     // Keep amounts of people not shown in this form (never drop data).
@@ -731,7 +756,10 @@ class _PwoSettingsSheetState extends State<_PwoSettingsSheet> {
       await op();
       return true;
     } catch (e) {
-      if (mounted) setState(() => _err = e.toString());
+      if (mounted) {
+        setState(() => _err =
+            e.toString().replaceFirst('Invalid argument(s): ', ''));
+      }
       return false;
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -784,6 +812,10 @@ class _PwoSettingsSheetState extends State<_PwoSettingsSheet> {
     final t = _parseToman(_target.text);
     if (t == null || t <= 0) {
       setState(() => _err = 'هدف باید بیشتر از صفر باشد.');
+      return;
+    }
+    if (t * 1000000 > pwoMaxToman) {
+      setState(() => _err = 'هدف بیش از حد بزرگ است.');
       return;
     }
     final ok = await _try(() async {
@@ -985,3 +1017,13 @@ class _ErrorRetry extends StatelessWidget {
     );
   }
 }
+
+/// Month label for the chart: full name when it fits, else a Persian number.
+String pwoChartLabel(int month, double slot) {
+  if (slot >= 44) return pwoMonthNames[month - 1];
+  const fa = '۰۱۲۳۴۵۶۷۸۹';
+  return month.toString().split('').map((c) => fa[int.parse(c)]).join();
+}
+
+/// Largest accepted amount (toman), same cap as the server.
+const pwoMaxToman = 1e15;

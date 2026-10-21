@@ -91,7 +91,13 @@ class PwoStore extends ChangeNotifier {
   /// Pulls the server snapshot (importing local data once per account).
   Future<void> refresh() {
     if (!isRemote) return load();
-    return _sync ??= _doSync().whenComplete(() => _sync = null);
+    final existing = _sync;
+    if (existing != null) return existing;
+    late final Future<void> f;
+    f = _doSync().whenComplete(() {
+      if (identical(_sync, f)) _sync = null;
+    });
+    return _sync = f;
   }
 
   Future<void> _doSync() async {
@@ -199,17 +205,25 @@ class PwoStore extends ChangeNotifier {
     await _write((r) => r.setTarget(v));
   }
 
+  void _checkUnique(String name, {String? except}) {
+    if (_ledger.activePeople.any((p) => p.id != except && p.name == name)) {
+      throw ArgumentError('این نام تکراری است.');
+    }
+  }
+
   Future<void> setName(String id, String name) async {
-    final s = name.trim();
+    final s = name.trim().split(RegExp(r'\s+')).join(' ');
     final p = _ledger.personById(id);
     if (p == null || s.isEmpty || s == p.name) return;
+    if (p.active) _checkUnique(s, except: id);
     if (!isRemote) return _local(() => p.name = s);
     await _write((r) => r.patchWithdrawer(id, name: s));
   }
 
   Future<PwoPerson?> addPerson(String name) async {
-    final s = name.trim();
+    final s = name.trim().split(RegExp(r'\s+')).join(' ');
     if (s.isEmpty) return null;
+    _checkUnique(s);
     if (!isRemote) {
       late PwoPerson p;
       await _local(() => p = _ledger.addPerson(s));
@@ -234,6 +248,7 @@ class PwoStore extends ChangeNotifier {
   Future<void> restorePerson(String id) async {
     final p = _ledger.personById(id);
     if (p == null) return;
+    _checkUnique(p.name, except: id);
     if (!isRemote) return _local(() => p.active = true);
     await _write((r) => r.patchWithdrawer(id, archived: false));
   }
