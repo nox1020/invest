@@ -640,6 +640,20 @@ class _MonthsTab extends StatelessWidget {
   }
 }
 
+/// Profit of trades sold in Jalali [year]/[month] (by sell date).
+double tradeProfitInMonth(Iterable<PropertyTrade> trades, int year, int month) {
+  final key = '${year.toString().padLeft(4, '0')}/${month.toString().padLeft(2, '0')}';
+  var sum = 0.0;
+  for (final t in trades) {
+    if (t.profit != null && _sellMonth(t) == key) sum += t.profit!;
+  }
+  return sum;
+}
+
+/// Income and sold-trade profit differ (more than 1,000 toman).
+bool incomeMismatch(double income, double tradeProfit) =>
+    (tradeProfit != 0 || income != 0) && (income - tradeProfit).abs() > 1000;
+
 class _MonthTile extends StatelessWidget {
   const _MonthTile({required this.store, required this.m});
   final BizStore store;
@@ -647,6 +661,8 @@ class _MonthTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tp = tradeProfitInMonth(store.snap.trades, m.year, m.month);
+    final flag = (!m.isEmpty || tp != 0) && incomeMismatch(m.income, tp);
     return Card(
       margin: EdgeInsets.zero,
       child: InkWell(
@@ -667,14 +683,32 @@ class _MonthTile extends StatelessWidget {
                       color: m.isEmpty ? AppTheme.muted : _sign(m.net),
                       fontWeight: FontWeight.w800))),
             ]),
-            if (!m.isEmpty) ...[
+            if (!m.isEmpty || tp != 0) ...[
               const SizedBox(height: 4),
               Wrap(spacing: 12, runSpacing: 2, children: [
                 _t('درآمد ${_m(m.income)}'),
+                Text('سود معاملات ${_m(tp)}',
+                    key: ValueKey('biz-month-tp-${m.month}'),
+                    style: TextStyle(
+                        color: flag ? AppTheme.negative : AppTheme.muted,
+                        fontSize: 12,
+                        fontWeight: flag ? FontWeight.w700 : null)),
                 _t('کارمندان ${_m(m.staff)}'),
                 _t('PWO ${_m(m.pwo)}'),
                 _t('تبلیغات ${_m(m.ads)}'),
               ]),
+              if (flag) ...[
+                const SizedBox(height: 4),
+                Row(key: ValueKey('biz-month-flag-${m.month}'), children: [
+                  const Icon(Icons.info_outline_rounded, size: 14, color: AppTheme.negative),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                        'درآمد با سود معاملات فروخته‌شدهٔ این ماه ${_m((m.income - tp).abs())} فرق دارد',
+                        style: const TextStyle(color: AppTheme.negative, fontSize: 11)),
+                  ),
+                ]),
+              ],
             ],
           ]),
         ),
@@ -689,7 +723,8 @@ class _MonthTile extends StatelessWidget {
 Future<void> _editMonth(BuildContext context, BizStore store, BizMonth m) async {
   final res = await showDialog<_DialogResult>(
     context: context,
-    builder: (_) => _MonthDialog(m: m),
+    builder: (_) => _MonthDialog(
+        m: m, tradeProfit: tradeProfitInMonth(store.snap.trades, m.year, m.month)),
   );
   if (res == null || !context.mounted) return;
   if (res.delete) {
@@ -700,8 +735,9 @@ Future<void> _editMonth(BuildContext context, BizStore store, BizMonth m) async 
 }
 
 class _MonthDialog extends StatefulWidget {
-  const _MonthDialog({required this.m});
+  const _MonthDialog({required this.m, this.tradeProfit = 0});
   final BizMonth m;
+  final double tradeProfit;
 
   @override
   State<_MonthDialog> createState() => _MonthDialogState();
@@ -740,6 +776,38 @@ class _MonthDialogState extends State<_MonthDialog> {
         content: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             _f(_income, 'درآمد (تومان)', const ValueKey('biz-m-income')),
+            if (widget.tradeProfit > 0)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  key: const ValueKey('biz-m-fill'),
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (c) => Directionality(
+                        textDirection: TextDirection.rtl,
+                        child: AlertDialog(
+                          title: const Text('پر کردن درآمد؟'),
+                          content: Text(
+                              'درآمد این ماه با سود معاملات فروخته‌شده (${_m(widget.tradeProfit)}) جایگزین شود؟ تا «ذخیره» را نزنید چیزی ثبت نمی‌شود.'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')),
+                            FilledButton(
+                                key: const ValueKey('biz-m-fill-ok'),
+                                onPressed: () => Navigator.pop(c, true),
+                                child: const Text('جایگزین کن')),
+                          ],
+                        ),
+                      ),
+                    );
+                    if (ok == true && mounted) {
+                      setState(() => _income.text = formatNumber(widget.tradeProfit));
+                    }
+                  },
+                  child: Text('پر کردن با سود معاملات این ماه: ${_m(widget.tradeProfit)}',
+                      textAlign: TextAlign.right),
+                ),
+              ),
             _f(_staff, 'کارمندان (تومان)', const ValueKey('biz-m-staff')),
             _f(_ads, 'دیوار - تبلیغات دفتر (تومان)', const ValueKey('biz-m-ads')),
             Align(

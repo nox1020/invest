@@ -333,4 +333,55 @@ void main() {
       await tester.runAsync(() => store.selectYear(1405));
     });
   }
+
+  testWidgets('month shows sold-trade profit, flags mismatch, fills only after confirm',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 640);
+    addTearDown(tester.view.reset);
+    final s = FakeBizServer()..pwo.clear();
+    s.trades.addAll([
+      {'id': 1, 'buy_date': '1405/01/01', 'sell_date': '1405/01/20', 'buy_amount': 100, 'sell_amount': 400100},
+      {'id': 2, 'buy_date': '1405/01/01', 'sell_date': '1405/01/25', 'buy_amount': 100, 'sell_amount': 600100},
+      {'id': 3, 'buy_date': '1405/01/01', 'sell_date': '1405/02/02', 'buy_amount': 100, 'sell_amount': 900},
+    ]);
+    s.ops[1] = {'income': 900000, 'staff': 0, 'ads': 0};
+    final store = BizStore.instance;
+    await tester.runAsync(() async => store.bindAccount(BizRemote(await _api(s)), '0912'));
+    expect(tradeProfitInMonth(store.snap.trades, 1405, 1), 1000000);
+    expect(incomeMismatch(1000000, 1000000), isFalse);
+    expect(incomeMismatch(1000500, 1000000), isFalse); // within 1,000
+    await tester.pumpWidget(MaterialApp(home: BizPage(store: store, initialTab: 1)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('biz-month-flag-1')), findsOneWidget);
+    await tester.scrollUntilVisible(find.byKey(const ValueKey('biz-month-tp-2')), 200,
+        scrollable: find.byType(Scrollable).last);
+    expect(find.byKey(const ValueKey('biz-month-tp-2')), findsOneWidget); // profit w/o ops row
+    await tester.scrollUntilVisible(find.byKey(const ValueKey('biz-month-1')), -200,
+        scrollable: find.byType(Scrollable).last);
+    await tester.tap(find.byKey(const ValueKey('biz-month-1')));
+    await tester.pumpAndSettle();
+    // cancel: nothing changes
+    await tester.tap(find.byKey(const ValueKey('biz-m-fill')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('انصراف').last);
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('biz-m-income'))).controller!.text,
+        formatNumber(900000));
+    expect(s.calls.where((c) => c.startsWith('PUT')), isEmpty);
+    // confirm: field filled, still nothing sent until save
+    await tester.tap(find.byKey(const ValueKey('biz-m-fill')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('biz-m-fill-ok')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('biz-m-income'))).controller!.text,
+        formatNumber(1000000));
+    expect(s.calls.where((c) => c.startsWith('PUT')), isEmpty);
+    await tester.tap(find.byKey(const ValueKey('biz-m-save')));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pumpAndSettle();
+    expect(s.ops[1]!['income'], 1000000);
+    expect(find.byKey(const ValueKey('biz-month-flag-1')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }
