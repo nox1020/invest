@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:invest/config/app_config.dart';
+import 'package:invest/data/biz_store.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/data/app_lock_store.dart';
 import 'package:invest/data/app_database.dart';
@@ -583,6 +584,7 @@ class AppState extends ChangeNotifier {
   Future<void> logout() async {
     _stopAutoRefreshTimer();
     PwoStore.instance.unbind();
+    BizStore.instance.unbind();
     try {
       if (!_checksHydrated) {
         await _loadLocalChecks();

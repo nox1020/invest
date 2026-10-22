@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/invest_api_client.dart';
+import 'package:invest/data/biz_remote.dart';
 import 'package:invest/data/pwo_remote.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
@@ -88,6 +89,7 @@ class RemoteInvestService implements InvestMutations {
 
   /// Per-account PWO ledger (`/pwo`).
   late final PwoRemote pwo = PwoRemote(_api);
+  late final BizRemote biz = BizRemote(_api);
 
   /// Set when `growth_series` cannot be read. Metrics themselves still return.
   Object? growthSeriesError;

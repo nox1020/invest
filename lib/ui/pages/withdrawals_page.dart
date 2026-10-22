@@ -8,6 +8,7 @@ import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/data/pwo_store.dart';
+import 'package:invest/ui/pages/biz_page.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
@@ -104,6 +105,8 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
               _AnnualQuotaPanel(allowance: allowance),
               const SizedBox(height: 10),
               const PwoEntryCard(),
+              const SizedBox(height: 10),
+              const BizEntryCard(),
               const SizedBox(height: 22),
               _SectionLabel(
                 eyebrow: 'دفتر',
