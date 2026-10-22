@@ -9,6 +9,7 @@ import 'package:invest/data/biz_remote.dart';
 import 'package:invest/data/biz_store.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/session_store.dart';
+import 'package:invest/domain/utils/money.dart';
 import 'package:invest/ui/pages/biz_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -21,6 +22,8 @@ class FakeBizServer {
   final bodies = <String, Map<String, dynamic>>{};
   int _id = 0;
   bool down = false;
+
+  int year = 1405;
 
   Map<String, dynamic> snap() {
     final ts = [
@@ -40,7 +43,7 @@ class FakeBizServer {
           final s = o['staff'] ?? 0, a = o['ads'] ?? 0, i = o['income'] ?? 0;
           final p = pwo[m] ?? 0;
           return {
-            'year': 1405, 'month': m, 'staff': s, 'ads': a, 'income': i,
+            'year': year, 'month': m, 'staff': s, 'ads': a, 'income': i,
             'pwo': p, 'net': i - s - a - p, 'has_ops': ops.containsKey(m),
           };
         }()
@@ -53,7 +56,7 @@ class FakeBizServer {
         'profit': ts.fold<num>(0, (v, t) => v + ((t['profit'] as num?) ?? 0)),
         'extra_cost': 0,
       },
-      'year': 1405,
+      'year': year,
       'years': [1405],
       'months': months,
       'months_totals': {
@@ -65,6 +68,7 @@ class FakeBizServer {
   Future<http.Response> handle(http.Request r) async {
     if (down) throw http.ClientException('offline');
     final path = r.url.path.replaceFirst('/invest/api/v1/biz', '');
+    year = int.tryParse(r.url.queryParameters['year'] ?? '') ?? 1405;
     final key = '${r.method} $path';
     calls.add(key);
     final body = r.body.isEmpty
@@ -254,4 +258,79 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+
+  for (final size in const [Size(320, 568), Size(360, 640), Size(414, 896), Size(800, 1280)]) {
+    testWidgets('layout ${size.width.toInt()}x${size.height.toInt()}: no overlap, filter, year nav',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = size;
+      tester.view.padding = const FakeViewPadding(top: 24, bottom: 48);
+      tester.view.viewPadding = const FakeViewPadding(top: 24, bottom: 48);
+      addTearDown(tester.view.reset);
+      final s = FakeBizServer();
+      for (var i = 0; i < 12; i++) {
+        s.trades.add({
+          'id': 100 + i, 'buy_date': '1405/0${1 + i % 3}/01',
+          'sell_date': i == 11 ? '' : '1405/0${2 + i % 3}/10',
+          'buy_amount': 1000000000, 'sell_amount': i == 11 ? 0 : 1000000000 + 1000000 * (i + 1),
+          'title': 'معامله شمارهٔ $i با عنوان نسبتاً بلند برای تست',
+        });
+      }
+      final store = BizStore.instance;
+      await tester.runAsync(
+          () async => store.bindAccount(BizRemote(await _api(s)), '0912'));
+      await tester.pumpWidget(MaterialApp(home: BizPage(store: store)));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      // FAB never covers the last row once scrolled to the end, nor the nav bar.
+      final fab = find.byKey(const ValueKey('biz-add-trade'));
+      expect(fab, findsOneWidget);
+      final fabRect = tester.getRect(fab);
+      expect(fabRect.bottom, lessThanOrEqualTo(size.height - 48));
+      for (var k = 0; k < 6; k++) { await tester.drag(find.byType(RefreshIndicator).last, const Offset(0, -2000)); await tester.pump(); }
+      await tester.pumpAndSettle();
+      final lastTile = find.textContaining('معامله شمارهٔ').last;
+      expect(tester.getRect(lastTile).overlaps(fabRect), isFalse);
+      for (var k = 0; k < 6; k++) { await tester.drag(find.byType(RefreshIndicator).first, const Offset(0, 2000)); await tester.pump(); }
+      await tester.pumpAndSettle();
+
+      // month filter: totals follow the filter
+      await tester.ensureVisible(find.byKey(const ValueKey('biz-filter-1405/02')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('biz-filter-1405/02')));
+      await tester.pumpAndSettle();
+      // sells in month 02: i = 0,3,6,9 → profits 1,4,7,10 million
+      expect(tester.widget<Text>(find.byKey(const ValueKey('biz-trade-count'))).data, '4');
+      expect(tester.widget<Text>(find.byKey(const ValueKey('biz-total-profit'))).data,
+          formatMoney(22000000));
+      await tester.ensureVisible(find.byKey(const ValueKey('biz-filter-open')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('biz-filter-open')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(find.byKey(const ValueKey('biz-trade-count'))).data, '1');
+      await tester.ensureVisible(find.byKey(const ValueKey('biz-filter-all')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('biz-filter-all')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(find.byKey(const ValueKey('biz-trade-count'))).data, '12');
+
+      // monthly tab: no FAB, year navigation loads that year
+      await tester.tap(find.text('جدول ماهانه'));
+      await tester.pumpAndSettle();
+      expect(fab, findsNothing);
+      await tester.tap(find.byKey(const ValueKey('biz-year-prev')));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+      expect(find.text('سال 1404'), findsOneWidget);
+      expect(store.snap.year, 1404);
+      expect(find.text('برج 1 · فروردین'), findsOneWidget);
+      for (var k = 0; k < 6; k++) { await tester.drag(find.byType(RefreshIndicator).last, const Offset(0, -2000)); await tester.pump(); }
+      await tester.pumpAndSettle();
+      final last = tester.getRect(find.byKey(const ValueKey('biz-month-12')));
+      expect(last.bottom, lessThanOrEqualTo(size.height - 48 + 0.5));
+      expect(tester.takeException(), isNull);
+      await tester.runAsync(() => store.selectYear(1405));
+    });
+  }
 }

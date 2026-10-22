@@ -65,8 +65,13 @@ class BizPage extends StatefulWidget {
   State<BizPage> createState() => _BizPageState();
 }
 
-class _BizPageState extends State<BizPage> {
+class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
   late final BizStore _store = widget.store ?? BizStore.instance;
+  late final TabController _tabs =
+      TabController(length: 2, vsync: this, initialIndex: widget.initialTab)
+        ..addListener(() {
+          if (mounted) setState(() {});
+        });
   Object? _pwoLedger;
 
   @override
@@ -92,6 +97,7 @@ class _BizPageState extends State<BizPage> {
   @override
   void dispose() {
     PwoStore.instance.removeListener(_onPwo);
+    _tabs.dispose();
     super.dispose();
   }
 
@@ -99,51 +105,72 @@ class _BizPageState extends State<BizPage> {
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: DefaultTabController(
-        length: 2,
-        initialIndex: widget.initialTab,
-        child: Scaffold(
-          appBar: AppBar(
-            title: const Text('ملک و دفتر'),
-            bottom: const TabBar(tabs: [
-              Tab(text: 'معاملات ملک'),
-              Tab(text: 'جدول ماهانه'),
-            ]),
-          ),
-          body: ListenableBuilder(
-            listenable: _store,
-            builder: (context, _) {
-              final banner = _store.showingCache || _store.lastError != null
-                  ? MaterialBanner(
-                      content: Text(_store.lastError ??
-                          const BizReadOnlyException().toString()),
-                      actions: [
-                        TextButton(
-                            onPressed: () => ensureBizReady(context, _store),
-                            child: const Text('تلاش دوباره')),
-                      ],
-                    )
-                  : null;
-              if (!_store.loaded) {
-                return const Center(child: CircularProgressIndicator());
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('ملک و دفتر'),
+          bottom: TabBar(controller: _tabs, tabs: const [
+            Tab(text: 'معاملات ملک'),
+            Tab(text: 'جدول ماهانه'),
+          ]),
+        ),
+        // Scaffold places the FAB above system insets / keyboard; only the
+        // trades tab has it, so it never covers the monthly table.
+        floatingActionButton: ListenableBuilder(
+          listenable: _store,
+          builder: (context, _) => _tabs.index == 0 &&
+                  _store.loaded &&
+                  !_store.readOnly
+              ? FloatingActionButton.extended(
+                  key: const ValueKey('biz-add-trade'),
+                  heroTag: 'biz-add-trade',
+                  onPressed: () => _editTrade(context, _store, null),
+                  icon: const Icon(Icons.add),
+                  label: const Text('ثبت معامله'),
+                )
+              : const SizedBox.shrink(),
+        ),
+        body: ListenableBuilder(
+          listenable: _store,
+          builder: (context, _) {
+            final err = _store.lastError;
+            final banner = _store.showingCache || err != null
+                ? MaterialBanner(
+                    content: Text(err ?? const BizReadOnlyException().toString()),
+                    actions: [
+                      TextButton(
+                          onPressed: () => ensureBizReady(context, _store),
+                          child: const Text('تلاش دوباره')),
+                    ],
+                  )
+                : null;
+            if (!_store.loaded) {
+              // Never spin forever: a failed first load shows the error.
+              if (banner != null && !_store.syncing) {
+                return Column(children: [banner]);
               }
-              return Column(children: [
-                if (banner != null) banner,
-                if (_store.syncing) const LinearProgressIndicator(minHeight: 2),
-                Expanded(
-                  child: TabBarView(children: [
-                    _TradesTab(store: _store),
-                    _MonthsTab(store: _store),
-                  ]),
-                ),
-              ]);
-            },
-          ),
+              return const Center(child: CircularProgressIndicator());
+            }
+            return Column(children: [
+              if (banner != null) banner,
+              if (_store.syncing) const LinearProgressIndicator(minHeight: 2),
+              Expanded(
+                child: TabBarView(controller: _tabs, children: [
+                  _TradesTab(store: _store),
+                  _MonthsTab(store: _store),
+                ]),
+              ),
+            ]);
+          },
         ),
       ),
     );
   }
 }
+
+/// List padding that keeps the last row clear of the FAB and system bars.
+EdgeInsets _listPad(BuildContext context, {bool fab = false}) =>
+    EdgeInsets.fromLTRB(12, 12, 12,
+        (fab ? 96 : 24) + MediaQuery.paddingOf(context).bottom);
 
 class _Stat extends StatelessWidget {
   const _Stat(this.label, this.value, {this.color, this.valueKey});
@@ -169,74 +196,117 @@ class _Stat extends StatelessWidget {
 
 // ---------------------------------------------------------------- trades
 
-class _TradesTab extends StatelessWidget {
+/// Jalali sell month key 'YYYY/MM' of a trade, or null when unsold.
+String? _sellMonth(PropertyTrade t) =>
+    t.sellDate.length >= 7 ? t.sellDate.substring(0, 7) : null;
+
+class _TradesTab extends StatefulWidget {
   const _TradesTab({required this.store});
   final BizStore store;
 
   @override
+  State<_TradesTab> createState() => _TradesTabState();
+}
+
+class _TradesTabState extends State<_TradesTab>
+    with AutomaticKeepAliveClientMixin {
+  /// null = همه; 'open' = فروش نرفته; otherwise 'YYYY/MM'.
+  String? _filter;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
-    final s = store.snap;
-    final trades = s.trades.reversed.toList();
-    return Stack(children: [
-      RefreshIndicator(
-        onRefresh: store.refresh,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
-          children: [
-            Card(
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(children: [
-                  _Stat('جمع سود / زیان', _m(s.totalProfit),
-                      color: _sign(s.totalProfit),
-                      valueKey: const ValueKey('biz-total-profit')),
-                  const SizedBox(height: 6),
-                  _Stat('تعداد معاملات', '${trades.length}'),
-                  if (s.totalExtraCost > 0) ...[
-                    const SizedBox(height: 6),
-                    _Stat('جمع کد و نقشه', _m(s.totalExtraCost)),
+    super.build(context);
+    final store = widget.store;
+    final all = store.snap.trades;
+    final keys = <String>{for (final t in all) _sellMonth(t) ?? 'open'}.toList()
+      ..sort((a, b) => a == 'open' ? -1 : b == 'open' ? 1 : b.compareTo(a));
+    final filter = keys.contains(_filter) ? _filter : null;
+    final trades = [
+      for (final t in all)
+        if (filter == null || (_sellMonth(t) ?? 'open') == filter) t
+    ]..sort((a, b) => (b.sellDate.isEmpty ? '9' : b.sellDate)
+        .compareTo(a.sellDate.isEmpty ? '9' : a.sellDate));
+    final profit = trades.fold<double>(0, (v, t) => v + (t.profit ?? 0));
+    final extra = trades.fold<double>(0, (v, t) => v + t.extraCost);
+    String label(String k) {
+      if (k == 'open') return 'فروش نرفته';
+      final p = k.split('/');
+      final m = int.tryParse(p.last) ?? 1;
+      return '${pwoMonthNames[(m - 1).clamp(0, 11)]} ${p.first}';
+    }
+
+    return RefreshIndicator(
+      onRefresh: store.refresh,
+      child: ListView(
+        padding: _listPad(context, fab: !store.readOnly),
+        children: [
+          if (keys.isNotEmpty) ...[
+            SizedBox(
+              height: 40,
+              child: SingleChildScrollView(
+                key: const ValueKey('biz-month-filter'),
+                scrollDirection: Axis.horizontal,
+                child: Row(children: [
+                  for (final k in <String?>[null, ...keys]) ...[
+                    ChoiceChip(
+                      key: ValueKey('biz-filter-${k ?? 'all'}'),
+                      label: Text(k == null ? 'همه' : label(k)),
+                      selected: k == filter,
+                      onSelected: (_) => setState(() => _filter = k),
+                    ),
+                    const SizedBox(width: 6),
                   ],
                 ]),
               ),
             ),
-            const SizedBox(height: 10),
-            if (!store.readOnly && store.isEmpty) ...[
-              OutlinedButton.icon(
-                key: const ValueKey('biz-import'),
-                onPressed: () => _importSheet(context, store),
-                icon: const Icon(Icons.upload_file_rounded),
-                label: const Text('ورود از شیت'),
-              ),
-              const SizedBox(height: 10),
-            ],
-            if (trades.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(32),
-                child: Text('هنوز معامله‌ای ثبت نشده',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppTheme.muted)),
-              ),
-            for (final t in trades) ...[
-              _TradeTile(store: store, t: t),
-              const SizedBox(height: 8),
-            ],
+            const SizedBox(height: 8),
           ],
-        ),
-      ),
-      if (!store.readOnly)
-        Positioned(
-          left: 16,
-          bottom: 16,
-          child: FloatingActionButton.extended(
-            key: const ValueKey('biz-add-trade'),
-            heroTag: 'biz-add-trade',
-            onPressed: () => _editTrade(context, store, null),
-            icon: const Icon(Icons.add),
-            label: const Text('ثبت معامله'),
+          Card(
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(children: [
+                _Stat(filter == null ? 'جمع سود / زیان' : 'سود / زیان ${label(filter)}',
+                    _m(profit),
+                    color: _sign(profit),
+                    valueKey: const ValueKey('biz-total-profit')),
+                const SizedBox(height: 6),
+                _Stat('تعداد معاملات', '${trades.length}',
+                    valueKey: const ValueKey('biz-trade-count')),
+                if (extra > 0) ...[
+                  const SizedBox(height: 6),
+                  _Stat('جمع کد و نقشه', _m(extra)),
+                ],
+              ]),
+            ),
           ),
-        ),
-    ]);
+          const SizedBox(height: 10),
+          if (!store.readOnly && store.isEmpty) ...[
+            OutlinedButton.icon(
+              key: const ValueKey('biz-import'),
+              onPressed: () => _importSheet(context, store),
+              icon: const Icon(Icons.upload_file_rounded),
+              label: const Text('ورود از شیت'),
+            ),
+            const SizedBox(height: 10),
+          ],
+          if (trades.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Text('هنوز معامله‌ای ثبت نشده',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.muted)),
+            ),
+          for (final t in trades) ...[
+            _TradeTile(store: store, t: t),
+            const SizedBox(height: 8),
+          ],
+        ],
+      ),
+    );
   }
 }
 
@@ -496,28 +566,47 @@ class _MonthsTab extends StatelessWidget {
     final s = store.snap;
     final months = s.months;
     final tot = s.monthTotals;
-    final years = s.years;
-    final year = s.year;
+    final year = store.year ?? s.year;
+    // While another year is loading, the rows still belong to the old year:
+    // hide them so an edit can never land on the wrong year.
+    final stale = year != null && s.year != null && s.year != year;
     return RefreshIndicator(
       onRefresh: store.refresh,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+        padding: _listPad(context),
         children: [
-          if (years.length > 1 && year != null)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(children: [
-                for (final y in years.reversed) ...[
-                  ChoiceChip(
-                    label: Text('$y'),
-                    selected: y == year,
-                    onSelected: (_) => store.selectYear(y),
-                  ),
-                  const SizedBox(width: 6),
-                ],
-              ]),
-            ),
-          const SizedBox(height: 8),
+          if (year != null)
+            Row(children: [
+              IconButton(
+                key: const ValueKey('biz-year-prev'),
+                tooltip: 'سال قبل',
+                onPressed: year > 1300 ? () => store.selectYear(year - 1) : null,
+                icon: const Icon(Icons.chevron_right_rounded),
+              ),
+              Expanded(
+                child: Text('سال $year',
+                    key: const ValueKey('biz-year'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+              ),
+              IconButton(
+                key: const ValueKey('biz-year-next'),
+                tooltip: 'سال بعد',
+                onPressed: year < 1600 ? () => store.selectYear(year + 1) : null,
+                icon: const Icon(Icons.chevron_left_rounded),
+              ),
+            ]),
+          const SizedBox(height: 4),
+          if (stale)
+            Padding(
+              padding: const EdgeInsets.all(32),
+              child: Center(
+                  child: store.syncing
+                      ? const CircularProgressIndicator()
+                      : const Text('دادهٔ این سال در دسترس نیست',
+                          style: TextStyle(color: AppTheme.muted))),
+            )
+          else ...[
           Card(
             margin: EdgeInsets.zero,
             child: Padding(
@@ -543,6 +632,7 @@ class _MonthsTab extends StatelessWidget {
           for (final m in months) ...[
             _MonthTile(store: store, m: m),
             const SizedBox(height: 6),
+          ],
           ],
         ],
       ),
