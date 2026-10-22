@@ -884,8 +884,9 @@ class BizEntryCard extends StatelessWidget {
 
 /// Summary of ملک و دفتر on the dashboard (current year). Tap opens the page.
 class BizDashboardCard extends StatefulWidget {
-  const BizDashboardCard({super.key, this.store});
+  const BizDashboardCard({super.key, this.store, this.pwoStore});
   final BizStore? store;
+  final PwoStore? pwoStore;
 
   @override
   State<BizDashboardCard> createState() => _BizDashboardCardState();
@@ -893,6 +894,7 @@ class BizDashboardCard extends StatefulWidget {
 
 class _BizDashboardCardState extends State<BizDashboardCard> {
   BizStore get _store => widget.store ?? BizStore.instance;
+  PwoStore get _pwo => widget.pwoStore ?? PwoStore.instance;
 
   @override
   void initState() {
@@ -900,6 +902,7 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ensureBizReady(context, _store, refresh: false).catchError((_) {});
+      if (!_pwo.loaded) ensurePwoReady(context, _pwo, refresh: false).catchError((_) {});
     });
   }
 
@@ -907,10 +910,12 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
   Widget build(BuildContext context) {
     final store = _store;
     return ListenableBuilder(
-      listenable: store,
+      listenable: Listenable.merge([store, _pwo]),
       builder: (context, _) {
         final s = store.snap;
         final has = store.loaded && s.raw.isNotEmpty;
+        final pwoT = _pwo.loaded ? _pwo.ledger.target : null;
+        final pwoMonths = [for (final m in s.months) if (m.pwo > 0) m];
         final trades = s.trades;
         final open = trades.where((t) => !t.sold).length;
         final soldN = trades.where((t) => t.sold).length;
@@ -997,6 +1002,19 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
                         _m(s.monthTotals['income'] ?? 0)),
                     stat('net', 'خالص ماهانه امسال', _m(net),
                         color: net < 0 ? AppTheme.negative : null),
+                    if (pwoT != null && pwoT > 0 && pwoMonths.isNotEmpty) ...[
+                      stat(
+                          'pwo',
+                          'PWO ماه ${pwoMonths.last.month} از هدف ${_m(pwoT)}',
+                          _m(pwoMonths.last.pwo),
+                          color: pwoMonths.last.pwo >= pwoT
+                              ? AppTheme.positive
+                              : AppTheme.negative),
+                      stat(
+                          'pwo-hit',
+                          'ماه‌های رسیده به هدف PWO',
+                          '${pwoMonths.where((m) => m.pwo >= pwoT).length} از ${pwoMonths.length}'),
+                    ],
                     if (mism > 0)
                       stat('mismatch', 'ماه با مغایرت درآمد', '$mism',
                           color: AppTheme.negative),

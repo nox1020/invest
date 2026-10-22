@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/biz_remote.dart';
 import 'package:invest/data/biz_store.dart';
+import 'package:invest/data/pwo_store.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/session_store.dart';
 import 'package:invest/domain/utils/money.dart';
@@ -389,7 +390,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(320, 640);
     addTearDown(tester.view.reset);
-    final s = FakeBizServer()..pwo.clear();
+    final s = FakeBizServer()..pwo[1] = 126700000;
     s.trades.addAll([
       {'id': 1, 'buy_date': '1405/01/01', 'sell_date': '1405/01/20', 'buy_amount': 100, 'sell_amount': 400100},
       {'id': 2, 'buy_date': '1405/01/01', 'sell_date': '', 'buy_amount': 100, 'sell_amount': 0},
@@ -400,6 +401,13 @@ void main() {
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(body: ListView(children: [BizDashboardCard(store: store)]))));
     await tester.pumpAndSettle();
+    await tester.runAsync(() => PwoStore.instance.load());
+    await tester.pumpAndSettle();
+    final tgt = PwoStore.instance.ledger.target;
+    expect(tester.widget<Text>(find.byKey(const ValueKey('biz-dash-pwo'))).data,
+        formatMoney(126700000));
+    expect(tester.widget<Text>(find.byKey(const ValueKey('biz-dash-pwo-hit'))).data,
+        126700000 >= tgt ? '1 از 1' : '0 از 1');
     expect(find.text(formatMoney(400000)), findsOneWidget);
     expect(tester.widget<Text>(find.byKey(const ValueKey('biz-dash-open'))).data, '1');
     expect(tester.widget<Text>(find.byKey(const ValueKey('biz-dash-mismatch'))).data, '1');
