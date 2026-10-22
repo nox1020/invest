@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:invest/domain/services/biz_annual_report.dart';
 import 'package:provider/provider.dart';
 
 import 'package:invest/data/biz_store.dart';
@@ -112,6 +114,19 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('ملک و دفتر'),
+          actions: [
+            ListenableBuilder(
+              listenable: _store,
+              builder: (context, _) => IconButton(
+                key: const ValueKey('biz-export'),
+                tooltip: 'خروجی سالانه (Excel / PDF)',
+                icon: const Icon(Icons.ios_share_rounded),
+                onPressed: _store.loaded && _store.snap.raw.isNotEmpty
+                    ? () => _exportAnnual(context, _store)
+                    : null,
+              ),
+            ),
+          ],
           bottom: TabBar(controller: _tabs, tabs: const [
             Tab(text: 'معاملات ملک'),
             Tab(text: 'جدول ماهانه'),
@@ -1168,5 +1183,69 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
         );
       },
     );
+  }
+}
+
+
+/// Test hook: replaces the share sheet.
+@visibleForTesting
+Future<void> Function(Uint8List bytes, String name, String mime)? bizShareOverride;
+
+Future<void> _exportAnnual(BuildContext context, BizStore store) async {
+  final year = store.snap.year;
+  final kind = await showModalBottomSheet<String>(
+    context: context,
+    builder: (c) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            title: Text('خروجی سالانهٔ ${year ?? ''}',
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: const Text('معاملات خرید/فروش در این سال و جدول ماهانه'),
+          ),
+          ListTile(
+            key: const ValueKey('biz-export-xlsx'),
+            leading: const Icon(Icons.table_chart_outlined),
+            title: const Text('Excel (xlsx)'),
+            onTap: () => Navigator.pop(c, 'xlsx'),
+          ),
+          ListTile(
+            key: const ValueKey('biz-export-pdf'),
+            leading: const Icon(Icons.picture_as_pdf_outlined),
+            title: const Text('PDF'),
+            onTap: () => Navigator.pop(c, 'pdf'),
+          ),
+        ]),
+      ),
+    ),
+  );
+  if (kind == null || !context.mounted) return;
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final r = BizAnnualReport.from(store.snap);
+    late Uint8List bytes;
+    late String mime;
+    if (kind == 'xlsx') {
+      bytes = r.toXlsx();
+      mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    } else {
+      bytes = await r.toPdf(
+          font: await rootBundle.load('assets/fonts/Vazirmatn-Regular.ttf'),
+          bold: await rootBundle.load('assets/fonts/Vazirmatn-Bold.ttf'));
+      mime = 'application/pdf';
+    }
+    final name = '${r.fileStem}.$kind';
+    final o = bizShareOverride;
+    if (o != null) {
+      await o(bytes, name, mime);
+    } else {
+      await SharePlus.instance.share(ShareParams(
+        files: [XFile.fromData(bytes, mimeType: mime, name: name)],
+        subject: 'گزارش سالانهٔ ملک و دفتر ${r.year}',
+      ));
+    }
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text('ساخت خروجی انجام نشد: $e')));
   }
 }

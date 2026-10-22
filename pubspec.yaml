@@ -29,6 +29,8 @@ dependencies:
   provider: ^6.1.2
   smart_auth: ^3.2.0
   flutter_secure_storage: ^9.2.4
+  pdf: ^3.13.1
+  archive: ^4.5.2
 
 dev_dependencies:
   flutter_test:
@@ -41,3 +43,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/invest.png
+    - assets/fonts/Vazirmatn-Regular.ttf
+    - assets/fonts/Vazirmatn-Bold.ttf

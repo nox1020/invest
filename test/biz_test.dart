@@ -473,4 +473,31 @@ void main() {
     expect(s.trades.single['sell_date'], '1405/02/11');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('annual export: Excel and PDF from the app bar', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 640);
+    addTearDown(tester.view.reset);
+    final s = FakeBizServer();
+    s.trades.add({'id': 1, 'buy_date': '1405/01/01', 'sell_date': '1405/01/20',
+      'buy_amount': 100, 'sell_amount': 400100});
+    final store = BizStore.instance;
+    await tester.runAsync(() async => store.bindAccount(BizRemote(await _api(s)), '0912'));
+    final got = <String, int>{};
+    bizShareOverride = (b, n, m) async => got[n] = b.length;
+    addTearDown(() => bizShareOverride = null);
+    await tester.pumpWidget(MaterialApp(home: BizPage(store: store)));
+    await tester.pumpAndSettle();
+    for (final k in ['xlsx', 'pdf']) {
+      await tester.tap(find.byKey(const ValueKey('biz-export')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('biz-export-$k')));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 800)));
+      await tester.pumpAndSettle();
+    }
+    expect(got.keys, ['ملک-و-دفتر-1405.xlsx', 'ملک-و-دفتر-1405.pdf']);
+    expect(got.values.every((v) => v > 500), isTrue);
+    expect(s.calls.where((c) => !c.startsWith('GET')), isEmpty); // read-only
+    expect(tester.takeException(), isNull);
+  });
 }
