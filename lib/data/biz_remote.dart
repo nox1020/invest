@@ -34,6 +34,11 @@ class BizRemote {
           int year, int month, Map<String, dynamic> body) async =>
       _snap(await _api.put('$_base/months/$year/$month', body: body));
 
+  /// Guarded one-time import: the server writes nothing if the account
+  /// already has trades or monthly rows. Returns the raw response.
+  Future<Map<String, dynamic>> import(Map<String, dynamic> payload) =>
+      _api.post('$_base/import', body: payload);
+
   Future<Map<String, dynamic>> deleteMonth(int year, int month) async =>
       _snap(await _api.delete('$_base/months/$year/$month'));
 }

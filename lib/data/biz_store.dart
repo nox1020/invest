@@ -231,6 +231,35 @@ class BizStore extends ChangeNotifier {
     await _apply(await op(r));
   }
 
+  /// True when nothing is stored yet (import button is offered only then).
+  bool get isEmpty =>
+      loaded &&
+      _snap.raw.isNotEmpty &&
+      _snap.trades.isEmpty &&
+      !_snap.months.any((m) => m.hasOps);
+
+  /// Parses pasted sheet JSON `{"trades": [...], "months": [...]}` and sends
+  /// it to the guarded import. Returns rows written (0 = account had data).
+  Future<int> importSheet(String text) async {
+    final r = _remote;
+    if (r == null || _account == null) throw const BizReadOnlyException();
+    Object? data;
+    try {
+      data = jsonDecode(text.trim());
+    } catch (_) {
+      throw const FormatException('متن واردشده JSON معتبر نیست.');
+    }
+    if (data is! Map ||
+        (data['trades'] is! List && data['months'] is! List)) {
+      throw const FormatException('متن باید شامل trades یا months باشد.');
+    }
+    final res = await r.import(Map<String, dynamic>.from(data));
+    final snap = res['biz'];
+    if (snap is Map) await _apply(Map<String, dynamic>.from(snap));
+    if (res['already_has_data'] == true) return 0;
+    return (res['written'] as num?)?.toInt() ?? 0;
+  }
+
   Future<void> addTrade(Map<String, dynamic> body) =>
       _write((r) => r.addTrade(body, year: _year));
   Future<void> updateTrade(int id, Map<String, dynamic> body) =>

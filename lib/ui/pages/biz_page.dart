@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'package:invest/data/biz_store.dart';
@@ -32,6 +33,12 @@ Future<void> ensureBizReady(BuildContext context, BizStore store,
 }
 
 String _m(num v) => formatMoney(v);
+
+/// Large amounts shrink to fit instead of overflowing on small phones.
+Widget _fit(Widget w) => Flexible(
+      child: FittedBox(
+          fit: BoxFit.scaleDown, alignment: AlignmentDirectional.centerEnd, child: w),
+    );
 
 Color _sign(num v) => v < 0 ? AppTheme.negative : AppTheme.positive;
 
@@ -99,7 +106,7 @@ class _BizPageState extends State<BizPage> {
           appBar: AppBar(
             title: const Text('ملک و دفتر'),
             bottom: const TabBar(tabs: [
-              Tab(text: 'سابقه خرید و فروش ملک'),
+              Tab(text: 'معاملات ملک'),
               Tab(text: 'جدول ماهانه'),
             ]),
           ),
@@ -150,12 +157,13 @@ class _Stat extends StatelessWidget {
         Expanded(
             child: Text(label,
                 style: const TextStyle(color: AppTheme.muted, fontSize: 12))),
-        Text(value,
+        const SizedBox(width: 8),
+        _fit(Text(value,
             key: valueKey,
             style: TextStyle(
                 color: color ?? AppTheme.title,
                 fontWeight: FontWeight.w700,
-                fontSize: 13)),
+                fontSize: 13))),
       ]);
 }
 
@@ -193,6 +201,15 @@ class _TradesTab extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
+            if (!store.readOnly && store.isEmpty) ...[
+              OutlinedButton.icon(
+                key: const ValueKey('biz-import'),
+                onPressed: () => _importSheet(context, store),
+                icon: const Icon(Icons.upload_file_rounded),
+                label: const Text('ورود از شیت'),
+              ),
+              const SizedBox(height: 10),
+            ],
             if (trades.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(32),
@@ -246,10 +263,11 @@ class _TradeTile extends StatelessWidget {
                   child: Text(t.title.isEmpty ? 'بدون عنوان' : t.title,
                       style: const TextStyle(fontWeight: FontWeight.w800)),
                 ),
-                Text(p == null ? 'فروش نرفته' : _m(p),
+                const SizedBox(width: 8),
+                _fit(Text(p == null ? 'فروش نرفته' : _m(p),
                     style: TextStyle(
                         color: p == null ? AppTheme.muted : _sign(p),
-                        fontWeight: FontWeight.w800)),
+                        fontWeight: FontWeight.w800))),
               ]),
               const SizedBox(height: 6),
               Wrap(spacing: 12, runSpacing: 4, children: [
@@ -276,6 +294,63 @@ class _TradeTile extends StatelessWidget {
 
   Widget _kv(String k, String v) => Text('$k: $v',
       style: const TextStyle(color: AppTheme.muted, fontSize: 12));
+}
+
+Future<void> _importSheet(BuildContext context, BizStore store) async {
+  final ctl = TextEditingController();
+  final text = await showDialog<String>(
+    context: context,
+    builder: (c) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: const Text('ورود از شیت'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text(
+            'متن JSON شیت را اینجا بچسبانید. فقط یک بار و فقط روی حساب خالی اعمال می‌شود؛ دادهٔ موجود هرگز بازنویسی نمی‌شود.',
+            style: TextStyle(fontSize: 12, color: AppTheme.muted),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            key: const ValueKey('biz-import-text'),
+            controller: ctl,
+            maxLines: 6,
+            textDirection: TextDirection.ltr,
+            decoration: const InputDecoration(
+                hintText: '{"trades": [...], "months": [...]}', isDense: true),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () async {
+                final d = await Clipboard.getData(Clipboard.kTextPlain);
+                if (d?.text != null) ctl.text = d!.text!;
+              },
+              icon: const Icon(Icons.content_paste_rounded, size: 16),
+              label: const Text('چسباندن از کلیپ‌بورد'),
+            ),
+          ),
+        ])),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c), child: const Text('انصراف')),
+          FilledButton(
+              key: const ValueKey('biz-import-go'),
+              onPressed: () => Navigator.pop(c, ctl.text),
+              child: const Text('ورود')),
+        ],
+      ),
+    ),
+  );
+  // Controller is left to GC: the dialog may still be animating out.
+  if (text == null || text.trim().isEmpty || !context.mounted) return;
+  int n = 0;
+  final ok = await _guard(context, () async => n = await store.importSheet(text));
+  if (ok && context.mounted) {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        content: Text(n == 0
+            ? 'این حساب از قبل داده دارد؛ چیزی وارد نشد.'
+            : '$n ردیف از شیت وارد شد.')));
+  }
 }
 
 String _amountText(double v) => v == 0 ? '' : formatNumber(v);
@@ -496,10 +571,11 @@ class _MonthTile extends StatelessWidget {
                 child: Text('برج ${m.month} · ${pwoMonthNames[m.month - 1]}',
                     style: const TextStyle(fontWeight: FontWeight.w800)),
               ),
-              Text(m.isEmpty ? '—' : _m(m.net),
+              const SizedBox(width: 8),
+              _fit(Text(m.isEmpty ? '—' : _m(m.net),
                   style: TextStyle(
                       color: m.isEmpty ? AppTheme.muted : _sign(m.net),
-                      fontWeight: FontWeight.w800)),
+                      fontWeight: FontWeight.w800))),
             ]),
             if (!m.isEmpty) ...[
               const SizedBox(height: 4),
@@ -578,14 +654,14 @@ class _MonthDialogState extends State<_MonthDialog> {
             _f(_ads, 'دیوار - تبلیغات دفتر (تومان)', const ValueKey('biz-m-ads')),
             Align(
               alignment: Alignment.centerRight,
-              child: TextButton.icon(
+              child: TextButton(
                 onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const PwoPage()));
+                  final nav = Navigator.of(context);
+                  nav.pop();
+                  nav.push(MaterialPageRoute(builder: (_) => const PwoPage()));
                 },
-                icon: const Icon(Icons.stacked_bar_chart_rounded, size: 16),
-                label: Text('PWO این ماه: ${_m(m.pwo)} · ویرایش در PWO'),
+                child: Text('PWO این ماه: ${_m(m.pwo)}\nویرایش در بخش PWO',
+                    textAlign: TextAlign.right),
               ),
             ),
           ]),

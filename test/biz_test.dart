@@ -84,6 +84,24 @@ class FakeBizServer {
       ops[int.parse(mm.group(2)!)] = {
         for (final e in body.entries) e.key: (e.value as num).toDouble()
       };
+    } else if (r.method == 'POST' && path == '/import') {
+      if (trades.isNotEmpty || ops.isNotEmpty) {
+        return http.Response(
+            jsonEncode({'success': true, 'written': 0, 'already_has_data': true, 'biz': snap()}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      }
+      for (final t in (body['trades'] as List? ?? [])) {
+        trades.add({...Map<String, dynamic>.from(t as Map), 'id': ++_id});
+      }
+      for (final m in (body['months'] as List? ?? [])) {
+        final mm2 = Map<String, dynamic>.from(m as Map);
+        ops[(mm2['month'] as num).toInt()] = {
+          for (final k in ['staff', 'ads', 'income']) k: ((mm2[k] ?? 0) as num).toDouble()
+        };
+      }
+      return http.Response(
+          jsonEncode({'success': true, 'written': trades.length + ops.length, 'biz': snap()}), 200,
+          headers: {'content-type': 'application/json; charset=utf-8'});
     } else if (mm != null && r.method == 'DELETE') {
       ops.remove(int.parse(mm.group(2)!));
     }
@@ -157,7 +175,7 @@ void main() {
         () async => store.bindAccount(BizRemote(await _api(s)), '0912'));
     await tester.pumpWidget(MaterialApp(home: BizPage(store: store)));
     await tester.pumpAndSettle();
-    expect(find.text('سابقه خرید و فروش ملک'), findsOneWidget);
+    expect(find.text('معاملات ملک'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('biz-add-trade')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('biz-f-buy-date')), '1405/02/01');
@@ -173,5 +191,67 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('biz-total-net')), findsOneWidget);
     expect(find.text('برج 1 · فروردین'), findsOneWidget);
+  });
+
+  testWidgets('import button: pasted JSON, then hidden', (tester) async {
+    final s = FakeBizServer();
+    final store = BizStore.instance;
+    await tester.runAsync(
+        () async => store.bindAccount(BizRemote(await _api(s)), '0912'));
+    await tester.pumpWidget(MaterialApp(home: BizPage(store: store)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('biz-import')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('biz-import-text')), 'nope');
+    await tester.tap(find.byKey(const ValueKey('biz-import-go')));
+    await tester.pumpAndSettle();
+    expect(s.calls.contains('POST /import'), isFalse);
+    await tester.tap(find.byKey(const ValueKey('biz-import')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('biz-import-text')),
+        '{"trades":[{"buy_date":"20/01/1405","sell_date":"21/01/1405","buy_amount":100,"sell_amount":175}],'
+        '"months":[{"year":1405,"month":7,"income":50}]}');
+    await tester.tap(find.byKey(const ValueKey('biz-import-go')));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pumpAndSettle();
+    expect(s.trades.length, 1);
+    expect(store.snap.totalProfit, 75);
+    expect(find.byKey(const ValueKey('biz-import')), findsNothing);
+    // second import never writes
+    expect(await tester.runAsync(() => store.importSheet('{"trades":[]}')), 0);
+  });
+
+  testWidgets('small phone, billions: no overflow on both tabs and dialogs',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 568);
+    addTearDown(tester.view.reset);
+    final s = FakeBizServer()..pwo[1] = 583530000;
+    for (var i = 0; i < 3; i++) {
+      s.trades.add({
+        'id': 100 + i, 'buy_date': '1404/10/10', 'sell_date': '1405/01/28',
+        'buy_amount': 2400000000, 'sell_amount': 99999999999,
+        'area': 244.8, 'extra_cost': 29000000,
+        'title': 'علی - رفیق خانوم غلامی - از ۲۰۰۰ متری سقزدره و توضیح بلند دیگر',
+      });
+    }
+    s.ops[1] = {'staff': 36000000, 'ads': 81900000, 'income': 21440000000};
+    final store = BizStore.instance;
+    await tester.runAsync(
+        () async => store.bindAccount(BizRemote(await _api(s)), '0912'));
+    await tester.pumpWidget(MaterialApp(home: BizPage(store: store)));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('علی - رفیق خانوم غلامی - از ۲۰۰۰ متری سقزدره و توضیح بلند دیگر').first);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('انصراف'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('جدول ماهانه'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const ValueKey('biz-month-1')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 }
