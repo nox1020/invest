@@ -228,14 +228,32 @@ class AppState extends ChangeNotifier {
       0,
       (s, t) => s + (t.realizedPnl ?? 0),
     );
+    // Year is always "today" in the current calendar: a cached/offline
+    // metrics.yearKey can be from another year or calendar.
+    final cal = settings.calendar;
+    final key = yearPeriodKey(todayIso(), cal);
+    final pwo = PwoStore.instance;
+    var pwoYear = 0.0, pwoAll = 0.0;
+    if (pwo.loaded) {
+      for (final m in pwo.ledger.months.values) {
+        final t = m.total;
+        if (!(t > 0)) continue;
+        pwoAll += t;
+        if (WithdrawalAllowance.pwoYearKey(m.year, m.month, cal) == key) {
+          pwoYear += t;
+        }
+      }
+    }
     return WithdrawalAllowance.compute(
       realizedPnl: realized,
       openTrades: openTrades,
       closedTrades: closedTrades,
       withdrawals: withdrawals,
       annualPct: settings.annualWithdrawalPct,
-      calendar: settings.calendar,
-      yearKey: metrics?.yearKey,
+      calendar: cal,
+      yearKey: key,
+      pwoYearWithdrawn: pwoYear,
+      pwoAllTime: pwoAll,
     );
   }
 

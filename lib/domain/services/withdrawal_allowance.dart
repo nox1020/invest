@@ -3,6 +3,7 @@ import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/utils/dates.dart';
+import 'package:shamsi_date/shamsi_date.dart';
 
 /// Snapshot of how much profit may be withdrawn this calendar year.
 ///
@@ -22,7 +23,13 @@ class WithdrawalAllowance {
     required this.available,
     required this.yearKey,
     required this.calendar,
+    this.pwoYearWithdrawn = 0,
+    this.pwoAllTime = 0,
   });
+
+  /// PWO personal withdrawals included in [yearWithdrawn] / [withdrawnAllTime].
+  final double pwoYearWithdrawn;
+  final double pwoAllTime;
 
   final double inflows;
   final int annualPct;
@@ -65,6 +72,35 @@ class WithdrawalAllowance {
     return sum;
   }
 
+  /// Calendar year of a withdrawal timestamp, in the user's local time.
+  /// Null when the value cannot be read as a date.
+  static String? _yearOf(String raw, String calendar) {
+    final v = raw.trim();
+    if (v.isEmpty) return null;
+    DateTime? d;
+    if (v.contains('T')) {
+      // UTC stamps (…Z) near midnight belong to the local day.
+      d = DateTime.tryParse(v)?.toLocal();
+    }
+    if (d == null) {
+      final iso = tryNormalizeToIso(v);
+      if (iso != null) d = DateTime.tryParse(iso);
+    }
+    if (d == null) return null;
+    if (calendar == AppConfig.calendarJalali) {
+      return Jalali.fromDateTime(d).year.toString().padLeft(4, '0');
+    }
+    return d.year.toString().padLeft(4, '0');
+  }
+
+  /// Year key of a Jalali PWO month in [calendar] (Gregorian: month start).
+  static String pwoYearKey(int jYear, int jMonth, String calendar) {
+    if (calendar == AppConfig.calendarJalali) {
+      return jYear.toString().padLeft(4, '0');
+    }
+    return Jalali(jYear, jMonth, 1).toDateTime().year.toString().padLeft(4, '0');
+  }
+
   static double withdrawnInYear({
     required Iterable<Withdrawal> withdrawals,
     required String yearKey,
@@ -75,8 +111,9 @@ class WithdrawalAllowance {
     var sum = 0.0;
     for (final w in withdrawals) {
       if (w.status == 'rejected') continue;
-      final iso = w.createdAt.trim().isEmpty ? asOf : w.createdAt;
-      if (yearPeriodKey(iso, calendar) != yearKey) continue;
+      // Unknown/unreadable date: count it this year (never over-state room).
+      final y = _yearOf(w.createdAt, calendar) ?? yearPeriodKey(asOf, calendar);
+      if (y != yearKey) continue;
       sum += w.amount;
     }
     return sum;
@@ -91,6 +128,8 @@ class WithdrawalAllowance {
     required String calendar,
     String? asOfIso,
     String? yearKey,
+    double pwoYearWithdrawn = 0,
+    double pwoAllTime = 0,
   }) {
     final asOf = asOfIso ?? todayIso();
     final key = yearKey ?? yearPeriodKey(asOf, calendar);
@@ -110,13 +149,17 @@ class WithdrawalAllowance {
       calendar: calendar,
       asOfIso: asOf,
     );
+    final pwoYear = pwoYearWithdrawn.isFinite && pwoYearWithdrawn > 0 ? pwoYearWithdrawn : 0.0;
+    final pwoAll = pwoAllTime.isFinite && pwoAllTime > pwoYear ? pwoAllTime : pwoYear;
+    allTime += pwoAll;
+    final yearWithdrawnTotal = yearWithdrawn + pwoYear;
     final annualCap = inflows * pct / 100.0;
     final remainingRealized = computeWithdrawableAmount(
       realizedPnl: realizedPnl,
       withdrawnTotal: allTime,
     );
-    final remainingAnnual = annualCap > yearWithdrawn
-        ? annualCap - yearWithdrawn
+    final remainingAnnual = annualCap > yearWithdrawnTotal
+        ? annualCap - yearWithdrawnTotal
         : 0.0;
     final available = remainingRealized < remainingAnnual
         ? remainingRealized
@@ -125,7 +168,7 @@ class WithdrawalAllowance {
       inflows: inflows,
       annualPct: pct,
       annualCap: annualCap,
-      yearWithdrawn: yearWithdrawn,
+      yearWithdrawn: yearWithdrawnTotal,
       withdrawnAllTime: allTime,
       realizedPnl: realizedPnl,
       remainingRealized: remainingRealized,
@@ -133,6 +176,8 @@ class WithdrawalAllowance {
       available: available,
       yearKey: key,
       calendar: calendar,
+      pwoYearWithdrawn: pwoYear,
+      pwoAllTime: pwoAll,
     );
   }
 

@@ -7,6 +7,7 @@ import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
+import 'package:invest/data/pwo_store.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
@@ -41,6 +42,10 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _enter, curve: Curves.easeOutCubic));
     _enter.forward();
+    // PWO feeds the capacity card; load it even before its card is scrolled to.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ensurePwoReady(context, PwoStore.instance, refresh: false);
+    });
   }
 
   @override
@@ -52,6 +57,13 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    return ListenableBuilder(
+      listenable: PwoStore.instance,
+      builder: (context, _) => _buildBody(context, state),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, AppState state) {
     final history = state.withdrawals;
     final allowance = state.withdrawalAllowance;
 
@@ -73,8 +85,6 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
                   allowance.calendar,
                 ),
               ),
-              const SizedBox(height: 12),
-              const PwoEntryCard(),
               const SizedBox(height: 12),
               _CapacityHero(
                 allowance: allowance,
@@ -103,6 +113,8 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
               _CoveragePanel(allowance: allowance),
               const SizedBox(height: 10),
               _AnnualQuotaPanel(allowance: allowance),
+              const SizedBox(height: 10),
+              const PwoEntryCard(),
               const SizedBox(height: 22),
               _SectionLabel(
                 eyebrow: 'دفتر',
@@ -383,6 +395,13 @@ class _CapacityHero extends StatelessWidget {
             textAlign: TextAlign.right,
             style: const TextStyle(color: AppTheme.muted, fontSize: 11),
           ),
+          if (allowance.pwoYearWithdrawn > 0)
+            Text(
+              'شامل برداشت PWO امسال: ${formatMoney(allowance.pwoYearWithdrawn)}',
+              key: const ValueKey('capacity-pwo-line'),
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: AppTheme.muted, fontSize: 11),
+            ),
           const SizedBox(height: 4),
           Align(
             alignment: Alignment.centerRight,
