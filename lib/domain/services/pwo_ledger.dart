@@ -351,6 +351,39 @@ class PwoLedger {
         'overwrite': false,
       };
 
+  /// Backup form accepted by `POST /pwo/import`: base amounts as entries and
+  /// single withdrawals as transactions (granularity kept).
+  Map<String, dynamic> toBackupPayload() => {
+        'target': target,
+        'withdrawers': [
+          for (final p in people) {'name': p.name, 'archived': !p.active},
+        ],
+        'entries': [
+          for (final m in months.values)
+            for (final e in m.amounts.entries)
+              if (e.value > 0 && personById(e.key) != null)
+                {
+                  'withdrawer': personById(e.key)!.name,
+                  'year': m.year,
+                  'month': m.month,
+                  'amount': e.value,
+                },
+        ],
+        'transactions': [
+          for (final m in months.values)
+            for (final x in m.txs)
+              if (x.amount > 0 && personById(x.personId) != null)
+                {
+                  'withdrawer': personById(x.personId)!.name,
+                  'year': m.year,
+                  'month': m.month,
+                  'amount': x.amount,
+                  'note': x.note,
+                },
+        ],
+        'overwrite': false,
+      };
+
   String encode() => jsonEncode({
         'v': 2,
         'people': people.map((e) => e.toJson()).toList(),

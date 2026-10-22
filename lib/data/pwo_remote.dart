@@ -19,6 +19,10 @@ class PwoRemote {
   Future<Map<String, dynamic>> import(Map<String, dynamic> payload) async =>
       _snap(await _api.post('$_base/import', body: payload));
 
+  /// Raw response (keeps `already_has_data` / `written`).
+  Future<Map<String, dynamic>> importRaw(Map<String, dynamic> payload) =>
+      _api.post('$_base/import', body: payload);
+
   Future<Map<String, dynamic>> setTarget(double toman) async =>
       _snap(await _api.put('$_base/target', body: {'target': toman}));
 

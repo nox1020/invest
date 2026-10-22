@@ -39,6 +39,14 @@ class BizRemote {
   Future<Map<String, dynamic>> import(Map<String, dynamic> payload) =>
       _api.post('$_base/import', body: payload);
 
+  /// All trades + all monthly rows (every year), import-ready.
+  Future<Map<String, dynamic>> export() async {
+    final d = await _api.get('$_base/export');
+    final e = d['export'];
+    if (e is Map) return Map<String, dynamic>.from(e);
+    throw InvestApiException('پاسخ سرور برای پشتیبان ملک نامعتبر است.');
+  }
+
   Future<Map<String, dynamic>> deleteMonth(int year, int month) async =>
       _snap(await _api.delete('$_base/months/$year/$month'));
 }

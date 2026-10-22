@@ -9,7 +9,7 @@ import 'package:invest/domain/utils/dates.dart';
 const backupFormatId = 'vplus-backup';
 
 /// Current writer version. Readers accept 1..[backupFormatVersion].
-const backupFormatVersion = 3;
+const backupFormatVersion = 4;
 
 /// Full portable snapshot of app data (before encryption).
 class BackupPayload {
@@ -26,7 +26,15 @@ class BackupPayload {
     this.biometricUnlockEnabled = false,
     this.userPhone,
     this.baseUrl,
+    this.pwo,
+    this.biz,
   });
+
+  /// PWO in `/pwo/import` form (v4+). Null in older backups.
+  final Map<String, dynamic>? pwo;
+
+  /// Property trades + monthly rows in `/biz/import` form (v4+).
+  final Map<String, dynamic>? biz;
 
   final String exportedAt;
   final AppSettings settings;
@@ -61,6 +69,8 @@ class BackupPayload {
         'withdrawals': withdrawals.map(_withdrawalToJson).toList(),
         'checks': checks.map((c) => c.toMap()).toList(),
         'capital_snapshots': capitalSnapshots,
+        if (pwo != null) 'pwo': pwo,
+        if (biz != null) 'biz': biz,
         'app_lock': {
           'hash': appLockHash,
           'biometric_enabled': biometricUnlockEnabled,
@@ -68,7 +78,7 @@ class BackupPayload {
         'meta': {
           'user_phone': userPhone,
           'base_url': baseUrl,
-          'includes': const [
+          'includes': [
             'settings',
             'settings_raw',
             'assets',
@@ -76,6 +86,8 @@ class BackupPayload {
             'withdrawals',
             'checks',
             'capital_snapshots',
+            if (pwo != null) 'pwo',
+            if (biz != null) 'biz',
             'app_lock',
           ],
         },
@@ -166,6 +178,8 @@ class BackupPayload {
       biometricUnlockEnabled: lock['biometric_enabled'] == true,
       userPhone: meta['user_phone'] as String?,
       baseUrl: meta['base_url'] as String?,
+      pwo: json['pwo'] is Map ? Map<String, dynamic>.from(json['pwo'] as Map) : null,
+      biz: json['biz'] is Map ? Map<String, dynamic>.from(json['biz'] as Map) : null,
     );
   }
 

@@ -50,6 +50,8 @@ class BackupService {
     bool biometricUnlockEnabled = false,
     String? userPhone,
     String? baseUrl,
+    Map<String, dynamic>? pwo,
+    Map<String, dynamic>? biz,
   }) {
     final raw = Map<String, String>.from(settingsRaw ?? settings.toStorageMap());
     // Ensure typed settings always win for known keys.
@@ -67,6 +69,8 @@ class BackupService {
       biometricUnlockEnabled: biometricUnlockEnabled,
       userPhone: userPhone,
       baseUrl: baseUrl,
+      pwo: pwo,
+      biz: biz,
     );
   }
 

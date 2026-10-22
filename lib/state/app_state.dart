@@ -3183,7 +3183,38 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       snaps = <Map<String, Object?>>[];
     }
+    // PWO + ملک و دفتر: server is the source of truth when connected;
+    // otherwise the last loaded / cached copy.
+    Map<String, dynamic>? pwo;
+    Map<String, dynamic>? biz;
+    final pwoStore = PwoStore.instance;
+    if (pwoStore.loaded) pwo = pwoStore.ledger.toBackupPayload();
+    final svc = remote;
+    if (useRemote && svc != null && !offline) {
+      try {
+        biz = await svc.biz.export();
+      } catch (_) {}
+    }
+    if (biz == null && BizStore.instance.loaded) {
+      final s = BizStore.instance.snap;
+      biz = {
+        'trades': [
+          for (final t in s.trades)
+            {
+              for (final k in const ['buy_date', 'sell_date', 'buy_amount', 'sell_amount', 'area', 'title', 'extra_cost', 'note'])
+                k: t.raw[k],
+            }
+        ],
+        'months': [
+          for (final m in s.months)
+            if (m.hasOps)
+              {for (final k in const ['year', 'month', 'staff', 'ads', 'income', 'note']) k: m.raw[k]}
+        ],
+      };
+    }
     final payload = BackupService.buildFromMemory(
+      pwo: pwo,
+      biz: biz,
       settings: settings,
       settingsRaw: settingsRaw,
       assets: assets,
@@ -3233,6 +3264,7 @@ class AppState extends ChangeNotifier {
 
     var remotePushed = false;
     String? remoteWarning;
+    final extrasNote = await _restorePwoBiz(payload);
     if (pushToRemote &&
         useRemote &&
         !offline &&
@@ -3348,8 +3380,47 @@ class AppState extends ChangeNotifier {
     return BackupRestoreReport(
       payload: payload,
       remotePushed: remotePushed,
-      remoteWarning: remoteWarning,
+      remoteWarning: _joinNotes([remoteWarning, extrasNote]),
     );
+  }
+
+  static String? _joinNotes(List<String?> xs) {
+    final s = xs.whereType<String>().where((x) => x.isNotEmpty).join('\n');
+    return s.isEmpty ? null : s;
+  }
+
+  /// PWO + ملک و دفتر go only through the servers' guarded imports: an
+  /// account that already has data is never overwritten.
+  Future<String?> _restorePwoBiz(BackupPayload payload) async {
+    if (payload.pwo == null && payload.biz == null) return null;
+    final svc = remote;
+    if (!useRemote || svc == null || offline || readOnlyOffline) {
+      return 'PWO و ملک و دفتر فقط با اتصال به حساب وینور بازیابی می‌شوند.';
+    }
+    final notes = <String>[];
+    if (payload.pwo != null) {
+      try {
+        final r = await svc.pwo.importRaw(payload.pwo!);
+        if (r['already_has_data'] == true) {
+          notes.add('PWO روی سرور داده داشت و بازنویسی نشد.');
+        }
+        await PwoStore.instance.refresh();
+      } catch (e) {
+        notes.add('بازیابی PWO انجام نشد: ${formatUserError(e)}');
+      }
+    }
+    if (payload.biz != null) {
+      try {
+        final r = await svc.biz.import(payload.biz!);
+        if (r['already_has_data'] == true) {
+          notes.add('ملک و دفتر روی سرور داده داشت و بازنویسی نشد.');
+        }
+        await BizStore.instance.refresh();
+      } catch (e) {
+        notes.add('بازیابی ملک و دفتر انجام نشد: ${formatUserError(e)}');
+      }
+    }
+    return notes.isEmpty ? null : notes.join('\n');
   }
 
   Future<void> _rebuildRemoteFromBackup(BackupPayload payload) async {
