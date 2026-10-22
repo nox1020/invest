@@ -234,6 +234,8 @@ class RemoteInvestService implements InvestMutations {
     final data = await _api.put('/invest/api/v1/settings', body: body);
     final bundle =
         _bundleFrom(Map<String, dynamic>.from(data['settings'] as Map));
+    final bad = settingsMismatches(sent: s, echoed: bundle);
+    if (bad.isNotEmpty) throw SettingsNotSavedException(bad);
     return bundle.mergePreserving(
       sent: s,
       clientWithdrawals: clientWithdrawals,
@@ -766,6 +768,45 @@ class MarketIndexRemoteBundle {
 
 /// Settings payload from Vinor including extras older servers may echo only in
 /// `raw` (alerts, app lock, client withdrawal mirror).
+/// The server answered the save but did not keep some of the values sent.
+class SettingsNotSavedException implements Exception {
+  const SettingsNotSavedException(this.fields);
+  final List<String> fields;
+  @override
+  String toString() =>
+      'سرور این تنظیمات را ذخیره نکرد: ${fields.join('، ')}. دوباره تلاش کنید.';
+}
+
+/// Persian labels of settings whose echoed value differs from what was PUT.
+/// Only keys present in the response are checked (older servers omit some).
+List<String> settingsMismatches({
+  required AppSettings sent,
+  required RemoteSettingsBundle echoed,
+}) {
+  final e = echoed.settings;
+  final has = echoed.presentKeys.contains;
+  final out = <String>[];
+  void chk(String key, String label, Object? a, Object? b) {
+    if (has(key) && a != b) out.add(label);
+  }
+
+  chk('calendar', 'تقویم', sent.calendar, e.calendar);
+  chk('currency', 'واحد پول', sent.currency, e.currency);
+  chk('theme', 'پوسته', sent.theme, e.theme);
+  chk('live_prices_enabled', 'قیمت زنده', sent.livePricesEnabled, e.livePricesEnabled);
+  chk('notifications_enabled', 'اعلان‌ها', sent.notificationsEnabled, e.notificationsEnabled);
+  chk('notify_trades', 'اعلان معاملات', sent.notifyTrades, e.notifyTrades);
+  chk('notify_withdrawals', 'اعلان برداشت', sent.notifyWithdrawals, e.notifyWithdrawals);
+  chk('notify_price_moves', 'اعلان قیمت', sent.notifyPriceMoves, e.notifyPriceMoves);
+  chk(AppConfig.settingNotifyBackground, 'اعلان پس‌زمینه', sent.notifyBackground, e.notifyBackground);
+  chk('price_refresh_seconds', 'فاصلهٔ به‌روزرسانی', sent.autoRefreshSeconds, e.autoRefreshSeconds);
+  chk('annual_withdrawal_pct', 'درصد برداشت سالانه', sent.annualWithdrawalPct, e.annualWithdrawalPct);
+  chk(AppConfig.settingPriceAlerts, 'هشدارهای قیمت', sent.priceAlerts.length, e.priceAlerts.length);
+  chk(AppConfig.settingProfitAlerts, 'هشدارهای سود', sent.profitAlerts.length, e.profitAlerts.length);
+  chk(AppConfig.settingYearNavHistory, 'ارزش پایان سال', sent.yearNavHistory.length, e.yearNavHistory.length);
+  return out;
+}
+
 class RemoteSettingsBundle {
   const RemoteSettingsBundle({
     required this.settings,
