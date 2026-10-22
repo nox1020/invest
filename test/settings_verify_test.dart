@@ -8,6 +8,7 @@ import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/remote_invest_service.dart';
 import 'package:invest/data/session_store.dart';
 import 'package:invest/domain/models/app_settings.dart';
+import 'package:invest/domain/models/price_alert.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<RemoteInvestService> _svc(Map<String, dynamic> Function(Map<String, dynamic> sent) echo) async {
@@ -45,21 +46,30 @@ void main() {
 
   test('server drops alerts it was sent: error', () async {
     final svc = await _svc((sent) => {...sent, 'price_alerts': []});
-    final s = AppSettings()
-      ..priceAlerts = [
-        for (final a in AppSettings.fromJson({
-          'price_alerts': [
-            {'id': 'a', 'symbol': 'USDT', 'target': 1, 'above': true}
-          ]
-        }).priceAlerts)
-          a
-      ];
-    if (s.priceAlerts.isEmpty) return; // parser shape guard
-    await expectLater(svc.saveSettings(s), throwsA(isA<SettingsNotSavedException>()));
+    final s = AppSettings(priceAlerts: [PriceAlert(id: 'a', symbol: 'USDT', above: 1)]);
+    expect(s.priceAlerts, hasLength(1));
+    await expectLater(
+        svc.saveSettings(s),
+        throwsA(isA<SettingsNotSavedException>()
+            .having((e) => e.toString(), 'msg', contains('هشدارهای قیمت'))));
   });
 
   test('older server omits a key: tolerated', () async {
     final svc = await _svc((sent) => {...sent}..remove('annual_withdrawal_pct'));
     await svc.saveSettings(AppSettings(annualWithdrawalPct: 33));
+  });
+
+  test('server 400 validation message reaches the user', () async {
+    SharedPreferences.setMockInitialValues({
+      AppConfig.prefBaseUrl: 'https://vinor.test',
+      AppConfig.prefSessionCookie: 'vinor_session=t',
+    });
+    final session = await SessionStore.load();
+    final api = InvestApiClient(session, client: MockClient((r) async => http.Response(
+        jsonEncode({'success': false, 'error': 'validation', 'message': 'پوسته نامعتبر است.'}), 400,
+        headers: {'content-type': 'application/json; charset=utf-8'})))
+      ..restoreSessionCookie();
+    await expectLater(RemoteInvestService(api).saveSettings(AppSettings()),
+        throwsA(predicate((e) => e.toString().contains('پوسته نامعتبر است.'))));
   });
 }
