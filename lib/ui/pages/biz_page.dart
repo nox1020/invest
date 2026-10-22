@@ -8,7 +8,11 @@ import 'package:invest/domain/services/pwo_ledger.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
+import 'package:invest/config/app_config.dart';
+import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/app_date_picker.dart';
+import 'package:shamsi_date/shamsi_date.dart';
 
 /// Binds [store] to the signed-in Vinor account, or shows its cache offline.
 Future<void> ensureBizReady(BuildContext context, BizStore store,
@@ -447,6 +451,51 @@ class _DialogResult {
   final bool delete;
 }
 
+/// Parses a Jalali date the way vinor biz_api does (Y/M/D or D/M/Y,
+/// Persian digits ok, year 1300–1600). Null when invalid.
+Jalali? parseBizDate(String raw) {
+  const fa = '۰۱۲۳۴۵۶۷۸۹', ar = '٠١٢٣٤٥٦٧٨٩';
+  final b = StringBuffer();
+  for (final r in raw.trim().runes) {
+    final ch = String.fromCharCode(r);
+    final i = fa.indexOf(ch), k = ar.indexOf(ch);
+    b.write(i >= 0 ? '$i' : k >= 0 ? '$k' : ch);
+  }
+  final m = RegExp(r'^(\d{1,4})[/\-.](\d{1,2})[/\-.](\d{1,4})$').firstMatch(b.toString());
+  if (m == null) return null;
+  final a = int.parse(m.group(1)!), mo = int.parse(m.group(2)!), c = int.parse(m.group(3)!);
+  final y = a > 31 ? a : c, d = a > 31 ? c : a;
+  if (y < 1300 || y > 1600 || mo < 1 || mo > 12 || d < 1) return null;
+  try {
+    final j = Jalali(y, mo, d);
+    if (d > j.monthLength) return null;
+    return j;
+  } catch (_) {
+    return null;
+  }
+}
+
+String bizDateText(Jalali j) =>
+    '${j.year.toString().padLeft(4, '0')}/${j.month.toString().padLeft(2, '0')}/${j.day.toString().padLeft(2, '0')}';
+
+/// Live preview of a trade, same formulas as the server.
+class BizTradePreview {
+  BizTradePreview({this.days, this.profit, this.pct});
+  final int? days;
+  final double? profit;
+  final double? pct;
+
+  static BizTradePreview compute(Jalali? buyD, Jalali? sellD, double buy, double sell) {
+    final sold = sellD != null && sell > 0;
+    final profit = sold ? sell - buy : null;
+    final days = (buyD != null && sellD != null)
+        ? sellD.toDateTime().difference(buyD.toDateTime()).inDays
+        : null;
+    return BizTradePreview(
+        days: days, profit: profit, pct: profit != null && sell > 0 ? profit / sell * 100 : null);
+  }
+}
+
 class _TradeDialog extends StatefulWidget {
   const _TradeDialog({this.t});
   final PropertyTrade? t;
@@ -486,10 +535,94 @@ class _TradeDialogState extends State<_TradeDialog> {
         ),
       );
 
+  @override
+  void initState() {
+    super.initState();
+    for (final c in [_buyDate, _sellDate, _buy, _sell]) {
+      c.addListener(_changed);
+    }
+  }
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _pick(TextEditingController c, String label) async {
+    final cur = parseBizDate(c.text) ?? parseBizDate(_buyDate.text);
+    final iso = await pickAppDate(context,
+        calendar: AppConfig.calendarJalali,
+        initialIso: cur == null ? null : toIsoDate(cur.toDateTime()),
+        firstDate: Jalali(1300, 1, 1).toDateTime(),
+        lastDate: DateTime.now().add(const Duration(days: 3650)),
+        helpText: label);
+    if (iso == null) return;
+    c.text = bizDateText(Jalali.fromDateTime(parseIsoDate(iso)));
+  }
+
+  Widget _date(TextEditingController c, String label, String hint, String k) {
+    final txt = c.text.trim();
+    final j = txt.isEmpty ? null : parseBizDate(txt);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: TextField(
+        key: ValueKey(k),
+        controller: c,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          isDense: true,
+          helperText: j == null ? null : formatDisplayDate(toIsoDate(j.toDateTime()), AppConfig.calendarJalali),
+          errorText: txt.isNotEmpty && j == null ? 'تاریخ نامعتبر است.' : null,
+          suffixIcon: IconButton(
+            key: ValueKey('$k-pick'),
+            tooltip: 'انتخاب از تقویم',
+            icon: const Icon(Icons.calendar_month_outlined, size: 20),
+            onPressed: () => _pick(c, label),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _preview() {
+    final buyD = parseBizDate(_buyDate.text);
+    final sellD = _sellDate.text.trim().isEmpty ? null : parseBizDate(_sellDate.text);
+    final p = BizTradePreview.compute(buyD, sellD,
+        parseFlexibleNumber(_buy.text) ?? 0, parseFlexibleNumber(_sell.text) ?? 0);
+    final parts = <String>[
+      if (p.days != null) 'مدت نگهداری ${p.days} روز',
+      if (p.profit != null)
+        '${p.profit! < 0 ? 'زیان' : 'سود'} ${_m(p.profit!.abs())}${p.pct == null ? '' : ' (${p.pct!.toStringAsFixed(1)}٪)'}',
+      if (p.profit == null) 'هنوز فروش نرفته',
+    ];
+    final neg = (p.profit ?? 0) < 0 || (p.days ?? 0) < 0;
+    return Container(
+      key: const ValueKey('biz-f-preview'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppTheme.border)),
+      child: Text(
+        (p.days ?? 0) < 0 ? 'تاریخ فروش پیش از تاریخ خرید است' : parts.join(' · '),
+        textAlign: TextAlign.right,
+        style: TextStyle(color: neg ? AppTheme.negative : AppTheme.positive, fontSize: 12),
+      ),
+    );
+  }
+
   void _submit() {
     final buy = parseFlexibleNumber(_buy.text);
     if (_buyDate.text.trim().isEmpty || buy == null || buy <= 0) {
       setState(() => _err = 'تاریخ خرید و مبلغ خرید لازم است.');
+      return;
+    }
+    final bd = parseBizDate(_buyDate.text);
+    final sdText = _sellDate.text.trim();
+    final sd = sdText.isEmpty ? null : parseBizDate(sdText);
+    if (bd == null || (sdText.isNotEmpty && sd == null)) {
+      setState(() => _err = 'تاریخ نامعتبر است.');
       return;
     }
     Navigator.of(context).pop(_DialogResult({
@@ -513,10 +646,11 @@ class _TradeDialogState extends State<_TradeDialog> {
         content: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             _f(_title, 'نوع دارایی / طرفین', key: const ValueKey('biz-f-title')),
-            _f(_buyDate, 'تاریخ خرید', hint: '1405/01/20', key: const ValueKey('biz-f-buy-date')),
+            _date(_buyDate, 'تاریخ خرید', '1405/01/20', 'biz-f-buy-date'),
             _f(_buy, 'مبلغ خرید (تومان)', num: true, key: const ValueKey('biz-f-buy')),
-            _f(_sellDate, 'تاریخ فروش', hint: 'خالی = هنوز فروش نرفته', key: const ValueKey('biz-f-sell-date')),
+            _date(_sellDate, 'تاریخ فروش', 'خالی = هنوز فروش نرفته', 'biz-f-sell-date'),
             _f(_sell, 'مبلغ فروش (تومان)', num: true, key: const ValueKey('biz-f-sell')),
+            _preview(),
             _f(_area, 'متراژ', num: true),
             _f(_extra, 'کد و نقشه (تومان)', num: true),
             _f(_note, 'یادداشت'),

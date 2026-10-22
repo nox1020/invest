@@ -416,4 +416,61 @@ void main() {
     expect(find.byType(BizPage), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  test('parseBizDate mirrors server rules', () {
+    expect(bizDateText(parseBizDate('۱۴۰۵/۲/۱')!), '1405/02/01');
+    expect(bizDateText(parseBizDate('1/2/1405')!), '1405/02/01');
+    expect(parseBizDate('1405/12/31'), isNull); // 1405 اسفند 29 روز
+    expect(parseBizDate('1405/13/01'), isNull);
+    expect(parseBizDate('1200/01/01'), isNull);
+    expect(parseBizDate('abc'), isNull);
+    final p = BizTradePreview.compute(
+        parseBizDate('1405/01/01'), parseBizDate('1405/01/11'), 100, 200);
+    expect(p.days, 10);
+    expect(p.profit, 100);
+    expect(p.pct, 50);
+    expect(BizTradePreview.compute(parseBizDate('1405/01/01'), null, 100, 0).profit, isNull);
+  });
+
+  testWidgets('trade dialog: live preview, invalid date blocked, calendar picker',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 640);
+    addTearDown(tester.view.reset);
+    final s = FakeBizServer();
+    final store = BizStore.instance;
+    await tester.runAsync(() async => store.bindAccount(BizRemote(await _api(s)), '0912'));
+    await tester.pumpWidget(MaterialApp(home: BizPage(store: store)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('biz-add-trade')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('biz-f-buy-date')), '1405/02/01');
+    await tester.enterText(find.byKey(const ValueKey('biz-f-buy')), '100000000');
+    await tester.enterText(find.byKey(const ValueKey('biz-f-sell-date')), '1405/07/31');
+    await tester.pump();
+    expect(find.text('تاریخ نامعتبر است.'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('biz-f-save')));
+    await tester.pump();
+    expect(s.trades, isEmpty);
+    // calendar picker fills a valid date (initial = buy date)
+    await tester.tap(find.byKey(const ValueKey('biz-f-sell-date-pick')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تأیید'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('biz-f-sell-date'))).controller!.text,
+        '1405/02/01');
+    await tester.enterText(find.byKey(const ValueKey('biz-f-sell-date')), '1405/02/11');
+    await tester.enterText(find.byKey(const ValueKey('biz-f-sell')), '125000000');
+    await tester.pump();
+    expect(find.text('11 اردیبهشت 1405'), findsOneWidget);
+    expect(
+        tester.widget<Text>(find.descendant(
+            of: find.byKey(const ValueKey('biz-f-preview')), matching: find.byType(Text))).data,
+        'مدت نگهداری 10 روز · سود ${formatMoney(25000000)} (20.0٪)');
+    await tester.tap(find.byKey(const ValueKey('biz-f-save')));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pumpAndSettle();
+    expect(s.trades.single['sell_date'], '1405/02/11');
+    expect(tester.takeException(), isNull);
+  });
 }
