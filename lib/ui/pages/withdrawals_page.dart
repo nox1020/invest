@@ -12,6 +12,7 @@ import 'package:invest/ui/pages/biz_page.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
+import 'package:invest/ui/widgets/double_count_panel.dart';
 import 'package:invest/ui/widgets/tg_percent_wheel.dart';
 import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
@@ -101,6 +102,13 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
               _BalanceLedger(allowance: allowance),
               const SizedBox(height: 10),
               _CoveragePanel(allowance: allowance),
+              if (PwoStore.instance.loaded) ...[
+                const SizedBox(height: 10),
+                DoubleCountPanel(
+                  withdrawals: history,
+                  ledger: PwoStore.instance.ledger,
+                ),
+              ],
               const SizedBox(height: 10),
               _AnnualQuotaPanel(allowance: allowance),
               const SizedBox(height: 10),
