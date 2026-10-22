@@ -93,7 +93,7 @@ void main() {
     await store.loadOffline();
     expect(store.account, 'B');
     expect(store.snap.raw, isEmpty);
-    expect(store.readOnly, isTrue);
+    expect(store.showingCache, isTrue);
   });
 
   test('cheques: server phone differs from the stored one -> old book is '

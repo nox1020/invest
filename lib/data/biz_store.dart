@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import 'package:invest/data/biz_remote.dart';
+import 'package:invest/data/invest_api_client.dart';
+import 'package:invest/data/write_queue.dart';
 import 'package:invest/data/account_cache.dart';
 
 double _d(Object? v) => v is num ? v.toDouble() : double.tryParse('$v') ?? 0;
@@ -96,9 +98,14 @@ class BizStore extends ChangeNotifier {
   bool showingCache = false;
   String? lastError;
 
+  /// Writes waiting to be sent for the bound account (offline queue).
+  final WriteQueue queue = WriteQueue('biz');
+
   BizSnapshot get snap => _snap;
   bool get isRemote => _remote != null && _account != null;
-  bool get readOnly => !isRemote || showingCache;
+
+  /// Offline writes are queued, so only "no account at all" is read-only.
+  bool get readOnly => _account == null;
   String? get account => _account;
   int? get year => _year ?? _snap.year;
 
@@ -115,6 +122,7 @@ class BizStore extends ChangeNotifier {
       showingCache = false;
       lastError = null;
       notifyListeners();
+      await queue.bind(acc);
       await _loadCache(acc);
       if (_account != acc) return;
     }
@@ -137,11 +145,12 @@ class BizStore extends ChangeNotifier {
       _snap = BizSnapshot.empty;
       loaded = false;
     }
+    await queue.bind(last);
     await _loadCache(last);
     if (_account != last) return;
     _remote = null;
     showingCache = true;
-    lastError = const BizReadOnlyException().toString();
+    lastError = offlineQueueNote;
     loaded = true;
     notifyListeners();
   }
@@ -160,6 +169,7 @@ class BizStore extends ChangeNotifier {
 
   void unbind() {
     cache.clearLastAccount();
+    queue.bind(null); // the queue stays on disk for that account
     _remote = null;
     _account = null;
     _year = null;
@@ -204,6 +214,7 @@ class BizStore extends ChangeNotifier {
     syncing = true;
     notifyListeners();
     try {
+      await _flush(remote, acc);
       final s = await remote.fetch(year: _year);
       await _apply(acc, s);
     } catch (e) {
@@ -232,11 +243,40 @@ class BizStore extends ChangeNotifier {
     await refresh();
   }
 
-  Future<void> _write(
-      Future<Map<String, dynamic>> Function(BizRemote r) op) async {
+  /// Sends queued writes of [acc] (in order, each with its idempotency key).
+  Future<void> _flush(BizRemote r, String acc) async {
+    if (queue.isEmpty || queue.account != acc) return;
+    await queue.flush(acc, (w, key) => r.run(w, idempotencyKey: key));
+  }
+
+  /// Online: sent at once. Offline, or the answer never arrived: kept in the
+  /// account's queue (same idempotency key) and [WriteQueuedException] thrown.
+  Future<void> _write(String label, WriteRequest req) async {
     final r = _remote, acc = _account;
-    if (r == null || acc == null) throw const BizReadOnlyException();
-    await _apply(acc, await op(r));
+    if (acc == null) throw const BizReadOnlyException();
+    if (queue.account != acc) await queue.bind(acc);
+    if (r != null && queue.isEmpty) {
+      final key = newIdempotencyKey();
+      try {
+        await _apply(acc, await r.run(req, idempotencyKey: key));
+        return;
+      } catch (e) {
+        if (!isRetryableWriteError(e) || _account != acc) rethrow;
+        await queue.add(acc, req, label, key: key);
+        lastError = e.toString();
+        showingCache = loaded;
+        notifyListeners();
+        throw const WriteQueuedException();
+      }
+    }
+    final w = await queue.add(acc, req, label);
+    if (r != null) {
+      await refresh();
+      final left = queue.items.where((x) => x.key == w.key).firstOrNull;
+      if (left == null) return;
+      if (left.error != null) throw InvestApiException(left.error!);
+    }
+    throw const WriteQueuedException();
   }
 
   /// True when nothing is stored yet (import button is offered only then).
@@ -268,14 +308,24 @@ class BizStore extends ChangeNotifier {
     return (res['written'] as num?)?.toInt() ?? 0;
   }
 
-  Future<void> addTrade(Map<String, dynamic> body) =>
-      _write((r) => r.addTrade(body, year: _year));
-  Future<void> updateTrade(int id, Map<String, dynamic> body) =>
-      _write((r) => r.updateTrade(id, body, year: _year));
-  Future<void> deleteTrade(int id) =>
-      _write((r) => r.deleteTrade(id, year: _year));
+  static String _t(Map<String, dynamic> b) {
+    final s = '${b['title'] ?? ''}'.trim();
+    return s.isEmpty ? '${b['buy_date'] ?? ''}' : s;
+  }
+
+  Future<void> addTrade(Map<String, dynamic> body) => _write(
+      'ثبت معامله «${_t(body)}»', BizRemote.addTradeReq(body, year: _year));
+  Future<void> updateTrade(int id, Map<String, dynamic> body) => _write(
+      'ویرایش معامله «${_t(body)}»',
+      BizRemote.updateTradeReq(id, body, year: _year));
+  Future<void> deleteTrade(int id) {
+    final t = _snap.trades.where((x) => x.id == id).firstOrNull;
+    return _write('حذف معامله «${t == null ? id : _t(t.raw)}»',
+        BizRemote.deleteTradeReq(id, year: _year));
+  }
+
   Future<void> saveMonth(int y, int m, Map<String, dynamic> body) =>
-      _write((r) => r.putMonth(y, m, body));
+      _write('جدول ماهانه $y/$m', BizRemote.putMonthReq(y, m, body));
   Future<void> clearMonth(int y, int m) =>
-      _write((r) => r.deleteMonth(y, m));
+      _write('پاک کردن ماه $y/$m', BizRemote.deleteMonthReq(y, m));
 }

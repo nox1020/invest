@@ -92,6 +92,21 @@ class InvestApiClient {
     return _request('DELETE', _uri(path));
   }
 
+  /// Generic write with an `Idempotency-Key` (offline write queue): the
+  /// server runs a given key at most once per account.
+  Future<Map<String, dynamic>> send(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+    String? idempotencyKey,
+  }) {
+    return _request(method, _uri(path),
+        body: body,
+        extraHeaders: {
+          if (idempotencyKey != null) 'Idempotency-Key': idempotencyKey,
+        });
+  }
+
   Uri _uri(String path, {Map<String, String>? query}) {
     final p = path.startsWith('/') ? path : '/$path';
     return Uri.parse('$baseUrl$p').replace(queryParameters: query);
@@ -103,6 +118,7 @@ class InvestApiClient {
     Map<String, dynamic>? body,
     Duration? timeout,
     bool includeCookie = true,
+    Map<String, String> extraHeaders = const {},
   }) async {
     if (_sessionCookie == null || _sessionCookie!.isEmpty) {
       restoreSessionCookie();
@@ -114,6 +130,7 @@ class InvestApiClient {
       if (sendCookie && _sessionCookie != null && _sessionCookie!.isNotEmpty)
         'Cookie': _sessionCookie!,
       if (_bearerToken != null) 'Authorization': 'Bearer $_bearerToken',
+      ...extraHeaders,
     };
     final wait = timeout ?? this.timeout;
 

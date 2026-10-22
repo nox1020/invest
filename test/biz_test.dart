@@ -10,6 +10,7 @@ import 'package:invest/data/biz_store.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/session_store.dart';
+import 'package:invest/data/write_queue.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/ui/pages/biz_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -154,15 +155,20 @@ void main() {
     expect(s.bodies['PUT /months/1405/1']!.containsKey('pwo'), isFalse);
     expect(store.snap.months.first.net, 894700000); // as in the sheet
 
-    // offline: cached snapshot, writes refused
+    // offline: cached snapshot, writes are queued for this account only
     store.debugReset();
     await store.loadOffline();
-    expect(store.readOnly, isTrue);
+    expect(store.readOnly, isFalse);
     expect(store.snap.totalProfit, 400000000);
-    expect(() => store.deleteTrade(id), throwsA(isA<BizReadOnlyException>()));
+    final before = s.calls.length;
+    await expectLater(store.deleteTrade(id), throwsA(isA<WriteQueuedException>()));
+    expect(s.calls.length, before); // nothing sent offline
+    expect(store.queue.items.single.account, '0912');
+    expect(store.snap.trades, isNotEmpty); // not applied until the server says so
 
+    // reconnect: queued delete is sent, then the fresh snapshot shown
     await store.bindAccount(BizRemote(await _api(s)), '0912');
-    await store.deleteTrade(id);
+    expect(store.queue.isEmpty, isTrue);
     expect(store.snap.trades, isEmpty);
     await store.clearMonth(1405, 1);
     expect(store.snap.months.first.hasOps, isFalse);

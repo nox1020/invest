@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:invest/data/write_queue.dart';
+import 'package:invest/ui/widgets/pending_writes_panel.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shamsi_date/shamsi_date.dart';
@@ -39,6 +41,13 @@ Future<void> ensurePwoReady(BuildContext context, PwoStore store,
 Future<bool> _guard(BuildContext context, Future<void> Function() op) async {
   try {
     await op();
+    return true;
+  } on WriteQueuedException catch (e) {
+    // Saved in this account's queue: the edit is done from the user's side.
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
     return true;
   } catch (e) {
     if (context.mounted) {
@@ -123,6 +132,8 @@ class _PwoPageState extends State<PwoPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
               children: [
+                PendingWritesPanel(
+                    queue: _store.queue, onSendNow: () => ensurePwoReady(context, _store)),
                 if (_store.showingCache && _store.lastError != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),

@@ -2,7 +2,9 @@ import 'package:flutter/foundation.dart';
 
 import 'package:invest/data/account_cache.dart';
 import 'package:invest/data/local_platform.dart';
+import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/pwo_remote.dart';
+import 'package:invest/data/write_queue.dart';
 import 'package:invest/domain/services/pwo_ledger.dart';
 
 /// Thrown for writes while only a read-only account cache is shown.
@@ -35,7 +37,15 @@ class PwoStore extends ChangeNotifier {
   static final cache = AccountCache(
       keyOf: (a, _) => cacheKey(a), lastAccountKey: lastAccountKey);
   bool _cacheOnly = false;
-  bool get readOnly => _cacheOnly;
+
+  /// Offline edits of a bound account are queued, never refused.
+  bool get readOnly => false;
+
+  /// Writes waiting to be sent for the bound account (offline queue).
+  final WriteQueue queue = WriteQueue('pwo');
+
+  /// Remote semantics (server ids, queue) apply: bound, or its cache shown.
+  bool get _accountMode => isRemote || (_cacheOnly && _account != null);
 
   PwoLedger _ledger = PwoLedger();
   bool _loaded = false;
@@ -74,6 +84,7 @@ class PwoStore extends ChangeNotifier {
       showingCache = false;
       _ledger = PwoLedger(people: []);
       notifyListeners();
+      await queue.bind(acc);
       await cache.setLastAccount(acc);
       final raw = await cache.read(acc);
       if (_account != acc) return;
@@ -101,6 +112,7 @@ class PwoStore extends ChangeNotifier {
   void unbind() {
     _cacheOnly = false;
     cache.clearLastAccount();
+    queue.bind(null); // the queue stays on disk for that account
     _remote = null;
     _account = null;
     _sync = null;
@@ -122,10 +134,11 @@ class PwoStore extends ChangeNotifier {
       // legacy device ledger / 1405 seed. Show that account's cache only.
       _cacheOnly = true;
       _account = last;
+      await queue.bind(last);
       _ledger = PwoLedger.decode(prefs?.getString(cacheKey(last)));
       _loaded = true;
       showingCache = true;
-      lastError = const PwoReadOnlyException().toString();
+      lastError = offlineQueueNote;
       notifyListeners();
       return;
     }
@@ -187,6 +200,9 @@ class PwoStore extends ChangeNotifier {
         snap = await remote.import(source.toImportPayload());
         if (prefs != null) await prefs.setBool(migratedKey(acc), true);
       } else {
+        if (!queue.isEmpty && queue.account == acc) {
+          await queue.flush(acc, (w, key) => remote.run(w, idempotencyKey: key));
+        }
         snap = await remote.fetch();
       }
       if (_account != acc) return;
@@ -214,7 +230,7 @@ class PwoStore extends ChangeNotifier {
   /// Owner and data are captured before any await, so an account switch
   /// mid-save can never put this ledger under another account's key.
   Future<void> _save() async {
-    final acc = isRemote ? _account! : null;
+    final acc = _accountMode ? _account : null;
     final data = _ledger.encode();
     if (acc != null) return cache.write(acc, data);
     final prefs = await LocalPrefs.open();
@@ -222,21 +238,46 @@ class PwoStore extends ChangeNotifier {
     await LocalPrefs.setString(prefs, prefsKey, data);
   }
 
-  /// Runs a server write and applies its snapshot. Throws the server error.
-  Future<void> _write(Future<Map<String, dynamic>> Function(PwoRemote r) op) async {
-    _ensureWritable();
+  /// Online: sent at once and its snapshot applied. Offline, or the answer
+  /// never arrived: kept in this account's queue (same idempotency key) and
+  /// [WriteQueuedException] thrown. Throws the server's refusal otherwise.
+  Future<void> _write(String label, WriteRequest req) async {
     final acc = _account;
-    final snap = await op(_remote!);
-    if (_account != acc) return;
-    await _apply(snap);
-    lastError = null;
-    showingCache = false;
-    notifyListeners();
+    if (acc == null) throw const PwoReadOnlyException();
+    if (queue.account != acc) await queue.bind(acc);
+    final r = _remote;
+    if (r != null && queue.isEmpty) {
+      final key = newIdempotencyKey();
+      try {
+        final snap = await r.run(req, idempotencyKey: key);
+        if (_account != acc) return;
+        await _apply(snap);
+        lastError = null;
+        showingCache = false;
+        notifyListeners();
+        return;
+      } catch (e) {
+        if (!isRetryableWriteError(e) || _account != acc) rethrow;
+        await queue.add(acc, req, label, key: key);
+        lastError = e.toString();
+        showingCache = _loaded;
+        notifyListeners();
+        throw const WriteQueuedException();
+      }
+    }
+    final w = await queue.add(acc, req, label);
+    if (r != null) {
+      await refresh();
+      final left = queue.items.where((x) => x.key == w.key).firstOrNull;
+      if (left == null) return;
+      if (left.error != null) throw InvestApiException(left.error!);
+    }
+    throw const WriteQueuedException();
   }
 
-  void _ensureWritable() {
-    if (_cacheOnly) throw const PwoReadOnlyException();
-  }
+  void _ensureWritable() {}
+
+  String _who(String id) => _ledger.personById(id)?.name ?? id;
 
   Future<void> _local(void Function() change) async {
     _ensureWritable();
@@ -249,7 +290,7 @@ class PwoStore extends ChangeNotifier {
   /// cleared when the month/year changed).
   Future<void> saveMonth(PwoMonth m, {PwoMonth? replacing}) async {
     _ensureWritable();
-    if (!isRemote) {
+    if (!_accountMode) {
       return _local(() {
         final keep = <PwoTx>[
           ...?_ledger.months[m.key]?.txs,
@@ -267,7 +308,7 @@ class PwoStore extends ChangeNotifier {
     if (m.amounts.isEmpty) {
       throw ArgumentError('حداقل یک برداشت‌کننده لازم است.');
     }
-    await _write((r) => r.putMonth(m.year, m.month, m.amounts));
+    await _write('PWO ماه ${m.year}/${m.month}', PwoRemote.putMonthReq(m.year, m.month, m.amounts));
     if (replacing != null && replacing.key != m.key) {
       await deleteMonth(replacing.year, replacing.month);
     }
@@ -275,25 +316,25 @@ class PwoStore extends ChangeNotifier {
 
   Future<void> deleteMonth(int year, int month) async {
     _ensureWritable();
-    if (!isRemote) return _local(() => _ledger.remove(year, month));
+    if (!_accountMode) return _local(() => _ledger.remove(year, month));
     final m = _ledger.months[pwoMonthKey(year, month)];
     final ids = m?.entryIds.values.toList() ?? const <int>[];
     final txIds = [for (final t in m?.txs ?? const <PwoTx>[]) if (t.id != null) t.id!];
-    if (ids.isEmpty && txIds.isEmpty) return _write((r) => r.fetch());
+    if (ids.isEmpty && txIds.isEmpty) return isRemote ? refresh() : Future.value();
     for (final id in ids) {
-      await _write((r) => r.deleteEntry(id));
+      await _write('حذف ردیف PWO ماه $year/$month', PwoRemote.deleteEntryReq(id));
     }
     for (final id in txIds) {
-      await _write((r) => r.deleteTx(id));
+      await _write('حذف برداشت تکی ماه $year/$month', PwoRemote.deleteTxReq(id));
     }
   }
 
   Future<void> setTarget(double v) async {
     _ensureWritable();
     if (!v.isFinite || v <= 0) return;
-    if (!isRemote) return _local(() => _ledger.target = v);
+    if (!_accountMode) return _local(() => _ledger.target = v);
     if (v == _ledger.target) return;
-    await _write((r) => r.setTarget(v));
+    await _write('هدف ماهانهٔ PWO', PwoRemote.setTargetReq(v));
   }
 
   void _checkUnique(String name, {String? except}) {
@@ -308,8 +349,8 @@ class PwoStore extends ChangeNotifier {
     final p = _ledger.personById(id);
     if (p == null || s.isEmpty || s == p.name) return;
     if (p.active) _checkUnique(s, except: id);
-    if (!isRemote) return _local(() => p.name = s);
-    await _write((r) => r.patchWithdrawer(id, name: s));
+    if (!_accountMode) return _local(() => p.name = s);
+    await _write('تغییر نام ${p.name} به $s', PwoRemote.patchWithdrawerReq(id, name: s));
   }
 
   Future<PwoPerson?> addPerson(String name) async {
@@ -317,25 +358,25 @@ class PwoStore extends ChangeNotifier {
     final s = name.trim().split(RegExp(r'\s+')).join(' ');
     if (s.isEmpty) return null;
     _checkUnique(s);
-    if (!isRemote) {
+    if (!_accountMode) {
       late PwoPerson p;
       await _local(() => p = _ledger.addPerson(s));
       return p;
     }
-    await _write((r) => r.addWithdrawer(s));
+    await _write('افزودن $s', PwoRemote.addWithdrawerReq(s));
     return _ledger.people.lastWhere((p) => p.name == s,
         orElse: () => _ledger.people.last);
   }
 
   Future<bool> removePerson(String id) async {
     _ensureWritable();
-    if (!isRemote) {
+    if (!_accountMode) {
       final ok = _ledger.removePerson(id);
       if (ok) await _local(() {});
       return ok;
     }
     if (_ledger.activePeople.length <= 1) return false;
-    await _write((r) => r.deleteWithdrawer(id));
+    await _write('بایگانی ${_who(id)}', PwoRemote.deleteWithdrawerReq(id));
     return true;
   }
 
@@ -344,8 +385,8 @@ class PwoStore extends ChangeNotifier {
     final p = _ledger.personById(id);
     if (p == null) return;
     _checkUnique(p.name, except: id);
-    if (!isRemote) return _local(() => p.active = true);
-    await _write((r) => r.patchWithdrawer(id, archived: false));
+    if (!_accountMode) return _local(() => p.active = true);
+    await _write('بازگرداندن ${p.name}', PwoRemote.patchWithdrawerReq(id, archived: false));
   }
 
   int _localTxSeq = -1;
@@ -381,7 +422,7 @@ class PwoStore extends ChangeNotifier {
       throw ArgumentError('برداشت‌کننده پیدا نشد.');
     }
     final n = note.trim();
-    if (!isRemote) {
+    if (!_accountMode) {
       return _local(() {
         _ledger.months
             .putIfAbsent(pwoMonthKey(year, month),
@@ -391,7 +432,7 @@ class PwoStore extends ChangeNotifier {
                 id: _nextLocalTxId(), personId: personId, amount: toman, note: n));
       });
     }
-    await _write((r) => r.addTx(personId, year, month, toman, n));
+    await _write('برداشت تکی ${_who(personId)} ماه $year/$month', PwoRemote.addTxReq(personId, year, month, toman, n));
   }
 
   Future<void> updateTx(int id, String personId, double toman,
@@ -401,7 +442,7 @@ class PwoStore extends ChangeNotifier {
       throw ArgumentError('مبلغ برداشت باید بیشتر از صفر باشد.');
     }
     final n = note.trim();
-    if (!isRemote) {
+    if (!_accountMode) {
       final m = _monthOfTx(id);
       if (m == null) throw ArgumentError('برداشت پیدا نشد.');
       return _local(() {
@@ -412,17 +453,17 @@ class PwoStore extends ChangeNotifier {
           ..note = n;
       });
     }
-    await _write((r) => r.patchTx(id, personId, toman, n));
+    await _write('ویرایش برداشت تکی ${_who(personId)}', PwoRemote.patchTxReq(id, personId, toman, n));
   }
 
   Future<void> deleteTx(int id) async {
     _ensureWritable();
-    if (!isRemote) {
+    if (!_accountMode) {
       final m = _monthOfTx(id);
       if (m == null) return;
       return _local(() => m.txs.removeWhere((t) => t.id == id));
     }
-    await _write((r) => r.deleteTx(id));
+    await _write('حذف برداشت تکی', PwoRemote.deleteTxReq(id));
   }
 
   @visibleForTesting

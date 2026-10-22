@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:invest/data/write_queue.dart';
+import 'package:invest/ui/widgets/pending_writes_panel.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:invest/domain/services/biz_annual_report.dart';
@@ -51,6 +53,13 @@ Color _sign(num v) => v < 0 ? AppTheme.negative : AppTheme.positive;
 Future<bool> _guard(BuildContext context, Future<void> Function() op) async {
   try {
     await op();
+    return true;
+  } on WriteQueuedException catch (e) {
+    // Saved in this account's queue: the edit is done from the user's side.
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text(e.toString())));
+    }
     return true;
   } catch (e) {
     if (context.mounted) {
@@ -154,7 +163,7 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
             final err = _store.lastError;
             final banner = _store.showingCache || err != null
                 ? MaterialBanner(
-                    content: Text(err ?? const BizReadOnlyException().toString()),
+                    content: Text(err ?? offlineQueueNote),
                     actions: [
                       TextButton(
                           onPressed: () => ensureBizReady(context, _store),
@@ -171,6 +180,12 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
             }
             return Column(children: [
               if (banner != null) banner,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: PendingWritesPanel(
+                    queue: _store.queue,
+                    onSendNow: () => ensureBizReady(context, _store)),
+              ),
               if (_store.syncing) const LinearProgressIndicator(minHeight: 2),
               Expanded(
                 child: TabBarView(controller: _tabs, children: [

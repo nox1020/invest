@@ -4,6 +4,7 @@ import 'package:invest/config/app_config.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/pwo_remote.dart';
 import 'package:invest/data/pwo_store.dart';
+import 'package:invest/data/write_queue.dart';
 import 'package:invest/data/session_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -98,10 +99,11 @@ void main() {
     final l = PwoStore.instance.ledger;
     expect(l.monthsOf(1405).length, 9);
     expect(l.yearTotal(1405), s.es.fold<double>(0, (a, e) => a + (e['amount'] as num)));
-    // Writes must not silently go to a device-only copy.
+    // Writes never go to a device-only copy: they wait in the account queue.
     await expectLater(
-        PwoStore.instance.setTarget(5e8), throwsA(isA<PwoReadOnlyException>()));
+        PwoStore.instance.setTarget(5e8), throwsA(isA<WriteQueuedException>()));
     expect(l.target, 100000000);
+    expect(PwoStore.instance.queue.items.single.account, '0912');
   });
 
   test('first ever sign-in on an empty server still imports device data once',
