@@ -95,8 +95,8 @@ void main() {
     expect(find.textContaining('کوتای سالانه'), findsOneWidget);
     expect(find.text('برداشت امسال'), findsOneWidget);
     expect(find.text('باقیمانده سقف'), findsOneWidget);
-    expect(find.text('سود سالانه قابل برداشت'), findsOneWidget);
-    expect(find.textContaining('چرخ ۱ تا ۱۰۰٪'), findsOneWidget);
+    expect(find.text('سقف برداشت سالانه'), findsNothing);
+    expect(find.textContaining('چرخ ۱ تا ۱۰۰٪'), findsNothing);
     expect(find.text('تنظیم درصد سالانه'), findsOneWidget);
     expect(find.text('تغییر درصد در تنظیمات'), findsNothing);
     expect(find.text('انجام‌شده'), findsOneWidget);

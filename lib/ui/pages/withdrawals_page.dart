@@ -93,17 +93,6 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
               ),
               const SizedBox(height: 20),
               const _SectionLabel(
-                eyebrow: 'سیاست',
-                title: 'سقف برداشت سالانه',
-              ),
-              const SizedBox(height: 10),
-              _PolicyCard(
-                annualPct: state.settings.annualWithdrawalPct,
-                canEdit: state.canMutate,
-                onEdit: () => _editAnnualWithdrawalPct(context, state),
-              ),
-              const SizedBox(height: 20),
-              const _SectionLabel(
                 eyebrow: 'تراز',
                 title: 'سود و برداشت',
               ),
@@ -416,91 +405,6 @@ class _CapacityHero extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PolicyCard extends StatelessWidget {
-  const _PolicyCard({
-    required this.annualPct,
-    required this.canEdit,
-    required this.onEdit,
-  });
-
-  final int annualPct;
-  final bool canEdit;
-  final VoidCallback onEdit;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppTheme.card,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: canEdit
-            ? () {
-                HapticFeedback.selectionClick();
-                onEdit();
-              }
-            : null,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.border),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                Icons.keyboard_arrow_down_rounded,
-                color: canEdit ? AppTheme.muted : AppTheme.border,
-              ),
-              const SizedBox(width: 6),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppTheme.bg,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.border),
-                ),
-                child: Text(
-                  AppSettings.annualWithdrawalShortLabel(annualPct),
-                  style: const TextStyle(
-                    color: AppTheme.positive,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      'سود سالانه قابل برداشت',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        color: AppTheme.title,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                      ),
-                    ),
-                    SizedBox(height: 3),
-                    Text(
-                      'چرخ ۱ تا ۱۰۰٪ با ویبره · ذخیره روی سرور',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(color: AppTheme.muted, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
