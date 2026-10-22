@@ -7,6 +7,7 @@ import 'package:invest/config/app_config.dart';
 import 'package:invest/data/biz_store.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/data/app_lock_store.dart';
+import 'package:invest/data/account_cache.dart';
 import 'package:invest/data/app_database.dart';
 import 'package:invest/data/check_repository.dart';
 import 'package:invest/data/invest_api_client.dart';
@@ -192,6 +193,12 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   set debugHoldUiNotifications(bool value) => _holdUiNotifications = value;
 
+  /// Per-phone cheque book and pending-delete caches (same keys as before).
+  static final checkBookCache =
+      AccountCache(keyOf: (a, _) => 'check_book_v1_$a');
+  static final checkDeleteCache =
+      AccountCache(keyOf: (a, _) => 'check_deleted_v1_$a');
+
   bool get canMutate => authenticated && !readOnlyOffline;
 
   @override
@@ -324,7 +331,7 @@ class AppState extends ChangeNotifier {
       userPhone = _session!.phone;
 
       final auth = await _api!.checkAuthDetailed();
-      _noteServerPhone(auth.phone);
+      await _noteServerPhone(auth.phone);
       switch (auth.status) {
         case AuthCheckStatus.authenticated:
           offline = false;
@@ -534,7 +541,7 @@ class AppState extends ChangeNotifier {
     try {
       final auth = await _api!.checkAuthDetailed();
       if (auth.status == AuthCheckStatus.authenticated) {
-        _noteServerPhone(auth.phone);
+        await _noteServerPhone(auth.phone);
         reauthRequired = false;
         return true;
       }
@@ -1168,11 +1175,12 @@ class AppState extends ChangeNotifier {
   /// Cookie is the account. A mismatch is logged and the label follows the
   /// server phone. The stored cookie is not replaced and the user is not
   /// logged out.
-  void _noteServerPhone(String? serverPhone) {
+  Future<void> _noteServerPhone(String? serverPhone) async {
     final server = (serverPhone ?? '').trim();
     if (server.isEmpty) return;
     final stored = (userPhone ?? _session?.phone ?? '').trim();
     if (stored.isNotEmpty && stored != server) {
+      await _switchCheckAccount(stored);
       String tail(String value) =>
           value.length <= 4 ? value : value.substring(value.length - 4);
       debugPrint(

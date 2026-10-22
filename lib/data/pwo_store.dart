@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'package:invest/data/account_cache.dart';
 import 'package:invest/data/local_platform.dart';
 import 'package:invest/data/pwo_remote.dart';
 import 'package:invest/domain/services/pwo_ledger.dart';
@@ -31,6 +32,8 @@ class PwoStore extends ChangeNotifier {
   /// Last account bound on this device. While set, device-only mode shows
   /// that account's cache read-only instead of the legacy local ledger/seed.
   static const lastAccountKey = 'vplus_pwo_last_account_v1';
+  static final cache = AccountCache(
+      keyOf: (a, _) => cacheKey(a), lastAccountKey: lastAccountKey);
   bool _cacheOnly = false;
   bool get readOnly => _cacheOnly;
 
@@ -70,10 +73,10 @@ class PwoStore extends ChangeNotifier {
       lastError = null;
       showingCache = false;
       _ledger = PwoLedger(people: []);
-      final prefs = await LocalPrefs.open();
+      notifyListeners();
+      await cache.setLastAccount(acc);
+      final raw = await cache.read(acc);
       if (_account != acc) return;
-      if (prefs != null) await prefs.setString(lastAccountKey, acc);
-      final raw = prefs?.getString(cacheKey(acc));
       if (raw != null) {
         _ledger = PwoLedger.decode(raw);
         _loaded = true;
@@ -97,9 +100,7 @@ class PwoStore extends ChangeNotifier {
   /// Back to device-only mode (logout).
   void unbind() {
     _cacheOnly = false;
-    LocalPrefs.open().then((p) async {
-      await p?.remove(lastAccountKey);
-    });
+    cache.clearLastAccount();
     _remote = null;
     _account = null;
     _sync = null;
@@ -210,11 +211,15 @@ class PwoStore extends ChangeNotifier {
     await _save();
   }
 
+  /// Owner and data are captured before any await, so an account switch
+  /// mid-save can never put this ledger under another account's key.
   Future<void> _save() async {
+    final acc = isRemote ? _account! : null;
+    final data = _ledger.encode();
+    if (acc != null) return cache.write(acc, data);
     final prefs = await LocalPrefs.open();
     if (prefs == null) return;
-    final key = isRemote ? cacheKey(_account!) : prefsKey;
-    await LocalPrefs.setString(prefs, key, _ledger.encode());
+    await LocalPrefs.setString(prefs, prefsKey, data);
   }
 
   /// Runs a server write and applies its snapshot. Throws the server error.

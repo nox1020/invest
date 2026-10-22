@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import 'package:invest/data/biz_remote.dart';
-import 'package:invest/data/local_platform.dart';
+import 'package:invest/data/account_cache.dart';
 
 double _d(Object? v) => v is num ? v.toDouble() : double.tryParse('$v') ?? 0;
 double? _dn(Object? v) => v == null ? null : (v is num ? v.toDouble() : double.tryParse('$v'));
@@ -84,6 +84,8 @@ class BizStore extends ChangeNotifier {
   static String cacheKey(String account, int? year) =>
       'vplus_biz_cache_v1_${account}_${year ?? 'cur'}';
   static const lastAccountKey = 'vplus_biz_last_account_v1';
+  static final cache = AccountCache(
+      keyOf: (a, y) => cacheKey(a, y as int?), lastAccountKey: lastAccountKey);
 
   BizRemote? _remote;
   String? _account;
@@ -109,7 +111,12 @@ class BizStore extends ChangeNotifier {
       _year = null;
       _snap = BizSnapshot.empty;
       loaded = false;
+      // Previous account's error / cache banner must not carry over.
+      showingCache = false;
+      lastError = null;
+      notifyListeners();
       await _loadCache(acc);
+      if (_account != acc) return;
     }
     await refresh();
   }
@@ -117,15 +124,21 @@ class BizStore extends ChangeNotifier {
   /// No server connection: show the last account's cache, read-only.
   Future<void> loadOffline() async {
     _remote = null;
-    final prefs = await LocalPrefs.open();
-    final last = prefs?.getString(lastAccountKey);
-    if (last == null || last.isEmpty) {
+    final last = await cache.lastAccount();
+    if (last == null) {
       loaded = true;
       notifyListeners();
       return;
     }
-    _account = last;
+    if (_account != last) {
+      // Never show another account's in-memory snapshot as this one's.
+      _account = last;
+      _year = null;
+      _snap = BizSnapshot.empty;
+      loaded = false;
+    }
     await _loadCache(last);
+    if (_account != last) return;
     _remote = null;
     showingCache = true;
     lastError = const BizReadOnlyException().toString();
@@ -146,9 +159,7 @@ class BizStore extends ChangeNotifier {
   }
 
   void unbind() {
-    LocalPrefs.open().then((p) async {
-      await p?.remove(lastAccountKey);
-    });
+    cache.clearLastAccount();
     _remote = null;
     _account = null;
     _year = null;
@@ -160,9 +171,9 @@ class BizStore extends ChangeNotifier {
   }
 
   Future<void> _loadCache(String acc) async {
-    final prefs = await LocalPrefs.open();
-    if (prefs != null) await prefs.setString(lastAccountKey, acc);
-    final raw = prefs?.getString(cacheKey(acc, _year));
+    await cache.setLastAccount(acc);
+    final raw = await cache.read(acc, _year);
+    if (_account != acc) return;
     if (raw != null) {
       try {
         _snap = BizSnapshot(Map<String, dynamic>.from(jsonDecode(raw) as Map));
@@ -172,21 +183,19 @@ class BizStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _apply(Map<String, dynamic> snap) async {
+  /// Applies [snap] fetched for [acc]; dropped if the account changed.
+  Future<void> _apply(String acc, Map<String, dynamic> snap) async {
+    if (_account != acc) return;
+    final year = _year;
     _snap = BizSnapshot(snap);
     loaded = true;
     showingCache = false;
     lastError = null;
-    final acc = _account;
-    if (acc != null) {
-      final prefs = await LocalPrefs.open();
-      final s = jsonEncode(snap);
-      await prefs?.setString(cacheKey(acc, _year), s);
-      if (_year == null || _year == _snap.year) {
-        await prefs?.setString(cacheKey(acc, _snap.year), s);
-      }
-    }
+    final s = jsonEncode(snap);
+    final snapYear = _snap.year;
     notifyListeners();
+    await cache.write(acc, s, year);
+    if (year == null || year == snapYear) await cache.write(acc, s, snapYear);
   }
 
   Future<void> refresh() async {
@@ -196,8 +205,7 @@ class BizStore extends ChangeNotifier {
     notifyListeners();
     try {
       final s = await remote.fetch(year: _year);
-      if (_account != acc) return;
-      await _apply(s);
+      await _apply(acc, s);
     } catch (e) {
       if (_account != acc) return;
       lastError = e.toString();
@@ -212,8 +220,8 @@ class BizStore extends ChangeNotifier {
     _year = y;
     final acc = _account;
     if (acc != null) {
-      final prefs = await LocalPrefs.open();
-      final raw = prefs?.getString(cacheKey(acc, y));
+      final raw = await cache.read(acc, y);
+      if (_account != acc || _year != y) return;
       if (raw != null) {
         try {
           _snap = BizSnapshot(Map<String, dynamic>.from(jsonDecode(raw) as Map));
@@ -226,9 +234,9 @@ class BizStore extends ChangeNotifier {
 
   Future<void> _write(
       Future<Map<String, dynamic>> Function(BizRemote r) op) async {
-    final r = _remote;
-    if (r == null || _account == null) throw const BizReadOnlyException();
-    await _apply(await op(r));
+    final r = _remote, acc = _account;
+    if (r == null || acc == null) throw const BizReadOnlyException();
+    await _apply(acc, await op(r));
   }
 
   /// True when nothing is stored yet (import button is offered only then).
@@ -241,8 +249,8 @@ class BizStore extends ChangeNotifier {
   /// Parses pasted sheet JSON `{"trades": [...], "months": [...]}` and sends
   /// it to the guarded import. Returns rows written (0 = account had data).
   Future<int> importSheet(String text) async {
-    final r = _remote;
-    if (r == null || _account == null) throw const BizReadOnlyException();
+    final r = _remote, acc = _account;
+    if (r == null || acc == null) throw const BizReadOnlyException();
     Object? data;
     try {
       data = jsonDecode(text.trim());
@@ -255,7 +263,7 @@ class BizStore extends ChangeNotifier {
     }
     final res = await r.import(Map<String, dynamic>.from(data));
     final snap = res['biz'];
-    if (snap is Map) await _apply(Map<String, dynamic>.from(snap));
+    if (snap is Map) await _apply(acc, Map<String, dynamic>.from(snap));
     if (res['already_has_data'] == true) return 0;
     return (res['written'] as num?)?.toInt() ?? 0;
   }

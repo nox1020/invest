@@ -26,23 +26,43 @@ extension AppStateChecks on AppState {
     await _stashChecksForCurrentPhone();
   }
 
-  String get _checkBookKey =>
-      'check_book_v1_${(userPhone ?? '').trim()}';
+  Future<void> _stashChecksForCurrentPhone() =>
+      _stashChecksFor(userPhone, checks);
 
-  Future<void> _stashChecksForCurrentPhone() async {
+  Future<void> _stashChecksFor(String? phone, List<BankCheck> rows) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _checkBookKey,
-        jsonEncode(checks.map((c) => c.toMap()).toList()),
+      await AppState.checkBookCache.write(
+        AccountCache.norm(phone),
+        jsonEncode(rows.map((c) => c.toMap()).toList()),
       );
     } catch (_) {}
   }
 
+  /// Server says the session belongs to another phone than the one the
+  /// cheque book was loaded for: park the old book under its own phone and
+  /// start clean, so it is never shown or saved as the new account's.
+  Future<void> _switchCheckAccount(String? from) async {
+    try {
+      if (_checksHydrated) {
+        await _stashChecksFor(from, checks);
+      } else {
+        final rows = await (await _localChecks()).listAll();
+        if (rows.isNotEmpty) await _stashChecksFor(from, rows);
+      }
+      await _clearActiveCheckTable();
+    } catch (_) {}
+    checks = [];
+    _checksHydrated = false;
+    _checksPendingSync = false;
+    _checksFromRemote = false;
+    _pendingDeletedCheckIds.clear();
+    checkSyncError = null;
+    _checkAlertKeys.clear();
+  }
+
   Future<List<BankCheck>> _readStashedChecks() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_checkBookKey);
+      final raw = await AppState.checkBookCache.read(AccountCache.norm(userPhone));
       if (raw == null || raw.isEmpty) return const [];
       final decoded = jsonDecode(raw);
       if (decoded is! List) return const [];
@@ -67,7 +87,7 @@ extension AppStateChecks on AppState {
       useRemote && !offline && !readOnlyOffline && remote != null;
 
   String get _checkDeleteKey =>
-      'check_deleted_v1_${(userPhone ?? '').trim()}';
+      AppState.checkDeleteCache.keyOf(AccountCache.norm(userPhone), null);
 
   Future<void> _applyChecksAfterFetch(RemoteSettingsBundle? bundle) async {
     if (_checksSyncing) return;
