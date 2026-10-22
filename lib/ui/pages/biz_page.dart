@@ -881,3 +881,140 @@ class BizEntryCard extends StatelessWidget {
     );
   }
 }
+
+/// Summary of ملک و دفتر on the dashboard (current year). Tap opens the page.
+class BizDashboardCard extends StatefulWidget {
+  const BizDashboardCard({super.key, this.store});
+  final BizStore? store;
+
+  @override
+  State<BizDashboardCard> createState() => _BizDashboardCardState();
+}
+
+class _BizDashboardCardState extends State<BizDashboardCard> {
+  BizStore get _store => widget.store ?? BizStore.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ensureBizReady(context, _store, refresh: false).catchError((_) {});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = _store;
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        final s = store.snap;
+        final has = store.loaded && s.raw.isNotEmpty;
+        final trades = s.trades;
+        final open = trades.where((t) => !t.sold).length;
+        final soldN = trades.where((t) => t.sold).length;
+        final y = s.year;
+        var mism = 0;
+        if (y != null) {
+          for (final m in s.months) {
+            final tp = tradeProfitInMonth(trades, y, m.month);
+            if ((!m.isEmpty || tp != 0) && incomeMismatch(m.income, tp)) mism++;
+          }
+        }
+        Widget stat(String k, String label, String value, {Color? color}) =>
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(children: [
+                Flexible(
+                  child: Text(value,
+                      key: ValueKey('biz-dash-$k'),
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: color ?? AppTheme.title,
+                          fontWeight: FontWeight.w700)),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(label,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(color: AppTheme.muted, fontSize: 12)),
+                ),
+              ]),
+            );
+        final net = s.monthTotals['net'] ?? 0;
+        return Material(
+          color: AppTheme.card,
+          borderRadius: BorderRadius.circular(18),
+          child: InkWell(
+            key: const ValueKey('biz-dash-card'),
+            borderRadius: BorderRadius.circular(18),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => BizPage(store: widget.store))),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: AppTheme.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(children: [
+                    const Icon(Icons.chevron_left_rounded, color: AppTheme.muted),
+                    const Spacer(),
+                    Flexible(
+                      child: Text(y == null ? 'ملک و دفتر' : 'ملک و دفتر · $y',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: AppTheme.title,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16)),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.home_work_outlined,
+                        color: AppTheme.positive, size: 20),
+                  ]),
+                  if (!has)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text(
+                          store.syncing
+                              ? 'در حال دریافت…'
+                              : 'سابقه خرید و فروش ملک و جدول ماهانهٔ دفتر',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                              color: AppTheme.muted, fontSize: 12)),
+                    )
+                  else ...[
+                    stat('profit', 'سود معاملات فروخته‌شده ($soldN)',
+                        _m(s.totalProfit),
+                        color: s.totalProfit < 0
+                            ? AppTheme.negative
+                            : AppTheme.positive),
+                    stat('open', 'معاملات باز', '$open'),
+                    stat('income', 'درآمد دفتر امسال',
+                        _m(s.monthTotals['income'] ?? 0)),
+                    stat('net', 'خالص ماهانه امسال', _m(net),
+                        color: net < 0 ? AppTheme.negative : null),
+                    if (mism > 0)
+                      stat('mismatch', 'ماه با مغایرت درآمد', '$mism',
+                          color: AppTheme.negative),
+                    if (store.showingCache)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text('نسخهٔ ذخیره‌شده (آفلاین)',
+                            textAlign: TextAlign.right,
+                            style:
+                                TextStyle(color: AppTheme.muted, fontSize: 11)),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}

@@ -384,4 +384,28 @@ void main() {
     expect(find.byKey(const ValueKey('biz-month-flag-1')), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('dashboard card summarises the year and opens the page', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 640);
+    addTearDown(tester.view.reset);
+    final s = FakeBizServer()..pwo.clear();
+    s.trades.addAll([
+      {'id': 1, 'buy_date': '1405/01/01', 'sell_date': '1405/01/20', 'buy_amount': 100, 'sell_amount': 400100},
+      {'id': 2, 'buy_date': '1405/01/01', 'sell_date': '', 'buy_amount': 100, 'sell_amount': 0},
+    ]);
+    s.ops[1] = {'income': 900000, 'staff': 0, 'ads': 0};
+    final store = BizStore.instance;
+    await tester.runAsync(() async => store.bindAccount(BizRemote(await _api(s)), '0912'));
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ListView(children: [BizDashboardCard(store: store)]))));
+    await tester.pumpAndSettle();
+    expect(find.text(formatMoney(400000)), findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('biz-dash-open'))).data, '1');
+    expect(tester.widget<Text>(find.byKey(const ValueKey('biz-dash-mismatch'))).data, '1');
+    await tester.tap(find.byKey(const ValueKey('biz-dash-card')));
+    await tester.pumpAndSettle();
+    expect(find.byType(BizPage), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

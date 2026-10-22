@@ -11,6 +11,7 @@ import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/layout/page_padding.dart';
+import 'package:invest/ui/pages/biz_page.dart';
 import 'package:invest/ui/pages/capital_chart_page.dart';
 import 'package:invest/ui/pages/checks_page.dart';
 import 'package:invest/ui/pages/quote_detail_page.dart';
@@ -249,6 +250,13 @@ class _DashboardBodyState extends State<_DashboardBody>
                   ),
                   SizedBox(height: 12),
                   ChecksDashboardCard(),
+                  SizedBox(height: 26),
+                  _SectionLabel(
+                    title: 'ملک و دفتر',
+                    subtitle: 'خلاصهٔ معاملات و دفتر امسال',
+                  ),
+                  SizedBox(height: 12),
+                  BizDashboardCard(),
                 ],
               ),
             ),
