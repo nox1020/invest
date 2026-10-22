@@ -25,7 +25,19 @@ class WithdrawalAllowance {
     required this.calendar,
     this.pwoYearWithdrawn = 0,
     this.pwoAllTime = 0,
-  });
+    this.capBase = AppConfig.capBaseInflows,
+    double? capBaseAmount,
+    this.capBaseFallback = false,
+  }) : capBaseAmount = capBaseAmount ?? inflows;
+
+  /// Which base the annual cap uses (see [AppConfig.capBases]).
+  final String capBase;
+
+  /// Amount the [annualPct] is applied to.
+  final double capBaseAmount;
+
+  /// The chosen base had no value (e.g. no live NAV); fell back to inflows.
+  final bool capBaseFallback;
 
   /// PWO personal withdrawals included in [yearWithdrawn] / [withdrawnAllTime].
   final double pwoYearWithdrawn;
@@ -130,6 +142,8 @@ class WithdrawalAllowance {
     String? yearKey,
     double pwoYearWithdrawn = 0,
     double pwoAllTime = 0,
+    String capBase = AppConfig.capBaseInflows,
+    double? navValue,
   }) {
     final asOf = asOfIso ?? todayIso();
     final key = yearKey ?? yearPeriodKey(asOf, calendar);
@@ -153,7 +167,20 @@ class WithdrawalAllowance {
     final pwoAll = pwoAllTime.isFinite && pwoAllTime > pwoYear ? pwoAllTime : pwoYear;
     allTime += pwoAll;
     final yearWithdrawnTotal = yearWithdrawn + pwoYear;
-    final annualCap = inflows * pct / 100.0;
+    var base = AppSettings.parseCapBase(capBase);
+    var baseAmount = inflows;
+    var fallback = false;
+    if (base == AppConfig.capBaseOpenCost) {
+      baseAmount = openTrades.fold(0.0, (a, t) => a + t.buyCost);
+    } else if (base == AppConfig.capBaseNav) {
+      if (navValue != null && navValue.isFinite && navValue > 0) {
+        baseAmount = navValue;
+      } else {
+        fallback = true;
+        base = AppConfig.capBaseInflows;
+      }
+    }
+    final annualCap = baseAmount * pct / 100.0;
     final remainingRealized = computeWithdrawableAmount(
       realizedPnl: realizedPnl,
       withdrawnTotal: allTime,
@@ -178,6 +205,9 @@ class WithdrawalAllowance {
       calendar: calendar,
       pwoYearWithdrawn: pwoYear,
       pwoAllTime: pwoAll,
+      capBase: base,
+      capBaseAmount: baseAmount,
+      capBaseFallback: fallback,
     );
   }
 

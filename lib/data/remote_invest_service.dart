@@ -192,6 +192,7 @@ class RemoteInvestService implements InvestMutations {
       'notify_background': s.notifyBackground,
       'price_refresh_seconds': s.autoRefreshSeconds,
       'annual_withdrawal_pct': s.annualWithdrawalPct,
+      AppConfig.settingWithdrawalCapBase: s.withdrawalCapBase,
       'price_alerts': s.priceAlerts.map((e) => e.toJson()).toList(),
       'profit_alerts': s.profitAlerts.map((e) => e.toJson()).toList(),
       'year_nav_history': s.yearNavHistory.map((e) => e.toJson()).toList(),
@@ -801,6 +802,7 @@ List<String> settingsMismatches({
   chk(AppConfig.settingNotifyBackground, 'اعلان پس‌زمینه', sent.notifyBackground, e.notifyBackground);
   chk('price_refresh_seconds', 'فاصلهٔ به‌روزرسانی', sent.autoRefreshSeconds, e.autoRefreshSeconds);
   chk('annual_withdrawal_pct', 'درصد برداشت سالانه', sent.annualWithdrawalPct, e.annualWithdrawalPct);
+  chk(AppConfig.settingWithdrawalCapBase, 'مبنای سقف برداشت', sent.withdrawalCapBase, e.withdrawalCapBase);
   chk(AppConfig.settingPriceAlerts, 'هشدارهای قیمت', sent.priceAlerts.length, e.priceAlerts.length);
   chk(AppConfig.settingProfitAlerts, 'هشدارهای سود', sent.profitAlerts.length, e.profitAlerts.length);
   chk(AppConfig.settingYearNavHistory, 'ارزش پایان سال', sent.yearNavHistory.length, e.yearNavHistory.length);
@@ -909,6 +911,8 @@ class RemoteSettingsBundle {
       annualWithdrawalPct: AppSettings.parseAnnualWithdrawalPct(
         s['annual_withdrawal_pct'] ?? raw['annual_withdrawal_pct'],
       ),
+      withdrawalCapBase:
+          AppSettings.parseCapBase(pick(AppConfig.settingWithdrawalCapBase)),
       priceAlerts: PriceAlertList.parse(pick(AppConfig.settingPriceAlerts)),
       profitAlerts: ProfitAlertList.parse(pick(AppConfig.settingProfitAlerts)),
       yearNavHistory: YearNavList.parse(
@@ -1034,6 +1038,9 @@ class RemoteSettingsBundle {
       // Always keep the value we just PUT. Older Vinor builds may leave a
       // stale `annual_withdrawal_pct` in `raw` without applying the update.
       annualWithdrawalPct: sent.annualWithdrawalPct,
+      withdrawalCapBase: presentKeys.contains(AppConfig.settingWithdrawalCapBase)
+          ? settings.withdrawalCapBase
+          : sent.withdrawalCapBase,
     );
     if (merged.wallexUrl.trim().isEmpty && sent.wallexUrl.trim().isNotEmpty) {
       merged.wallexUrl = sent.wallexUrl;

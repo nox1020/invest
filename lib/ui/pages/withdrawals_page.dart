@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/withdrawal.dart';
 import 'package:invest/domain/services/withdrawal_allowance.dart';
@@ -110,7 +111,12 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
                 ),
               ],
               const SizedBox(height: 10),
-              _AnnualQuotaPanel(allowance: allowance),
+              _AnnualQuotaPanel(
+                allowance: allowance,
+                onEditBase: state.canMutate
+                    ? () => _editCapBase(context, state)
+                    : null,
+              ),
               const SizedBox(height: 10),
               const PwoEntryCard(),
               const SizedBox(height: 10),
@@ -654,8 +660,9 @@ class _LegendDot extends StatelessWidget {
 }
 
 class _AnnualQuotaPanel extends StatelessWidget {
-  const _AnnualQuotaPanel({required this.allowance});
+  const _AnnualQuotaPanel({required this.allowance, this.onEditBase});
   final WithdrawalAllowance allowance;
+  final VoidCallback? onEditBase;
 
   @override
   Widget build(BuildContext context) {
@@ -679,13 +686,34 @@ class _AnnualQuotaPanel extends StatelessWidget {
               fontSize: 13,
             ),
           ),
-          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const ValueKey('cap-base'),
+              onPressed: onEditBase,
+              icon: const Icon(Icons.tune_rounded, size: 16),
+              label: Text(
+                'مبنا: ${AppSettings.capBaseLabel(allowance.capBase)}',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ),
+          if (allowance.capBaseFallback)
+            const Text(
+              'ارزش روز پورتفو در دسترس نیست؛ فعلاً با «ورودی» حساب شد.',
+              key: ValueKey('cap-base-fallback'),
+              textAlign: TextAlign.right,
+              style: TextStyle(color: AppTheme.negative, fontSize: 11),
+            ),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
                 child: _QuietStat(
-                  label: 'کل ورودی پرتفو',
-                  value: formatMoney(allowance.inflows),
+                  label: allowance.capBase == AppConfig.capBaseInflows
+                      ? 'کل ورودی پرتفو'
+                      : AppSettings.capBaseLabel(allowance.capBase),
+                  value: formatMoney(allowance.capBaseAmount),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1090,5 +1118,49 @@ class _WithdrawalTile extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+
+Future<void> _editCapBase(BuildContext context, AppState state) async {
+  final cur = state.settings.withdrawalCapBase;
+  final picked = await showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    builder: (c) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const ListTile(
+              title: Text('مبنای سقف برداشت سالانه',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Text('درصد سقف روی این مبلغ حساب می‌شود. تغییرش فقط عدد سقف را عوض می‌کند؛ هیچ برداشتی تغییر نمی‌کند.'),
+            ),
+            for (final b in AppConfig.capBases)
+              ListTile(
+                key: ValueKey('cap-base-$b'),
+                leading: Icon(b == cur
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked),
+                title: Text(AppSettings.capBaseLabel(b) +
+                    (b == AppConfig.capBaseInflows ? ' (پیش‌فرض)' : '')),
+                subtitle: Text(AppSettings.capBaseHelp(b)),
+                onTap: () => Navigator.pop(c, b),
+              ),
+          ]),
+        ),
+      ),
+    ),
+  );
+  if (picked == null || picked == cur || !context.mounted) return;
+  try {
+    await state.saveWithdrawalCapBase(picked);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('مبنای سقف: ${AppSettings.capBaseLabel(picked)} ذخیره شد')));
+    }
+  } catch (e) {
+    if (context.mounted) showUserError(context, e);
   }
 }

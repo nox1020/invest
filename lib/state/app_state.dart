@@ -255,7 +255,24 @@ class AppState extends ChangeNotifier {
       yearKey: key,
       pwoYearWithdrawn: pwoYear,
       pwoAllTime: pwoAll,
+      capBase: settings.withdrawalCapBase,
+      navValue: settings.withdrawalCapBase == AppConfig.capBaseNav
+          ? DashboardSnapshot.compute(
+              assets: assets,
+              openTrades: openTrades,
+              closedTrades: closedTrades,
+              usdtTmn: liveUsdt ?? settings.usdtTmnRate,
+              calendar: cal,
+              metrics: metrics,
+              checks: checks,
+            ).marketValue
+          : null,
     );
+  }
+
+  Future<void> saveWithdrawalCapBase(String base) async {
+    await saveSettings(
+        settings.copyWith(withdrawalCapBase: AppSettings.parseCapBase(base)));
   }
 
   double get withdrawableAmount => withdrawalAllowance.available;

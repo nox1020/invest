@@ -23,11 +23,13 @@ class AppSettings {
     this.notifyBackground = true,
     int autoRefreshSeconds = AppConfig.defaultAutoRefreshSeconds,
     int annualWithdrawalPct = AppConfig.defaultAnnualWithdrawalPct,
+    String withdrawalCapBase = AppConfig.capBaseInflows,
     List<PriceAlert>? priceAlerts,
     List<ProfitAlert>? profitAlerts,
     List<YearNavEntry>? yearNavHistory,
   })  : autoRefreshSeconds = clampAutoRefreshSeconds(autoRefreshSeconds),
         annualWithdrawalPct = clampAnnualWithdrawalPct(annualWithdrawalPct),
+        withdrawalCapBase = parseCapBase(withdrawalCapBase),
         priceAlerts = priceAlerts ?? [],
         profitAlerts = profitAlerts ?? [],
         yearNavHistory = yearNavHistory ?? [];
@@ -57,6 +59,29 @@ class AppSettings {
 
   /// Yearly withdrawable profit as a percent of total portfolio inflows.
   int annualWithdrawalPct;
+
+  /// One of [AppConfig.capBases]; default `inflows`.
+  String withdrawalCapBase;
+
+  static String parseCapBase(dynamic v) {
+    final s = '${v ?? ''}'.trim().toLowerCase();
+    return AppConfig.capBases.contains(s) ? s : AppConfig.capBaseInflows;
+  }
+
+  static String capBaseLabel(String base) => switch (parseCapBase(base)) {
+        AppConfig.capBaseOpenCost => 'سرمایهٔ باز',
+        AppConfig.capBaseNav => 'ارزش روز پورتفو',
+        _ => 'ورودی',
+      };
+
+  static String capBaseHelp(String base) => switch (parseCapBase(base)) {
+        AppConfig.capBaseOpenCost =>
+          'جمع بهای خرید لات‌های باز؛ یعنی پولی که الان واقعاً سرمایه‌گذاری شده.',
+        AppConfig.capBaseNav =>
+          'ارزش روز همهٔ دارایی‌ها با قیمت زنده؛ با بالا و پایین رفتن بازار عوض می‌شود.',
+        _ =>
+          'جمع بهای خرید همهٔ معاملات (باز و بسته) از ابتدا. پیش‌فرض قبلی؛ پولی که چند بار چرخیده چند بار شمرده می‌شود.',
+      };
   List<PriceAlert> priceAlerts;
   List<ProfitAlert> profitAlerts;
 
@@ -212,6 +237,7 @@ class AppSettings {
     bool? notifyBackground,
     int? autoRefreshSeconds,
     int? annualWithdrawalPct,
+    String? withdrawalCapBase,
     List<PriceAlert>? priceAlerts,
     List<ProfitAlert>? profitAlerts,
     List<YearNavEntry>? yearNavHistory,
@@ -237,6 +263,7 @@ class AppSettings {
       notifyBackground: notifyBackground ?? this.notifyBackground,
       autoRefreshSeconds: autoRefreshSeconds ?? this.autoRefreshSeconds,
       annualWithdrawalPct: annualWithdrawalPct ?? this.annualWithdrawalPct,
+      withdrawalCapBase: withdrawalCapBase ?? this.withdrawalCapBase,
       priceAlerts:
           (priceAlerts ?? this.priceAlerts).map((e) => e.copy()).toList(),
       profitAlerts:
@@ -266,6 +293,7 @@ class AppSettings {
         'notify_background': notifyBackground,
         'price_refresh_seconds': autoRefreshSeconds,
         'annual_withdrawal_pct': annualWithdrawalPct,
+        'withdrawal_cap_base': withdrawalCapBase,
         'price_alerts': priceAlerts.map((e) => e.toJson()).toList(),
         'profit_alerts': profitAlerts.map((e) => e.toJson()).toList(),
         'year_nav_history': yearNavHistory.map((e) => e.toJson()).toList(),
@@ -290,6 +318,7 @@ class AppSettings {
         AppConfig.settingNotifyBackground: notifyBackground ? '1' : '0',
         AppConfig.settingAutoRefreshSeconds: '$autoRefreshSeconds',
         AppConfig.settingAnnualWithdrawalPct: '$annualWithdrawalPct',
+        AppConfig.settingWithdrawalCapBase: withdrawalCapBase,
         AppConfig.settingPriceAlerts: PriceAlertList.encode(priceAlerts),
         AppConfig.settingProfitAlerts: ProfitAlertList.encode(profitAlerts),
         AppConfig.settingYearNavHistory: YearNavList.encode(yearNavHistory),
@@ -344,6 +373,7 @@ class AppSettings {
       annualWithdrawalPct: parseAnnualWithdrawalPct(
         s['annual_withdrawal_pct'] ?? s[AppConfig.settingAnnualWithdrawalPct],
       ),
+      withdrawalCapBase: parseCapBase(s['withdrawal_cap_base']),
       priceAlerts: PriceAlertList.parse(
         s['price_alerts'] ?? s[AppConfig.settingPriceAlerts],
       ),
@@ -376,6 +406,7 @@ class AppSettings {
       'notify_background': map[AppConfig.settingNotifyBackground],
       'price_refresh_seconds': map[AppConfig.settingAutoRefreshSeconds],
       'annual_withdrawal_pct': map[AppConfig.settingAnnualWithdrawalPct],
+      'withdrawal_cap_base': map[AppConfig.settingWithdrawalCapBase],
       'price_alerts': map[AppConfig.settingPriceAlerts],
       'profit_alerts': map[AppConfig.settingProfitAlerts],
       'year_nav_history': map[AppConfig.settingYearNavHistory],

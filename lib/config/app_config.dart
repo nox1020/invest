@@ -69,6 +69,14 @@ class AppConfig {
   /// Yearly withdrawable profit as a percent of total portfolio inflows.
   static const settingAnnualWithdrawalPct = 'annual_withdrawal_pct';
   static const defaultAnnualWithdrawalPct = 10;
+
+  /// Base of the annual withdrawal cap. `inflows` (sum of all buy costs) is
+  /// the original behaviour and stays the default.
+  static const settingWithdrawalCapBase = 'withdrawal_cap_base';
+  static const capBaseInflows = 'inflows';
+  static const capBaseOpenCost = 'open_cost';
+  static const capBaseNav = 'nav';
+  static const capBases = [capBaseInflows, capBaseOpenCost, capBaseNav];
   static const minAnnualWithdrawalPct = 1;
   static const maxAnnualWithdrawalPct = 100;
   /// Common presets (wheel still allows every integer from min..max).
