@@ -814,6 +814,18 @@ double tradeProfitInMonth(Iterable<PropertyTrade> trades, int year, int month) {
   return sum;
 }
 
+/// Months of the snapshot year where income and sold-trade profit differ.
+int bizMismatchMonths(BizSnapshot s) {
+  final y = s.year;
+  if (y == null) return 0;
+  var n = 0;
+  for (final m in s.months) {
+    final tp = tradeProfitInMonth(s.trades, y, m.month);
+    if ((!m.isEmpty || tp != 0) && incomeMismatch(m.income, tp)) n++;
+  }
+  return n;
+}
+
 /// Income and sold-trade profit differ (more than 1,000 toman).
 bool incomeMismatch(double income, double tradeProfit) =>
     (tradeProfit != 0 || income != 0) && (income - tradeProfit).abs() > 1000;
@@ -1048,9 +1060,13 @@ class BizEntryCard extends StatelessWidget {
 
 /// Summary of ملک و دفتر on the dashboard (current year). Tap opens the page.
 class BizDashboardCard extends StatefulWidget {
-  const BizDashboardCard({super.key, this.store, this.pwoStore});
+  const BizDashboardCard({super.key, this.store, this.pwoStore, this.digits = _same});
   final BizStore? store;
   final PwoStore? pwoStore;
+
+  /// Digit style for the figures (the dashboard passes Persian digits).
+  final String Function(String) digits;
+  static String _same(String s) => s;
 
   @override
   State<BizDashboardCard> createState() => _BizDashboardCardState();
@@ -1084,31 +1100,51 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
         final open = trades.where((t) => !t.sold).length;
         final soldN = trades.where((t) => t.sold).length;
         final y = s.year;
-        var mism = 0;
-        if (y != null) {
-          for (final m in s.months) {
-            final tp = tradeProfitInMonth(trades, y, m.month);
-            if ((!m.isEmpty || tp != 0) && incomeMismatch(m.income, tp)) mism++;
-          }
-        }
+        final mism = bizMismatchMonths(s);
+        Widget tile(String k, String label, String value, {Color? color}) =>
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+                decoration: BoxDecoration(
+                  color: AppTheme.bg.withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.digits(label),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: AppTheme.muted, fontSize: 11)),
+                    const SizedBox(height: 3),
+                    Text(widget.digits(value),
+                        key: ValueKey('biz-dash-$k'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: color ?? AppTheme.title,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13.5)),
+                  ],
+                ),
+              ),
+            );
         Widget stat(String k, String label, String value, {Color? color}) =>
             Padding(
-              padding: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.only(top: 8),
               child: Row(children: [
-                Flexible(
-                  child: Text(value,
-                      key: ValueKey('biz-dash-$k'),
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          color: color ?? AppTheme.title,
-                          fontWeight: FontWeight.w700)),
-                ),
-                const SizedBox(width: 8),
                 Expanded(
-                  child: Text(label,
-                      textAlign: TextAlign.right,
+                  child: Text(widget.digits(label),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: AppTheme.muted, fontSize: 12)),
                 ),
+                const SizedBox(width: 8),
+                Text(widget.digits(value),
+                    key: ValueKey('biz-dash-$k'),
+                    style: TextStyle(
+                        color: color ?? AppTheme.title,
+                        fontWeight: FontWeight.w700)),
               ]),
             );
         final net = s.monthTotals['net'] ?? 0;
@@ -1130,19 +1166,19 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(children: [
-                    const Icon(Icons.chevron_left_rounded, color: AppTheme.muted),
-                    const Spacer(),
-                    Flexible(
-                      child: Text(y == null ? 'ملک و دفتر' : 'ملک و دفتر · $y',
+                    const Icon(Icons.home_work_outlined,
+                        color: AppTheme.positive, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(y == null ? 'ملک و دفتر' : widget.digits('ملک و دفتر · $y'),
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                               color: AppTheme.title,
                               fontWeight: FontWeight.w800,
                               fontSize: 16)),
                     ),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.home_work_outlined,
-                        color: AppTheme.positive, size: 20),
+                    const Icon(Icons.chevron_left_rounded, color: AppTheme.muted),
                   ]),
                   if (!has)
                     Padding(
@@ -1156,16 +1192,24 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
                               color: AppTheme.muted, fontSize: 12)),
                     )
                   else ...[
-                    stat('profit', 'سود معاملات فروخته‌شده ($soldN)',
-                        _m(s.totalProfit),
-                        color: s.totalProfit < 0
-                            ? AppTheme.negative
-                            : AppTheme.positive),
-                    stat('open', 'معاملات باز', '$open'),
-                    stat('income', 'درآمد دفتر امسال',
-                        _m(s.monthTotals['income'] ?? 0)),
-                    stat('net', 'خالص ماهانه امسال', _m(net),
-                        color: net < 0 ? AppTheme.negative : null),
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      tile('profit', 'سود معاملات فروخته‌شده ($soldN)',
+                          _m(s.totalProfit),
+                          color: s.totalProfit < 0
+                              ? AppTheme.negative
+                              : AppTheme.positive),
+                      const SizedBox(width: 8),
+                      tile('open', 'معاملات باز', '$open'),
+                    ]),
+                    const SizedBox(height: 8),
+                    Row(children: [
+                      tile('income', 'درآمد دفتر امسال',
+                          _m(s.monthTotals['income'] ?? 0)),
+                      const SizedBox(width: 8),
+                      tile('net', 'خالص ماهانه امسال', _m(net),
+                          color: net < 0 ? AppTheme.negative : null),
+                    ]),
                     if (pwoT != null && pwoT > 0 && pwoMonths.isNotEmpty) ...[
                       stat(
                           'pwo',
@@ -1186,7 +1230,6 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
                       const Padding(
                         padding: EdgeInsets.only(top: 8),
                         child: Text('نسخهٔ ذخیره‌شده (آفلاین)',
-                            textAlign: TextAlign.right,
                             style:
                                 TextStyle(color: AppTheme.muted, fontSize: 11)),
                       ),
@@ -1205,6 +1248,10 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
 /// Test hook: replaces the share sheet.
 @visibleForTesting
 Future<void> Function(Uint8List bytes, String name, String mime)? bizShareOverride;
+
+/// Annual Excel/PDF export of ملک و دفتر (also a dashboard quick action).
+Future<void> exportBizAnnual(BuildContext context, BizStore store) =>
+    _exportAnnual(context, store);
 
 Future<void> _exportAnnual(BuildContext context, BizStore store) async {
   final year = store.snap.year;

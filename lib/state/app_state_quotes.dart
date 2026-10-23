@@ -41,7 +41,11 @@ extension AppStateQuotes on AppState {
       remoteOrCached: remoteGold ?? settings.goldTmnPerGram,
     );
 
+    if (fetchedUsdt != null || fetchedGold != null) {
+      pricesUpdatedAt = DateTime.now();
+    }
     if (fetchedUsdt != null) {
+      usdtLiveAt = DateTime.now();
       liveUsdt = fetchedUsdt;
       settings.usdtTmnRate = fetchedUsdt;
       await _local(

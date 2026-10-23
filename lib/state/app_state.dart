@@ -159,6 +159,27 @@ class AppState extends ChangeNotifier {
   double? liveUsdt;
   double? liveGold;
 
+  /// When a USDT rate last came from a live feed in this session. Null means
+  /// [liveUsdt] is the stored rate (settings or offline cache), not live.
+  DateTime? usdtLiveAt;
+
+  /// When live prices (USDT, gold or the index) were last fetched.
+  DateTime? pricesUpdatedAt;
+
+  /// The rate is "live" when fetched within the last hour and we are online.
+  bool get usdtIsLive =>
+      !offline &&
+      usdtLiveAt != null &&
+      DateTime.now().difference(usdtLiveAt!) < const Duration(hours: 1);
+
+  /// Best known time of the prices behind the portfolio value.
+  DateTime? get pricesAsOf {
+    final a = pricesUpdatedAt, b = offline ? null : lastSyncedAt;
+    if (a == null) return b;
+    if (b == null) return a;
+    return a.isAfter(b) ? a : b;
+  }
+
   List<CommodityQuote> commodityIndex = [];
   List<CommodityQuote> wallexMarkets = [];
   bool commodityIndexLoading = false;
@@ -217,9 +238,10 @@ class AppState extends ChangeNotifier {
       metrics: metrics,
       checks: checks,
     );
+    // Like for like: the stored series is holdings only (no cheques).
     return ensureChartSeries(
       metrics?.growthSeries ?? const [],
-      todayValue: snap.marketValue,
+      todayValue: snap.holdingsValue,
     );
   }
 

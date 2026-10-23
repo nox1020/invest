@@ -5,6 +5,7 @@ import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/check_ledger.dart';
 import 'package:invest/domain/services/dashboard_pnl.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
+import 'package:invest/domain/services/portfolio_valuation.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
@@ -33,6 +34,7 @@ class DashboardSnapshot {
     required this.goldHoldingG,
     this.holdingsValue = 0,
     this.chequeNav = ChequeNavEffect.zero,
+    this.valuation,
     this.usdtTmn,
     this.unrealizedUsd,
     this.realizedUsd,
@@ -55,6 +57,9 @@ class DashboardSnapshot {
 
   /// Pending receivable minus pending payable. Not part of trading PnL.
   final ChequeNavEffect chequeNav;
+
+  /// Breakdown behind [marketValue] (null only for hand-built snapshots).
+  final PortfolioValuation? valuation;
   final double? usdtTmn;
   final double? unrealizedUsd;
   final double? realizedUsd;
@@ -90,14 +95,15 @@ class DashboardSnapshot {
     DashboardMetrics? metrics,
     Iterable<BankCheck> checks = const [],
   }) {
-    final holdings = HoldingMetrics.activeHoldings(
+    final valuation = PortfolioValuation.of(
       assets: assets,
       openTrades: openTrades,
+      checks: checks,
     );
-    final holdingsValue =
-        holdings.fold<double>(0, (s, h) => s + h.metrics.marketValue);
-    final chequeNav = ChequeNavEffect.of(checks);
-    final marketValue = holdingsValue + chequeNav.net;
+    final holdings = valuation.holdings;
+    final holdingsValue = valuation.holdingsValue;
+    final chequeNav = valuation.cheques;
+    final marketValue = valuation.nav;
     final costBasis =
         holdings.fold<double>(0, (s, h) => s + h.metrics.costBasis);
     final unrealized =
@@ -160,6 +166,7 @@ class DashboardSnapshot {
       goldHoldingG: goldG,
       holdingsValue: holdingsValue,
       chequeNav: chequeNav,
+      valuation: valuation,
       usdtTmn: usdtTmn,
       unrealizedUsd: currency.unrealizedUsd,
       realizedUsd: currency.realizedUsd,

@@ -43,7 +43,11 @@ void openChecksPage(BuildContext context) {
 
 /// Compact cheque book on the dashboard.
 class ChecksDashboardCard extends StatelessWidget {
-  const ChecksDashboardCard({super.key});
+  const ChecksDashboardCard({super.key, this.digits = _same});
+
+  /// Digit style for the figures (the dashboard passes Persian digits).
+  final String Function(String) digits;
+  static String _same(String s) => s;
 
   @override
   Widget build(BuildContext context) {
@@ -74,24 +78,27 @@ class ChecksDashboardCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const Icon(
-                    Icons.chevron_left_rounded,
-                    color: AppTheme.muted,
-                  ),
-                  const Spacer(),
-                  const Text(
-                    'مدیریت چک‌ها',
-                    style: TextStyle(
-                      color: AppTheme.title,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   Icon(
                     Icons.account_balance_wallet_outlined,
                     color: overdue ? AppTheme.negative : AppTheme.positive,
                     size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'مدیریت چک‌ها',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppTheme.title,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.chevron_left_rounded,
+                    color: AppTheme.muted,
                   ),
                 ],
               ),
@@ -112,8 +119,8 @@ class ChecksDashboardCard extends StatelessWidget {
                     Expanded(
                       child: _MiniStat(
                         label: 'بدهی',
-                        value: formatMoney(book.debts),
-                        hint: '${book.debtCount} چک پرداختی',
+                        value: digits(formatMoney(book.debts)),
+                        hint: digits('${book.debtCount} چک پرداختی'),
                         color: book.debts > 0
                             ? AppTheme.negative
                             : AppTheme.title,
@@ -123,8 +130,8 @@ class ChecksDashboardCard extends StatelessWidget {
                     Expanded(
                       child: _MiniStat(
                         label: 'دریافتی باز',
-                        value: formatMoney(book.openReceivable),
-                        hint: '${book.openReceivableCount} نزد صندوق',
+                        value: digits(formatMoney(book.openReceivable)),
+                        hint: digits('${book.openReceivableCount} نزد صندوق'),
                         color: book.openReceivable > 0
                             ? AppTheme.positive
                             : AppTheme.title,
@@ -135,8 +142,8 @@ class ChecksDashboardCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   book.net >= 0
-                      ? 'خالص دریافتنی ${formatMoney(book.net)}'
-                      : 'خالص بدهی ${formatMoney(book.net.abs())}',
+                      ? digits('خالص دریافتنی ${formatMoney(book.net)}')
+                      : digits('خالص بدهی ${formatMoney(book.net.abs())}'),
                   textAlign: TextAlign.right,
                   style: TextStyle(
                     color: book.net >= 0 ? AppTheme.positive : AppTheme.negative,
@@ -147,7 +154,7 @@ class ChecksDashboardCard extends StatelessWidget {
                 if (next != null) ...[
                   const SizedBox(height: 6),
                   Text(
-                    '${next.directionLabel} · ${next.identityLabel} · ${formatDisplayDate(next.dueDate, calendar)} · ${next.dueRelativeLabel()}',
+                    digits('${next.directionLabel} · ${next.identityLabel} · ${formatDisplayDate(next.dueDate, calendar)} · ${next.dueRelativeLabel()}'),
                     textAlign: TextAlign.right,
                     style: TextStyle(
                       color: next.daysUntilDue() < 0

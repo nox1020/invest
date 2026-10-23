@@ -151,9 +151,65 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('شامل چک باز'), findsOneWidget);
-    expect(find.textContaining('+400 تومان'), findsOneWidget);
-    expect(find.textContaining('−150 تومان'), findsOneWidget);
-    expect(find.textContaining('1,250 تومان'), findsWidgets);
+    // One line on the card: assets · cheques in · cheques out (signs kept
+    // in front of their numbers in right-to-left text).
+    final line = tester.widget<Text>(find.byKey(const ValueKey('pv-cheque-line'))).data!;
+    expect(line, contains('چک دریافتی \u2066+۴۰۰'));
+    expect(line, contains('پرداختی \u2066−۱۵۰'));
+    expect(find.text('۱٬۲۵۰ تومان'), findsWidgets);
+  });
+
+  testWidgets('redesigned dashboard fits 320 px with large text', (tester) async {
+    final today = DateTime.now();
+    String iso(DateTime d) =>
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    final state = AppState()
+      ..loading = false
+      ..authenticated = true
+      ..settings = AppSettings(calendar: AppConfig.calendarJalali)
+      ..commodityIndex = [
+        const CommodityQuote(id: 'usdt', name: 'تتر', symbol: 'USDT', unit: 'TMN', price: 84020, change24h: 0.3),
+        const CommodityQuote(id: 'gold', name: 'طلا', symbol: 'GOLD', unit: 'TMN', price: 11306000, change24h: -0.4),
+      ]
+      ..assets = [
+        Asset(id: 1, name: 'طلای آب‌شده', symbol: 'GOLD', quantity: 124, avgBuyPrice: 9800000, currentPrice: 11306452),
+        Asset(id: 2, name: 'Fund', symbol: 'FND', quantity: 15000, avgBuyPrice: 28500, currentPrice: 0),
+      ]
+      ..openTrades = [
+        Trade(assetId: 1, status: AppConfig.tradeOpen, quantity: 124, buyPrice: 9800000, assetName: 'طلای آب‌شده', assetSymbol: 'GOLD', currentPrice: 11306452),
+        Trade(assetId: 2, status: AppConfig.tradeOpen, quantity: 15000, buyPrice: 28500, assetName: 'Fund', assetSymbol: 'FND', currentPrice: 32170),
+      ]
+      ..checks = [
+        BankCheck(direction: checkDirectionPayable, amount: 62600000, issueDate: iso(today), dueDate: iso(today.add(const Duration(days: 3))), counterparty: 'یک نام خیلی خیلی طولانی برای آزمون'),
+        BankCheck(direction: checkDirectionReceivable, amount: 120000000, issueDate: iso(today), dueDate: iso(today.add(const Duration(days: 20)))),
+      ];
+    tester.view.physicalSize = const Size(320, 6000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: state,
+        child: MaterialApp(
+          builder: (c, child) => MediaQuery(
+            data: MediaQuery.of(c).copyWith(textScaler: const TextScaler.linear(1.4)),
+            child: Directionality(textDirection: TextDirection.rtl, child: child!),
+          ),
+          home: const Scaffold(body: DashboardPage()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('نیازمند توجه'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pv-gold-chip')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pv-unpriced')), findsOneWidget);
+    expect(find.byKey(const ValueKey('dash-upcoming')), findsOneWidget);
+    expect(find.byKey(const ValueKey('dash-withdrawable')), findsOneWidget);
+    expect(find.byKey(const ValueKey('qa-trade')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('pv-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pv-gold-section')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

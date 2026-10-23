@@ -212,6 +212,9 @@ extension AppStateIndex on AppState {
     for (final q in essentials) {
       if (q.id == 'usdt' && q.price != null && q.price! > 0) {
         liveUsdt = q.price;
+        // The server may hand back a stored bundle: use its own time.
+        usdtLiveAt = updatedAt;
+        pricesUpdatedAt = updatedAt;
       }
       if (q.id == 'gold' && q.price != null && q.price! > 0) {
         liveGold = q.price;

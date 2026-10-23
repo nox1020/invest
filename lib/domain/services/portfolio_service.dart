@@ -1,3 +1,4 @@
+import 'package:invest/domain/services/portfolio_valuation.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/check_repository.dart';
 import 'package:invest/data/repositories.dart';
@@ -93,11 +94,13 @@ class PortfolioService {
   }
 
   Future<void> recordSnapshot() async {
-    final holdingsValue =
-        (await assets.listAll()).fold<double>(0, (s, a) => s + a.totalValue);
-    final chequeNav =
-        ChequeNavEffect.of(await CheckRepository(_db).listAll());
-    final value = holdingsValue + chequeNav.net;
+    // Same valuation as the dashboard card and the server series: open lots
+    // at live prices, without cheques (cheques are shown beside the trend,
+    // never inside it, so they cannot make the chart jump).
+    final value = PortfolioValuation.of(
+      assets: await assets.listAll(),
+      openTrades: await trades.listOpen(),
+    ).holdingsValue;
     final date = todayIso();
     await _db.insert(
       'capital_snapshots',

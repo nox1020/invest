@@ -119,7 +119,7 @@ class _CapitalChartPageState extends State<CapitalChartPage>
               ),
               const SizedBox(height: 10),
               _ChartCard(
-                title: 'ارزش کل سرمایه',
+                title: 'ارزش دارایی‌ها · بدون چک',
                 caption: spark.length >= 2
                     ? 'تغییر دوره ${formatPct(sparkPct)}'
                     : 'سری روزانه از اسنپ‌شات‌های معتبر',

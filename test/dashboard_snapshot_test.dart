@@ -176,7 +176,7 @@ void main() {
     expect(snap.marketValueUsd, closeTo(3.2, 1e-9));
   });
 
-  test('the capital chart stamps today with cheque-adjusted NAV', () {
+  test('the capital chart stamps today like for like (holdings, no cheques)', () {
     final state = AppState()
       ..assets = [
         Asset(
@@ -215,6 +215,8 @@ void main() {
         growthSeries: [SeriesPoint(date: '2020-01-01', value: 80)],
       );
 
-    expect(state.capitalGrowthSeries.last.value, 120);
+    // The stored series is holdings only (server and local snapshots), so
+    // today's point must be too; cheques stay in the headline NAV only.
+    expect(state.capitalGrowthSeries.last.value, 100);
   });
 }
