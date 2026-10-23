@@ -28,6 +28,7 @@ class BackupPayload {
     this.baseUrl,
     this.pwo,
     this.biz,
+    this.projects,
   });
 
   /// PWO in `/pwo/import` form (v4+). Null in older backups.
@@ -35,6 +36,9 @@ class BackupPayload {
 
   /// Property trades + monthly rows in `/biz/import` form (v4+).
   final Map<String, dynamic>? biz;
+
+  /// Contracting projects in `/projects/import` form (`{"projects": [...]}`).
+  final Map<String, dynamic>? projects;
 
   final String exportedAt;
   final AppSettings settings;
@@ -71,6 +75,7 @@ class BackupPayload {
         'capital_snapshots': capitalSnapshots,
         if (pwo != null) 'pwo': pwo,
         if (biz != null) 'biz': biz,
+        if (projects != null) 'projects': projects,
         'app_lock': {
           'hash': appLockHash,
           'biometric_enabled': biometricUnlockEnabled,
@@ -88,6 +93,7 @@ class BackupPayload {
             'capital_snapshots',
             if (pwo != null) 'pwo',
             if (biz != null) 'biz',
+            if (projects != null) 'projects',
             'app_lock',
           ],
         },
@@ -180,6 +186,9 @@ class BackupPayload {
       baseUrl: meta['base_url'] as String?,
       pwo: json['pwo'] is Map ? Map<String, dynamic>.from(json['pwo'] as Map) : null,
       biz: json['biz'] is Map ? Map<String, dynamic>.from(json['biz'] as Map) : null,
+      projects: json['projects'] is Map
+          ? Map<String, dynamic>.from(json['projects'] as Map)
+          : null,
     );
   }
 

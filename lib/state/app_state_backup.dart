@@ -49,9 +49,29 @@ extension AppStateBackup on AppState {
         ],
       };
     }
+    Map<String, dynamic>? projects;
+    if (useRemote && svc != null && !offline) {
+      try {
+        projects = await svc.projects.export();
+      } catch (_) {}
+    }
+    final ps = ProjectsStore.instance;
+    if (projects == null && ps.loaded && ps.snap.hasData) {
+      projects = {
+        'projects': [
+          for (final p in ps.snap.items)
+            {
+              for (final k in const ['title', 'work_type', 'start_date', 'end_date', 'contract_amount', 'cost', 'status_mode', 'note'])
+                k: p.raw[k],
+              'archived': p.archived,
+            }
+        ],
+      };
+    }
     final payload = BackupService.buildFromMemory(
       pwo: pwo,
       biz: biz,
+      projects: projects,
       settings: settings,
       settingsRaw: settingsRaw,
       assets: assets,
@@ -229,7 +249,7 @@ extension AppStateBackup on AppState {
   /// PWO + ملک و دفتر go only through the servers' guarded imports: an
   /// account that already has data is never overwritten.
   Future<String?> _restorePwoBiz(BackupPayload payload) async {
-    if (payload.pwo == null && payload.biz == null) return null;
+    if (payload.pwo == null && payload.biz == null && payload.projects == null) return null;
     final svc = remote;
     if (!useRemote || svc == null || offline || readOnlyOffline) {
       return 'PWO و ملک و دفتر فقط با اتصال به حساب وینور بازیابی می‌شوند.';
@@ -255,6 +275,15 @@ extension AppStateBackup on AppState {
         await BizStore.instance.refresh();
       } catch (e) {
         notes.add('بازیابی ملک و دفتر انجام نشد: ${formatUserError(e)}');
+      }
+    }
+    if (payload.projects != null) {
+      // Append-only on the server: rows already there are skipped.
+      try {
+        await svc.projects.import(payload.projects!);
+        await ProjectsStore.instance.refresh();
+      } catch (e) {
+        notes.add('بازیابی پروژه‌ها انجام نشد: ${formatUserError(e)}');
       }
     }
     return notes.isEmpty ? null : notes.join('\n');

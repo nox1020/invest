@@ -52,6 +52,7 @@ class BackupService {
     String? baseUrl,
     Map<String, dynamic>? pwo,
     Map<String, dynamic>? biz,
+    Map<String, dynamic>? projects,
   }) {
     final raw = Map<String, String>.from(settingsRaw ?? settings.toStorageMap());
     // Ensure typed settings always win for known keys.
@@ -71,6 +72,7 @@ class BackupService {
       baseUrl: baseUrl,
       pwo: pwo,
       biz: biz,
+      projects: projects,
     );
   }
 

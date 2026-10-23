@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:invest/data/projects_store.dart';
+import 'package:invest/ui/pages/projects_page.dart' show ensureProjectsReady, importProjectsText;
 import 'package:invest/data/write_queue.dart';
 import 'package:invest/ui/widgets/pending_writes_panel.dart';
 import 'package:flutter/services.dart';
@@ -402,7 +406,7 @@ class _TradeTile extends StatelessWidget {
 
 Future<void> _importSheet(BuildContext context, BizStore store) async {
   final ctl = TextEditingController();
-  final text = await showDialog<String>(
+  var text = await showDialog<String>(
     context: context,
     builder: (c) => Directionality(
       textDirection: TextDirection.rtl,
@@ -410,7 +414,7 @@ Future<void> _importSheet(BuildContext context, BizStore store) async {
         title: const Text('ورود از شیت'),
         content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Text(
-            'متن JSON شیت را اینجا بچسبانید. فقط یک بار و فقط روی حساب خالی اعمال می‌شود؛ دادهٔ موجود هرگز بازنویسی نمی‌شود.',
+            'متن JSON شیت را اینجا بچسبانید. معاملات و جدول ماهانه فقط یک بار و فقط روی حساب خالی اعمال می‌شوند؛ ردیف‌های «projects» (پیمانکاری) به پروژه‌ها اضافه می‌شوند. دادهٔ موجود هرگز بازنویسی نمی‌شود.',
             style: TextStyle(fontSize: 12, color: AppTheme.muted),
           ),
           const SizedBox(height: 8),
@@ -447,8 +451,28 @@ Future<void> _importSheet(BuildContext context, BizStore store) async {
   );
   // Controller is left to GC: the dialog may still be animating out.
   if (text == null || text.trim().isEmpty || !context.mounted) return;
+  // The same paste box takes the «پیمانکاری» tab: {"projects": [...]}.
+  Map? parsed;
+  try {
+    final d = jsonDecode(text.trim());
+    if (d is Map) parsed = d;
+  } catch (_) {}
+  if (parsed != null && parsed['projects'] is List) {
+    final projects = ProjectsStore.instance;
+    await ensureProjectsReady(context, projects, refresh: false);
+    if (!context.mounted) return;
+    await importProjectsText(context, projects, jsonEncode({'projects': parsed['projects']}));
+    if (parsed['trades'] is! List && parsed['months'] is! List) return;
+    if (!context.mounted) return;
+    text = jsonEncode({
+      if (parsed['trades'] is List) 'trades': parsed['trades'],
+      if (parsed['months'] is List) 'months': parsed['months'],
+    });
+  }
+  if (!context.mounted) return;
   int n = 0;
-  final ok = await _guard(context, () async => n = await store.importSheet(text));
+  final body = text;
+  final ok = await _guard(context, () async => n = await store.importSheet(body));
   if (ok && context.mounted) {
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
         content: Text(n == 0

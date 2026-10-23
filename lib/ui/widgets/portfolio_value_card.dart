@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:invest/data/projects_store.dart';
 import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/portfolio_valuation.dart';
@@ -22,6 +23,7 @@ class PortfolioValueCard extends StatefulWidget {
     this.onOpenCharts,
     this.initiallyExpanded = false,
     this.now,
+    this.projects,
   });
 
   final DashboardSnapshot snap;
@@ -34,6 +36,9 @@ class PortfolioValueCard extends StatefulWidget {
   final VoidCallback? onOpenCharts;
   final bool initiallyExpanded;
   final DateTime? now;
+
+  /// Contracting totals, shown next to the value (never added to it).
+  final ProjectTotals? projects;
 
   @override
   State<PortfolioValueCard> createState() => _PortfolioValueCardState();
@@ -399,6 +404,19 @@ class _PortfolioValueCardState extends State<PortfolioValueCard> {
       if (widget.trend.netFlows != 0 && widget.trend.pct != null)
         _row(fa('خرید/فروش خالص در ${widget.trend.days} روز (از روند کم شد)'),
             faSigned(formatCompactToman(widget.trend.netFlows, showSign: true)), c: AppTheme.muted),
+      if (widget.projects != null && widget.projects!.count > 0) ...[
+        const Divider(color: AppTheme.border, height: 14),
+        _row(fa('سود پیمانکاری (${widget.projects!.finishedCount} پروژه)'),
+            faSigned(formatMoney(widget.projects!.realized, showSign: true)),
+            c: widget.projects!.realized < 0 ? AppTheme.negative : AppTheme.positive,
+            key: const ValueKey('pv-proj-realized')),
+        if (widget.projects!.activeCount > 0)
+          _row(fa('پیش‌بینی پروژه‌های در جریان (${widget.projects!.activeCount})'),
+              faSigned(formatMoney(widget.projects!.expected, showSign: true)), c: kAmber,
+              key: const ValueKey('pv-proj-expected')),
+        Text('سود پروژه‌ها در سود و زیان کل می‌آید ولی به جمع ارزش اضافه نمی‌شود؛ پولش یا در دارایی‌ها و حساب‌هاست یا هنوز دریافت نشده.',
+            key: const ValueKey('pv-proj-note'), style: mutedStyle(10.5)),
+      ],
     ]);
   }
 }

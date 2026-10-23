@@ -13,6 +13,8 @@ import 'package:invest/ui/pages/checks_page.dart';
 import 'package:invest/ui/pages/quote_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/data/biz_store.dart';
+import 'package:invest/data/projects_store.dart';
+import 'package:invest/ui/pages/projects_page.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/domain/services/dashboard_digest.dart';
 import 'package:invest/domain/services/portfolio_valuation.dart';
@@ -83,7 +85,8 @@ class _DashboardBodyState extends State<_DashboardBody>
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     return ListenableBuilder(
-      listenable: Listenable.merge([PwoStore.instance, BizStore.instance]),
+      listenable: Listenable.merge(
+          [PwoStore.instance, BizStore.instance, ProjectsStore.instance]),
       builder: (context, _) => _buildPage(context, state),
     );
   }
@@ -124,6 +127,10 @@ class _DashboardBodyState extends State<_DashboardBody>
     final pwo = pwoStore.loaded ? PwoMonthSummary.of(pwoStore.ledger) : null;
     final biz = BizStore.instance;
     final bizHas = biz.loaded && biz.snap.raw.isNotEmpty;
+    final projStore = ProjectsStore.instance;
+    final projects = projStore.loaded && projStore.snap.hasData
+        ? projStore.snap.totals
+        : null;
     final alerts = dashboardAlerts(
       checks: state.checks,
       today: today,
@@ -200,22 +207,32 @@ class _DashboardBodyState extends State<_DashboardBody>
               b: 0.35,
               child: Row(children: [
                 const Text('داشبورد',
-                    style: TextStyle(color: AppTheme.title, fontSize: 20, fontWeight: FontWeight.w800)),
+                    style: TextStyle(
+                        color: AppTheme.title,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800)),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(fa(formatDisplayDate(today, calendar).replaceFirst(RegExp(r'^0'), '')),
-                      maxLines: 1, overflow: TextOverflow.ellipsis, style: mutedStyle(11.5)),
+                  child: Text(
+                      fa(formatDisplayDate(today, calendar)
+                          .replaceFirst(RegExp(r'^0'), '')),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: mutedStyle(11.5)),
                 ),
                 Flexible(
                   child: DashTag(
-                  state.offline
-                      ? 'آفلاین'
-                      : syncAt == null
-                          ? 'همگام'
-                          : 'به‌روز ${hhmm(syncAt)}',
-                  key: const ValueKey('dash-sync'),
-                  color: state.offline ? AppTheme.negative : AppTheme.positive,
-                  icon: state.offline ? Icons.cloud_off_outlined : Icons.cloud_done_rounded,
+                    state.offline
+                        ? 'آفلاین'
+                        : syncAt == null
+                            ? 'همگام'
+                            : 'به‌روز ${hhmm(syncAt)}',
+                    key: const ValueKey('dash-sync'),
+                    color:
+                        state.offline ? AppTheme.negative : AppTheme.positive,
+                    icon: state.offline
+                        ? Icons.cloud_off_outlined
+                        : Icons.cloud_done_rounded,
                   ),
                 ),
               ]),
@@ -231,6 +248,7 @@ class _DashboardBodyState extends State<_DashboardBody>
                 pricesAsOf: state.pricesAsOf,
                 offline: state.offline,
                 lastSyncedAt: syncAt,
+                projects: projects,
                 refreshing: state.refreshing,
                 onOpenCharts: () {
                   Navigator.of(context).push(
@@ -284,7 +302,12 @@ class _DashboardBodyState extends State<_DashboardBody>
                             'دلار فقط با بهای خرید ثبت‌شده محاسبه می‌شود. برای لات‌های بدون دلار، «—» می‌بینید.',
                       ),
                     ),
-                  _PnlLedger(snap: snap, usd: _usd, yoy: yoy),
+                  _PnlLedger(
+                      snap: snap,
+                      usd: _usd,
+                      yoy: yoy,
+                      projects: projects,
+                      usdt: usdt ?? 0),
                 ],
               ),
             ),
@@ -303,7 +326,8 @@ class _DashboardBodyState extends State<_DashboardBody>
               withdrawable: state.withdrawableAmount,
               capBaseLabel: 'سهمیه سالانه',
               onOpenPwo: openPwo,
-              onOpenWithdrawals: () => openHomeTab(context, HomeTabs.withdrawals),
+              onOpenWithdrawals: () =>
+                  openHomeTab(context, HomeTabs.withdrawals),
             ),
             DashSection(
               title: 'مدیریت چک‌ها',
@@ -328,15 +352,26 @@ class _DashboardBodyState extends State<_DashboardBody>
               icon: Icons.home_work_rounded,
             ),
             const BizDashboardCard(digits: fa),
+            if (projects != null)
+              DashSection(
+                title: 'پروژه‌ها',
+                subtitle: 'پیمانکاری · سود تحقق‌یافته و در جریان',
+                icon: Icons.engineering_rounded,
+                actionLabel: 'همه',
+                onAction: () => openProjectsPage(context),
+              ),
+            const ProjectsDashboardCard(digits: fa),
             if (snap.holdings.isNotEmpty) ...[
               DashSection(
                 title: 'ترکیب',
-                subtitle: fa('${snap.holdingCount} دارایی · ${snap.openLotCount} لات باز'),
+                subtitle: fa(
+                    '${snap.holdingCount} دارایی · ${snap.openLotCount} لات باز'),
                 icon: Icons.donut_large_rounded,
                 actionLabel: 'معاملات',
                 onAction: () => _openTradesTab(context),
               ),
-              DashAssetMix(valuation: valuation, onOpen: () => _openTradesTab(context)),
+              DashAssetMix(
+                  valuation: valuation, onOpen: () => _openTradesTab(context)),
             ],
             const DashSection(
               title: 'میان‌بر',
@@ -345,14 +380,21 @@ class _DashboardBodyState extends State<_DashboardBody>
             ),
             DashQuickActions(actions: [
               DashQuickAction(Icons.add_chart_rounded, 'ثبت معامله',
-                  () => showBuyTradeDialog(context), key: const ValueKey('qa-trade')),
+                  () => showBuyTradeDialog(context),
+                  key: const ValueKey('qa-trade')),
               DashQuickAction(Icons.receipt_rounded, 'ثبت چک',
-                  () => openChecksPage(context), key: const ValueKey('qa-check')),
+                  () => openChecksPage(context),
+                  key: const ValueKey('qa-check')),
               DashQuickAction(Icons.payments_rounded, 'ثبت برداشت',
-                  () => showRecordWithdrawalDialog(context), key: const ValueKey('qa-withdraw')),
+                  () => showRecordWithdrawalDialog(context),
+                  key: const ValueKey('qa-withdraw')),
+              DashQuickAction(Icons.engineering_rounded, 'پروژه‌ها',
+                  () => openProjectsPage(context),
+                  key: const ValueKey('qa-project')),
               if (bizHas)
                 DashQuickAction(Icons.ios_share_rounded, 'خروجی سالانه',
-                    () => exportBizAnnual(context, biz), key: const ValueKey('qa-export'))
+                    () => exportBizAnnual(context, biz),
+                    key: const ValueKey('qa-export'))
               else
                 DashQuickAction(Icons.table_chart_outlined, 'جدول PWO', openPwo,
                     key: const ValueKey('qa-pwo')),
@@ -465,7 +507,7 @@ class _AnchorTile extends StatelessWidget {
                       quote.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
+                      style: const TextStyle(
                         color: AppTheme.muted,
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -477,7 +519,7 @@ class _AnchorTile extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 fa(quote.formatPrice(compact: true)),
-                                style: const TextStyle(
+                style: const TextStyle(
                   color: AppTheme.title,
                   fontWeight: FontWeight.w800,
                   fontSize: 15,
@@ -485,11 +527,13 @@ class _AnchorTile extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Row(mainAxisSize: MainAxisSize.min, children: [
-                if (quote.change24h != null) TrendArrow(quote.change24h!, size: 18),
+                if (quote.change24h != null)
+                  TrendArrow(quote.change24h!, size: 18),
                 Text(
                   quote.change24h == null
                       ? '—'
-                      : fa(formatPct(quote.change24h!.abs()).replaceAll('+', '')),
+                      : fa(formatPct(quote.change24h!.abs())
+                          .replaceAll('+', '')),
                   style: TextStyle(
                     color: tone,
                     fontSize: 12,
@@ -510,8 +554,12 @@ class _PnlLedger extends StatelessWidget {
     required this.snap,
     required this.usd,
     required this.yoy,
+    this.projects,
+    this.usdt = 0,
   });
 
+  final ProjectTotals? projects;
+  final double usdt;
   final DashboardSnapshot snap;
   final bool usd;
   final YearNavCompare yoy;
@@ -550,6 +598,24 @@ class _PnlLedger extends StatelessWidget {
         usd: snap.realizedUsd,
       ),
       yearSpec,
+      if (projects != null && projects!.count > 0) ...[
+        _PnlSpec(
+          title: 'پیمانکاری',
+          caption: fa(projects!.activeCount > 0
+              ? '${projects!.finishedCount} پروژهٔ تمام‌شده · پیش‌بینی در جریان ${formatCompactToman(projects!.expected)} (حساب نشده)'
+              : '${projects!.finishedCount} پروژهٔ تمام‌شده · سود تحقق‌یافته'),
+          toman: projects!.realized,
+          usd: usdt > 0 ? projects!.realized / usdt : null,
+        ),
+        _PnlSpec(
+          title: 'کل تحقق‌یافته',
+          caption: 'معاملات بسته‌شده + پروژه‌های تمام‌شده',
+          toman: snap.realizedPnl + projects!.realized,
+          usd: snap.realizedUsd == null || usdt <= 0
+              ? null
+              : snap.realizedUsd! + projects!.realized / usdt,
+        ),
+      ],
     ];
 
     return AnimatedSwitcher(
@@ -648,38 +714,39 @@ class _PnlLedgerRow extends StatelessWidget {
           if (!missing && value != null) TrendArrow(value),
           Flexible(
             child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: AlignmentDirectional.centerEnd,
-                child: Text(
-                  missing
-                      ? '—'
-                      : showUsd
-                          ? formatUsd(spec.usd!.abs(), compact: true)
-                          : fa(formatCompactToman(spec.toman.abs())),
-                  textDirection: showUsd && !missing ? TextDirection.ltr : null,
-                  style: TextStyle(
-                    color: tone,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: Text(
+                    missing
+                        ? '—'
+                        : showUsd
+                            ? formatUsd(spec.usd!.abs(), compact: true)
+                            : fa(formatCompactToman(spec.toman.abs())),
+                    textDirection:
+                        showUsd && !missing ? TextDirection.ltr : null,
+                    style: TextStyle(
+                      color: tone,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
-              ),
-              if (!showUsd && spec.pct != null) ...[
-                const SizedBox(height: 3),
-                Text(
-                  fa(formatPct(spec.pct!.abs()).replaceAll('+', '')),
-                  style: TextStyle(
-                    color: tone,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+                if (!showUsd && spec.pct != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    fa(formatPct(spec.pct!.abs()).replaceAll('+', '')),
+                    style: TextStyle(
+                      color: tone,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
+                ],
               ],
-            ],
-          ),
+            ),
           ),
         ],
       ),
