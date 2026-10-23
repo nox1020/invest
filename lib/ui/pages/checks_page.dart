@@ -239,11 +239,26 @@ class _ChecksPageState extends State<ChecksPage> {
             ),
             const SizedBox(height: 10),
             _FilterRow(
+              archivedCount: state.archivedCheckCount,
               selected: _filter,
               onChanged: (v) => setState(() => _filter = v),
             ),
             const SizedBox(height: 12),
-            if (items.isEmpty)
+            if (_filter == CheckListFilter.archived) ...[
+              const _ArchiveNote(),
+              const SizedBox(height: 10),
+            ],
+            if (items.isEmpty && _filter == CheckListFilter.archived)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Text(
+                  'چک بایگانی‌شده‌ای ندارید.',
+                  key: ValueKey('check-archive-empty'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.muted),
+                ),
+              )
+            else if (items.isEmpty)
               _EmptyBook(
                 hasAny: state.checks.isNotEmpty,
                 canAdd: state.canMutate,
@@ -251,10 +266,14 @@ class _ChecksPageState extends State<ChecksPage> {
               )
             else
               for (final item in items) ...[
-                _CheckCard(
+                _ArchiveSwipe(
                   item: item,
-                  calendar: calendar,
-                  onTap: () => _openDetail(context, item),
+                  enabled: state.canMutate,
+                  child: _CheckCard(
+                    item: item,
+                    calendar: calendar,
+                    onTap: () => _openDetail(context, item),
+                  ),
                 ),
                 const SizedBox(height: 8),
               ],
@@ -452,9 +471,14 @@ class _OverdueBanner extends StatelessWidget {
 }
 
 class _FilterRow extends StatelessWidget {
-  const _FilterRow({required this.selected, required this.onChanged});
+  const _FilterRow({
+    required this.selected,
+    required this.onChanged,
+    this.archivedCount = 0,
+  });
 
   final CheckListFilter selected;
+  final int archivedCount;
   final ValueChanged<CheckListFilter> onChanged;
 
   static const _labels = <CheckListFilter, String>{
@@ -465,6 +489,7 @@ class _FilterRow extends StatelessWidget {
     CheckListFilter.due: 'سررسید',
     CheckListFilter.bounced: 'برگشتی',
     CheckListFilter.settled: 'تسویه‌شده',
+    CheckListFilter.archived: 'بایگانی',
   };
 
   @override
@@ -478,7 +503,15 @@ class _FilterRow extends StatelessWidget {
             Padding(
               padding: const EdgeInsetsDirectional.only(start: 6),
               child: ChoiceChip(
-                label: Text(e.value),
+                key: ValueKey('check-filter-${e.key.name}'),
+                avatar: e.key == CheckListFilter.archived
+                    ? const Icon(Icons.inventory_2_outlined, size: 16)
+                    : null,
+                label: Text(
+                  e.key == CheckListFilter.archived && archivedCount > 0
+                      ? '${e.value} ($archivedCount)'
+                      : e.value,
+                ),
                 selected: selected == e.key,
                 onSelected: (_) => onChanged(e.key),
               ),
@@ -553,7 +586,7 @@ class _CheckCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final overdue = item.isOpen && item.daysUntilDue() < 0;
+    final overdue = item.isActiveOpen && item.daysUntilDue() < 0;
     final tone = item.isPayable ? AppTheme.negative : AppTheme.positive;
     final who = item.counterparty.trim().isEmpty
         ? (item.bankName.trim().isEmpty ? 'بدون طرف حساب' : item.bankName)
@@ -597,6 +630,14 @@ class _CheckCard extends StatelessWidget {
                   Flexible(
                     child: _Tag(text: item.statusLabel, color: AppTheme.muted),
                   ),
+                  if (item.isArchived) ...[
+                    const SizedBox(width: 6),
+                    const _Tag(
+                      key: ValueKey('check-archived-tag'),
+                      text: 'بایگانی',
+                      color: AppTheme.muted,
+                    ),
+                  ],
                   const SizedBox(width: 6),
                   _Tag(text: item.directionLabel, color: tone),
                 ],
@@ -647,7 +688,7 @@ class _CheckCard extends StatelessWidget {
 }
 
 class _Tag extends StatelessWidget {
-  const _Tag({required this.text, required this.color});
+  const _Tag({super.key, required this.text, required this.color});
   final String text;
   final Color color;
 
@@ -768,6 +809,13 @@ class _CheckDetailSheet extends StatelessWidget {
                           if (check.purpose.isNotEmpty)
                             _Fact('بابت', check.purpose),
                           if (check.note.isNotEmpty) _Fact('یادداشت', check.note),
+                          if (check.isArchived)
+                            _Fact(
+                              'بایگانی',
+                              check.isOpen
+                                  ? 'بایگانی‌شده · در ارزش پورتفو، جمع‌ها و هشدارها حساب نمی‌شود'
+                                  : 'بایگانی‌شده',
+                            ),
                           if (check.settledDate != null &&
                               check.settledDate!.isNotEmpty)
                             _Fact(
@@ -789,6 +837,15 @@ class _CheckDetailSheet extends StatelessWidget {
                           onStatus: (action) =>
                               _applyStatus(context, check, action),
                           onDelete: () => _delete(context, state, check),
+                          archived: check.isArchived,
+                          onArchive: () async {
+                            final navigator = Navigator.of(context);
+                            await toggleCheckArchive(
+                              context,
+                              check,
+                              onConfirmed: navigator.pop,
+                            );
+                          },
                           onEdit: () {
                             final navigator = Navigator.of(context);
                             navigator.pop();
@@ -891,8 +948,12 @@ class _DetailActions extends StatelessWidget {
     required this.onStatus,
     required this.onDelete,
     required this.onEdit,
+    this.onArchive,
+    this.archived = false,
   });
 
+  final VoidCallback? onArchive;
+  final bool archived;
   final List<_StatusAction> actions;
   final ValueChanged<_StatusAction> onStatus;
   final VoidCallback onDelete;
@@ -927,6 +988,18 @@ class _DetailActions extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
+                if (onArchive != null)
+                  OutlinedButton.icon(
+                    key: const ValueKey('check-archive-button'),
+                    onPressed: onArchive,
+                    icon: Icon(
+                      archived
+                          ? Icons.unarchive_outlined
+                          : Icons.inventory_2_outlined,
+                      size: 18,
+                    ),
+                    label: Text(archived ? 'بازگردانی' : 'بایگانی'),
+                  ),
                 TextButton(
                   onPressed: onDelete,
                   child: const Text(
@@ -1311,6 +1384,8 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
       note: _note.text,
       status: _status,
       settledDate: widget.existing?.settledDate,
+      archivedAt: widget.existing?.archivedAt,
+      archiveFromServer: widget.existing?.archiveFromServer ?? false,
       createdAt: widget.existing?.createdAt ?? '',
     );
     setState(() => _saving = true);
@@ -1337,5 +1412,164 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+}
+
+
+/// Archive or restore [check]. An open cheque asks first, because archiving
+/// takes it out of portfolio value, totals and alerts. Returns true when the
+/// change was made. Nothing is deleted.
+Future<bool> toggleCheckArchive(
+  BuildContext context,
+  BankCheck check, {
+  VoidCallback? onConfirmed,
+}) async {
+  final state = context.read<AppState>();
+  final archiving = !check.isArchived;
+  if (archiving && check.isOpen) {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('بایگانی چک باز'),
+          content: const Text(
+            'این چک هنوز باز است. بعد از بایگانی در ارزش پورتفو، جمع چک‌ها، '
+            'هشدارها و سررسیدها حساب نمی‌شود. اطلاعاتش پاک نمی‌شود و هر وقت '
+            'بخواهید از «بایگانی» برمی‌گردد.',
+            textAlign: TextAlign.right,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('انصراف'),
+            ),
+            ElevatedButton(
+              key: const ValueKey('check-archive-confirm'),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('بایگانی'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !context.mounted) return false;
+  }
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  onConfirmed?.call();
+  try {
+    final synced = await state.setCheckArchived(check, archiving);
+    final latest = state.checks.where((c) => c.id == check.id).firstOrNull;
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(
+          [
+            archiving ? 'چک بایگانی شد.' : 'چک از بایگانی برگشت.',
+            if (!synced) 'روی دستگاه ماند و بعداً با سرور همگام می‌شود.',
+          ].join(' '),
+        ),
+        action: latest == null
+            ? null
+            : SnackBarAction(
+                label: 'برگرداندن',
+                onPressed: () => state.setCheckArchived(latest, !archiving),
+              ),
+      ),
+    );
+    return true;
+  } catch (e) {
+    if (context.mounted) {
+      showUserError(context, e);
+    } else {
+      messenger?.showSnackBar(SnackBar(content: Text(formatUserError(e))));
+    }
+    return false;
+  }
+}
+
+class _ArchiveNote extends StatelessWidget {
+  const _ArchiveNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('check-archive-note'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.inventory_2_outlined, size: 18, color: AppTheme.muted),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'چک‌های بایگانی‌شده پاک نشده‌اند، ولی در ارزش پورتفو، جمع چک‌ها، '
+              'هشدارها و سررسیدها حساب نمی‌شوند. برای بازگردانی، چک را بکشید '
+              'یا باز کنید و «بازگردانی» را بزنید.',
+              textAlign: TextAlign.right,
+              style: TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.6),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Swipe a cheque card to archive it (or restore it from «بایگانی»).
+class _ArchiveSwipe extends StatelessWidget {
+  const _ArchiveSwipe({
+    required this.item,
+    required this.enabled,
+    required this.child,
+  });
+
+  final BankCheck item;
+  final bool enabled;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled || item.id == null) return child;
+    final restore = item.isArchived;
+    final bg = Container(
+      alignment: AlignmentDirectional.centerEnd,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      decoration: BoxDecoration(
+        color: AppTheme.muted.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            restore ? Icons.unarchive_outlined : Icons.inventory_2_outlined,
+            color: AppTheme.text,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            restore ? 'بازگردانی' : 'بایگانی',
+            style: const TextStyle(color: AppTheme.text, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+    return Dismissible(
+      key: ValueKey('check-swipe-${item.id}-${item.isArchived}'),
+      direction: DismissDirection.horizontal,
+      background: bg,
+      secondaryBackground: bg,
+      // The list redraws from state, so the card is never dismissed here.
+      confirmDismiss: (_) async {
+        await toggleCheckArchive(context, item);
+        return false;
+      },
+      child: child,
+    );
   }
 }

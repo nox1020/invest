@@ -47,6 +47,8 @@ class BankCheck {
     this.note = '',
     this.status = checkStatusPending,
     this.settledDate,
+    this.archivedAt,
+    this.archiveFromServer = false,
     this.createdAt = '',
     this.updatedAt = '',
     this.statusLabelFromServer,
@@ -74,6 +76,14 @@ class BankCheck {
   String note;
   String status;
   String? settledDate;
+
+  /// Set when the cheque was moved to «بایگانی». Data stays; an archived
+  /// cheque is hidden from the main list and left out of totals and alerts.
+  String? archivedAt;
+
+  /// True when the row came from a server that knows `archived_at`. An older
+  /// server drops the field, so the device copy keeps the flag instead.
+  bool archiveFromServer;
   String createdAt;
   String updatedAt;
 
@@ -90,11 +100,17 @@ class BankCheck {
       status == checkStatusPending || status == checkStatusBounced;
 
   /// Money we still expect to collect on a live receivable.
+  bool get isArchived => (archivedAt ?? '').trim().isNotEmpty;
+
+  /// Open and not archived: what alerts, due lists and totals look at.
+  bool get isActiveOpen => isOpen && !isArchived;
+
   bool get countsAsReceivable =>
-      isReceivable && status == checkStatusPending;
+      !isArchived && isReceivable && status == checkStatusPending;
 
   /// Money we still owe: issued and not passed, including a bounce.
   bool get countsAsDebt =>
+      !isArchived &&
       isPayable &&
       (status == checkStatusPending || status == checkStatusBounced);
 
@@ -166,6 +182,9 @@ class BankCheck {
     String? status,
     String? settledDate,
     bool clearSettledDate = false,
+    String? archivedAt,
+    bool clearArchived = false,
+    bool? archiveFromServer,
     String? createdAt,
     String? updatedAt,
     String? statusLabelFromServer,
@@ -190,6 +209,8 @@ class BankCheck {
       status: status ?? this.status,
       settledDate:
           clearSettledDate ? null : (settledDate ?? this.settledDate),
+      archivedAt: clearArchived ? null : (archivedAt ?? this.archivedAt),
+      archiveFromServer: archiveFromServer ?? this.archiveFromServer,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       statusLabelFromServer: statusChanged
@@ -226,6 +247,8 @@ class BankCheck {
       note: jsonText(m['note']),
       status: _statusOf(m['status']),
       settledDate: _optionalDateOf(m['settled_date'] ?? m['settledDate']),
+      archivedAt: _optionalText(m['archived_at'] ?? m['archivedAt']),
+      archiveFromServer: m.containsKey('archived_at') || m.containsKey('is_archived'),
       createdAt: text(m['created_at'], m['createdAt']),
       updatedAt: text(m['updated_at'], m['updatedAt']),
       statusLabelFromServer: _optionalText(m['status_label']),
@@ -249,6 +272,7 @@ class BankCheck {
         'note': note,
         'status': status,
         'settled_date': settledDate,
+        'archived_at': archivedAt,
         'created_at': createdAt,
         'updated_at': updatedAt,
       };
@@ -491,6 +515,8 @@ BankCheck prepareBankCheck(
     note: note,
     status: status,
     settledDate: settled,
+    archivedAt: draft.archivedAt,
+    archiveFromServer: draft.archiveFromServer,
     createdAt: draft.createdAt,
     updatedAt: draft.updatedAt,
   );

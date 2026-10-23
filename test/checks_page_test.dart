@@ -63,7 +63,10 @@ void main() {
     expect(find.text('پرداختی'), findsWidgets);
     expect(find.textContaining('سررسید'), findsWidgets);
 
-    await tester.tap(find.text('پرداختی').first);
+    final payable = find.byKey(const ValueKey('check-filter-payable'));
+    await tester.ensureVisible(payable);
+    await tester.pumpAndSettle();
+    await tester.tap(payable);
     await tester.pumpAndSettle();
     expect(find.text('رضا'), findsNothing);
     expect(find.text('شرکت آریا'), findsOneWidget);

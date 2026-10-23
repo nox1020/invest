@@ -33,7 +33,7 @@ List<UpcomingCheque> upcomingCheques(Iterable<BankCheck> checks, {required Strin
   if (t == null) return const [];
   final out = <UpcomingCheque>[];
   for (final c in checks) {
-    if (c.status != checkStatusPending) continue;
+    if (c.status != checkStatusPending || c.isArchived) continue;
     final due = _day(c.dueDate);
     if (due == null) continue;
     out.add(UpcomingCheque(c, due.difference(t).inDays));
@@ -122,6 +122,7 @@ List<DashAlert> dashboardAlerts({
   var bounced = 0;
   if (t != null) {
     for (final c in checks) {
+      if (c.isArchived) continue;
       if (c.isBounced) bounced++;
       if (c.status != checkStatusPending) continue;
       final due = _day(c.dueDate);

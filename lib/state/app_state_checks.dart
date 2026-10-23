@@ -336,7 +336,10 @@ extension AppStateChecks on AppState {
 
     if (_checksApiReady) {
       try {
-        final remoteItem = await _upsertRemoteCheck(saved, isNew: isNew);
+        final remoteItem = keepLocalArchive(
+          await _upsertRemoteCheck(saved, isNew: isNew),
+          [saved],
+        );
         final synced = await _commitChecks(
           _replaceCheck(checks, remoteItem),
           alreadyRemote: true,
@@ -396,6 +399,24 @@ extension AppStateChecks on AppState {
     return result.synced;
   }
 
+  /// Move a cheque to «بایگانی» or bring it back. Nothing is deleted: the
+  /// row and its history stay; an archived cheque just stops counting in
+  /// value, totals, alerts and due lists. Goes through [saveCheck], so an
+  /// offline change waits on the device and syncs like any other edit.
+  Future<bool> setCheckArchived(BankCheck item, bool archived) async {
+    if (item.id == null) {
+      throw ArgumentError('شناسه چک نامعتبر است.');
+    }
+    final result = await saveCheck(
+      archived
+          ? item.copyWith(archivedAt: nowIso())
+          : item.copyWith(clearArchived: true),
+    );
+    return result.synced;
+  }
+
+  int get archivedCheckCount => checks.where((c) => c.isArchived).length;
+
   Future<bool> deleteCheck(BankCheck item) async {
     if (!canMutate) {
       throw StateError(
@@ -449,6 +470,7 @@ extension AppStateChecks on AppState {
     checks = next;
     _checksHydrated = true;
     _checksPendingSync = pending || _pendingDeletedCheckIds.isNotEmpty;
+    notifyListeners();
     await _persistChecksLocal();
     notifyListeners();
     return !_checksPendingSync;
@@ -467,6 +489,8 @@ extension AppStateChecks on AppState {
     } else {
       _checksPendingSync = true;
     }
+    // Redraw before the disk write so the list reacts at once.
+    notifyListeners();
     await _persistChecksLocal();
     notifyListeners();
     final synced = alreadyRemote ? !_checksPendingSync : await _flushChecks();
@@ -621,11 +645,15 @@ extension AppStateChecks on AppState {
           withinDays: checkReminderWithinDays,
         );
         if (groups != null) {
+          final archivedIds = {
+            for (final c in checks)
+              if (c.isArchived) c.id,
+          };
           return _dedupeChecks([
             ...groups.overdue,
             ...groups.dueSoon,
             ...groups.bounced,
-          ]);
+          ]).where((c) => !c.isArchived && !archivedIds.contains(c.id)).toList();
         }
       } on InvestApiException {
         // The book on the device still knows which cheques are due.
@@ -634,7 +662,7 @@ extension AppStateChecks on AppState {
     return _dedupeChecks([
       ...checksNeedingReminder(checks),
       for (final row in checks)
-        if (row.isBounced) row,
+        if (row.isBounced && !row.isArchived) row,
     ]);
   }
 

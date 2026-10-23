@@ -1,7 +1,7 @@
 import 'package:invest/domain/models/bank_check.dart';
 
 /// Which slice of the cheque book the list is showing.
-enum CheckListFilter { all, receivable, payable, pending, due, bounced, settled }
+enum CheckListFilter { all, receivable, payable, pending, due, bounced, settled, archived }
 
 /// Open cheques that should raise a due reminder (overdue through 7 days).
 const checkReminderWithinDays = 7;
@@ -39,7 +39,7 @@ class ChequeNavEffect {
     var receivableCount = 0;
     var payableCount = 0;
     for (final check in checks) {
-      if (check.status != checkStatusPending) continue;
+      if (check.status != checkStatusPending || check.isArchived) continue;
       if (check.isReceivable) {
         receivable += check.amount;
         receivableCount++;
@@ -140,6 +140,7 @@ class CheckLedger {
     BankCheck? next;
 
     for (final c in checks) {
+      if (c.isArchived) continue;
       if (c.countsAsReceivable) {
         openReceivable += c.amount;
         openReceivableCount++;
@@ -219,7 +220,10 @@ List<BankCheck> filterChecks(
 }
 
 bool _matchesFilter(BankCheck c, CheckListFilter filter, DateTime today) {
+  if (filter == CheckListFilter.archived) return c.isArchived;
+  if (c.isArchived) return false;
   return switch (filter) {
+    CheckListFilter.archived => false,
     CheckListFilter.all => true,
     CheckListFilter.receivable => c.isReceivable,
     CheckListFilter.payable => c.isPayable,
@@ -266,7 +270,9 @@ bool sameCheckContent(BankCheck a, BankCheck b) {
       a.purpose == b.purpose &&
       a.note == b.note &&
       a.status == b.status &&
-      (a.settledDate ?? '') == (b.settledDate ?? '');
+      (a.settledDate ?? '') == (b.settledDate ?? '') &&
+      // An older server never stores the flag; do not resend forever.
+      (!(a.archiveFromServer || b.archiveFromServer) || a.isArchived == b.isArchived);
 }
 
 /// Local rows the device still has to send before it can trust the server book.
@@ -301,7 +307,7 @@ List<BankCheck> mergeRemoteBook({
 }) {
   final remoteIds = {for (final row in remote) row.id};
   return [
-    ...remote,
+    for (final row in remote) keepLocalArchive(row, local),
     for (final row in local)
       if (row.id == null || !remoteIds.contains(row.id)) row,
   ];
@@ -314,9 +320,21 @@ List<BankCheck> checksNeedingReminder(
   final now = today ?? DateTime.now();
   return [
     for (final c in checks)
-      if (c.isOpen &&
+      if (c.isActiveOpen &&
           c.id != null &&
           c.daysUntilDue(now) <= checkReminderWithinDays)
         c,
   ];
+}
+
+/// A server that does not know `archived_at` returns rows without it; keep
+/// the flag from the device copy so archiving is never silently undone.
+BankCheck keepLocalArchive(BankCheck remote, Iterable<BankCheck> local) {
+  if (remote.archiveFromServer) return remote;
+  for (final row in local) {
+    if (row.id == remote.id) {
+      return row.isArchived ? remote.copyWith(archivedAt: row.archivedAt) : remote;
+    }
+  }
+  return remote;
 }

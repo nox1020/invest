@@ -99,7 +99,7 @@ class AppDatabase {
     final path = p.join(dir.path, 'invest.db');
     return openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('PRAGMA foreign_keys = ON');
         await _createSchema(db);
@@ -114,6 +114,9 @@ class AppDatabase {
         }
         if (oldVersion < 4) {
           await ensureChecksTable(db);
+        }
+        if (oldVersion < 5) {
+          await addCheckArchiveColumn(db);
         }
       },
       onOpen: (db) async {
@@ -182,6 +185,15 @@ CREATE TABLE IF NOT EXISTS capital_snapshots (
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_checks_due ON checks(due_date)',
     );
+  }
+
+  /// Additive: a nullable column; existing cheques keep every field.
+  static Future<void> addCheckArchiveColumn(DatabaseExecutor db) async {
+    try {
+      await db.execute('ALTER TABLE checks ADD COLUMN archived_at TEXT');
+    } catch (_) {
+      // Column already present (fresh v4 table created with it).
+    }
   }
 
   static Future<void> _createWithdrawalsTable(Database db) async {
