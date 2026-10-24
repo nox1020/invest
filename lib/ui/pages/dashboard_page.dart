@@ -22,6 +22,7 @@ import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/pages/withdrawals_page.dart';
+import 'package:invest/ui/widgets/dash_speed_dial.dart';
 import 'package:invest/ui/widgets/dashboard_kit.dart';
 import 'package:invest/ui/widgets/dashboard_sections.dart';
 import 'package:invest/ui/widgets/portfolio_value_card.dart';
@@ -181,226 +182,234 @@ class _DashboardBodyState extends State<_DashboardBody>
     }
 
     final syncAt = state.lastSyncedAt;
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF142820),
-            AppTheme.bg,
-            Color(0xFF0C1511),
-          ],
-          stops: [0, 0.28, 1],
+    final dial = [
+      SpeedDialAction(
+          id: 'qa-trade',
+          icon: Icons.add_chart_rounded,
+          label: 'ثبت معامله',
+          onTap: () => showBuyTradeDialog(context)),
+      SpeedDialAction(
+          id: 'qa-check',
+          icon: Icons.receipt_rounded,
+          label: 'ثبت چک',
+          onTap: () => openChecksPage(context)),
+      SpeedDialAction(
+          id: 'qa-withdraw',
+          icon: Icons.payments_rounded,
+          label: 'ثبت برداشت',
+          onTap: () => showRecordWithdrawalDialog(context)),
+      SpeedDialAction(
+          id: 'qa-project',
+          icon: Icons.engineering_rounded,
+          label: 'پروژه‌ها',
+          onTap: () => openProjectsPage(context)),
+      SpeedDialAction(
+          id: 'qa-export',
+          icon: Icons.ios_share_rounded,
+          label: 'خروجی سالانه',
+          onTap: () => bizHas ? exportBizAnnual(context, biz) : openBiz()),
+    ];
+    return DashSpeedDial(
+      key: const ValueKey('dash-dial'),
+      enabled: state.canMutate,
+      actions: dial,
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF142820),
+              AppTheme.bg,
+              Color(0xFF0C1511),
+            ],
+            stops: [0, 0.28, 1],
+          ),
         ),
-      ),
-      child: RefreshIndicator(
-        color: AppTheme.positive,
-        backgroundColor: AppTheme.card,
-        onRefresh: () => state.refreshAll(includeQuotes: true),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: shellPagePadding(),
-          children: [
-            stage(
-              a: 0,
-              b: 0.35,
-              child: Row(children: [
-                const Text('داشبورد',
-                    style: TextStyle(
-                        color: AppTheme.title,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                      fa(formatDisplayDate(today, calendar)
-                          .replaceFirst(RegExp(r'^0'), '')),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: mutedStyle(11.5)),
-                ),
-                Flexible(
-                  child: DashTag(
-                    state.offline
-                        ? 'آفلاین'
-                        : syncAt == null
-                            ? 'همگام'
-                            : 'به‌روز ${hhmm(syncAt)}',
-                    key: const ValueKey('dash-sync'),
-                    color:
-                        state.offline ? AppTheme.negative : AppTheme.positive,
-                    icon: state.offline
-                        ? Icons.cloud_off_outlined
-                        : Icons.cloud_done_rounded,
+        child: RefreshIndicator(
+          color: AppTheme.positive,
+          backgroundColor: AppTheme.card,
+          onRefresh: () => state.refreshAll(includeQuotes: true),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: shellPagePadding().copyWith(
+                bottom: kShellListBottomPadding + DashSpeedDial.reserve),
+            children: [
+              stage(
+                a: 0,
+                b: 0.35,
+                child: Row(children: [
+                  const Text('داشبورد',
+                      style: TextStyle(
+                          color: AppTheme.title,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                        fa(formatDisplayDate(today, calendar)
+                            .replaceFirst(RegExp(r'^0'), '')),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: mutedStyle(11.5)),
                   ),
-                ),
-              ]),
-            ),
-            const SizedBox(height: 12),
-            stage(
-              a: 0.05,
-              b: 0.45,
-              child: PortfolioValueCard(
-                snap: snap,
-                trend: trend,
-                usdIsLive: state.usdtIsLive,
-                pricesAsOf: state.pricesAsOf,
-                offline: state.offline,
-                lastSyncedAt: syncAt,
-                projects: projects,
-                refreshing: state.refreshing,
-                onOpenCharts: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const CapitalChartPage(),
+                  Flexible(
+                    child: DashTag(
+                      state.offline
+                          ? 'آفلاین'
+                          : syncAt == null
+                              ? 'همگام'
+                              : 'به‌روز ${hhmm(syncAt)}',
+                      key: const ValueKey('dash-sync'),
+                      color:
+                          state.offline ? AppTheme.negative : AppTheme.positive,
+                      icon: state.offline
+                          ? Icons.cloud_off_outlined
+                          : Icons.cloud_done_rounded,
                     ),
-                  );
-                },
+                  ),
+                ]),
               ),
-            ),
-            if (quotes.isNotEmpty) ...[
               const SizedBox(height: 12),
               stage(
-                a: 0.18,
-                b: 0.55,
-                child: _MarketAnchors(
-                  quotes: quotes,
-                  caption: anchors.caption,
-                  onOpenIndex: () => openHomeTab(context, HomeTabs.index),
+                a: 0.05,
+                b: 0.45,
+                child: PortfolioValueCard(
+                  snap: snap,
+                  trend: trend,
+                  usdIsLive: state.usdtIsLive,
+                  pricesAsOf: state.pricesAsOf,
+                  offline: state.offline,
+                  lastSyncedAt: syncAt,
+                  projects: projects,
+                  refreshing: state.refreshing,
+                  onOpenCharts: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const CapitalChartPage(),
+                      ),
+                    );
+                  },
                 ),
               ),
-            ],
-            if (alerts.isNotEmpty) ...[
-              DashSection(
-                title: 'نیازمند توجه',
-                subtitle: fa('${alerts.length} مورد'),
-                icon: Icons.notifications_active_rounded,
-              ),
-              DashAlertsList(alerts: alerts, onOpen: openAlert),
-            ],
-            stage(
-              a: 0.28,
-              b: 0.65,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  DashSection(
-                    title: 'سود و زیان',
-                    subtitle: 'عملکرد زنده پورتفو',
-                    icon: Icons.insights_rounded,
-                    trailing: _FxToggle(
-                      usd: _usd,
-                      onChanged: (v) => setState(() => _usd = v),
-                    ),
+              if (quotes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                stage(
+                  a: 0.18,
+                  b: 0.55,
+                  child: _MarketAnchors(
+                    quotes: quotes,
+                    caption: anchors.caption,
+                    onOpenIndex: () => openHomeTab(context, HomeTabs.index),
                   ),
-                  if (_usd && snap.usdIncomplete)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 10),
-                      child: _HintBanner(
-                        text:
-                            'دلار فقط با بهای خرید ثبت‌شده محاسبه می‌شود. برای لات‌های بدون دلار، «—» می‌بینید.',
+                ),
+              ],
+              if (alerts.isNotEmpty) ...[
+                DashSection(
+                  title: 'نیازمند توجه',
+                  subtitle: fa('${alerts.length} مورد'),
+                  icon: Icons.notifications_active_rounded,
+                ),
+                DashAlertsList(alerts: alerts, onOpen: openAlert),
+              ],
+              stage(
+                a: 0.28,
+                b: 0.65,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    DashSection(
+                      title: 'سود و زیان',
+                      subtitle: 'عملکرد زنده پورتفو',
+                      icon: Icons.insights_rounded,
+                      trailing: _FxToggle(
+                        usd: _usd,
+                        onChanged: (v) => setState(() => _usd = v),
                       ),
                     ),
-                  _PnlLedger(
-                      snap: snap,
-                      usd: _usd,
-                      yoy: yoy,
-                      projects: projects,
-                      usdt: usdt ?? 0),
-                ],
+                    if (_usd && snap.usdIncomplete)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 10),
+                        child: _HintBanner(
+                          text:
+                              'دلار فقط با بهای خرید ثبت‌شده محاسبه می‌شود. برای لات‌های بدون دلار، «—» می‌بینید.',
+                        ),
+                      ),
+                    _PnlLedger(
+                        snap: snap,
+                        usd: _usd,
+                        yoy: yoy,
+                        projects: projects,
+                        usdt: usdt ?? 0),
+                  ],
+                ),
               ),
-            ),
-            DashSection(
-              title: 'برداشت و PWO',
-              subtitle: pwo == null
-                  ? 'سهمیه سالانه برداشت'
-                  : '${pwoMonthLabel(pwo.month)}'
-                      '${pwo.target > 0 ? ' · هدف ماهانه ${fa(formatCompactToman(pwo.target))}' : ''}',
-              icon: Icons.account_balance_wallet_rounded,
-              actionLabel: 'جدول PWO',
-              onAction: openPwo,
-            ),
-            DashPwoCard(
-              summary: pwo,
-              withdrawable: state.withdrawableAmount,
-              capBaseLabel: 'سهمیه سالانه',
-              onOpenPwo: openPwo,
-              onOpenWithdrawals: () =>
-                  openHomeTab(context, HomeTabs.withdrawals),
-            ),
-            DashSection(
-              title: 'مدیریت چک‌ها',
-              subtitle: 'دریافتی، بدهی و سررسید',
-              icon: Icons.receipt_long_rounded,
-              actionLabel: 'همه',
-              onAction: () => openChecksPage(context),
-            ),
-            const ChecksDashboardCard(digits: fa),
-            if (upcoming.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              DashUpcomingCheques(
-                key: const ValueKey('dash-upcoming'),
-                items: upcoming,
-                calendar: calendar,
-                onTap: () => openChecksPage(context),
-              ),
-            ],
-            const DashSection(
-              title: 'ملک و دفتر',
-              subtitle: 'خلاصهٔ معاملات و دفتر امسال',
-              icon: Icons.home_work_rounded,
-            ),
-            const BizDashboardCard(digits: fa),
-            if (projects != null)
               DashSection(
-                title: 'پروژه‌ها',
-                subtitle: 'پیمانکاری · سود تحقق‌یافته و در جریان',
-                icon: Icons.engineering_rounded,
+                title: 'برداشت و PWO',
+                subtitle: pwo == null
+                    ? 'سهمیه سالانه برداشت'
+                    : '${pwoMonthLabel(pwo.month)}'
+                        '${pwo.target > 0 ? ' · هدف ماهانه ${fa(formatCompactToman(pwo.target))}' : ''}',
+                icon: Icons.account_balance_wallet_rounded,
+                actionLabel: 'جدول PWO',
+                onAction: openPwo,
+              ),
+              DashPwoCard(
+                summary: pwo,
+                withdrawable: state.withdrawableAmount,
+                capBaseLabel: 'سهمیه سالانه',
+                onOpenPwo: openPwo,
+                onOpenWithdrawals: () =>
+                    openHomeTab(context, HomeTabs.withdrawals),
+              ),
+              DashSection(
+                title: 'مدیریت چک‌ها',
+                subtitle: 'دریافتی، بدهی و سررسید',
+                icon: Icons.receipt_long_rounded,
                 actionLabel: 'همه',
-                onAction: () => openProjectsPage(context),
+                onAction: () => openChecksPage(context),
               ),
-            const ProjectsDashboardCard(digits: fa),
-            if (snap.holdings.isNotEmpty) ...[
-              DashSection(
-                title: 'ترکیب',
-                subtitle: fa(
-                    '${snap.holdingCount} دارایی · ${snap.openLotCount} لات باز'),
-                icon: Icons.donut_large_rounded,
-                actionLabel: 'معاملات',
-                onAction: () => _openTradesTab(context),
+              const ChecksDashboardCard(digits: fa),
+              if (upcoming.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                DashUpcomingCheques(
+                  key: const ValueKey('dash-upcoming'),
+                  items: upcoming,
+                  calendar: calendar,
+                  onTap: () => openChecksPage(context),
+                ),
+              ],
+              const DashSection(
+                title: 'ملک و دفتر',
+                subtitle: 'خلاصهٔ معاملات و دفتر امسال',
+                icon: Icons.home_work_rounded,
               ),
-              DashAssetMix(
-                  valuation: valuation, onOpen: () => _openTradesTab(context)),
+              const BizDashboardCard(digits: fa),
+              if (projects != null)
+                DashSection(
+                  title: 'پروژه‌ها',
+                  subtitle: 'پیمانکاری · سود تحقق‌یافته و در جریان',
+                  icon: Icons.engineering_rounded,
+                  actionLabel: 'همه',
+                  onAction: () => openProjectsPage(context),
+                ),
+              const ProjectsDashboardCard(digits: fa),
+              if (snap.holdings.isNotEmpty) ...[
+                DashSection(
+                  title: 'ترکیب',
+                  subtitle: fa(
+                      '${snap.holdingCount} دارایی · ${snap.openLotCount} لات باز'),
+                  icon: Icons.donut_large_rounded,
+                  actionLabel: 'معاملات',
+                  onAction: () => _openTradesTab(context),
+                ),
+                DashAssetMix(
+                    valuation: valuation,
+                    onOpen: () => _openTradesTab(context)),
+              ],
+              const SizedBox(height: 28),
             ],
-            const DashSection(
-              title: 'میان‌بر',
-              subtitle: 'کارهای پرتکرار',
-              icon: Icons.bolt_rounded,
-            ),
-            DashQuickActions(actions: [
-              DashQuickAction(Icons.add_chart_rounded, 'ثبت معامله',
-                  () => showBuyTradeDialog(context),
-                  key: const ValueKey('qa-trade')),
-              DashQuickAction(Icons.receipt_rounded, 'ثبت چک',
-                  () => openChecksPage(context),
-                  key: const ValueKey('qa-check')),
-              DashQuickAction(Icons.payments_rounded, 'ثبت برداشت',
-                  () => showRecordWithdrawalDialog(context),
-                  key: const ValueKey('qa-withdraw')),
-              DashQuickAction(Icons.engineering_rounded, 'پروژه‌ها',
-                  () => openProjectsPage(context),
-                  key: const ValueKey('qa-project')),
-              if (bizHas)
-                DashQuickAction(Icons.ios_share_rounded, 'خروجی سالانه',
-                    () => exportBizAnnual(context, biz),
-                    key: const ValueKey('qa-export'))
-              else
-                DashQuickAction(Icons.table_chart_outlined, 'جدول PWO', openPwo,
-                    key: const ValueKey('qa-pwo')),
-            ]),
-            const SizedBox(height: 28),
-          ],
+          ),
         ),
       ),
     );

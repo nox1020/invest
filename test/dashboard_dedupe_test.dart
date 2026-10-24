@@ -206,7 +206,7 @@ void main() {
     expect(find.byKey(const ValueKey('pv-unpriced')), findsOneWidget);
     expect(find.byKey(const ValueKey('dash-upcoming')), findsOneWidget);
     expect(find.byKey(const ValueKey('dash-withdrawable')), findsOneWidget);
-    expect(find.byKey(const ValueKey('qa-trade')), findsOneWidget);
+    expect(find.byKey(const ValueKey('fab-main')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('pv-toggle')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('pv-gold-section')), findsOneWidget);
