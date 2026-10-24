@@ -8,6 +8,7 @@ import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:invest/ui/widgets/user_error.dart';
+import 'package:invest/ui/widgets/header_status.dart';
 import 'package:invest/ui/widgets/offline_banner.dart';
 import 'package:provider/provider.dart';
 
@@ -206,9 +207,7 @@ class _ChecksPageState extends State<ChecksPage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(
-            title: const Text('مدیریت چک‌ها'),
-            bottom: connectionStripFor(context)),
+        appBar: AppBar(title: const HeaderStatusTitle(title: 'مدیریت چک‌ها')),
         floatingActionButton: state.canMutate
             ? FloatingActionButton.extended(
                 onPressed: () => openCheckEditor(context),
@@ -220,10 +219,6 @@ class _ChecksPageState extends State<ChecksPage> {
         body: ListView(
           padding: shellPagePadding(extraForFab: state.canMutate),
           children: [
-            if (state.checksAwaitingServer) ...[
-              _SyncBanner(message: state.checkSyncError),
-              const SizedBox(height: 10),
-            ],
             _BookSummary(book: book),
             if (book.overdueCount > 0) ...[
               const SizedBox(height: 10),
@@ -416,36 +411,6 @@ class _MiniStat extends StatelessWidget {
   }
 }
 
-class _SyncBanner extends StatelessWidget {
-  const _SyncBanner({this.message});
-  final String? message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE0C46A).withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFE0C46A).withValues(alpha: 0.35),
-        ),
-      ),
-      child: Text(
-        (message != null && message!.trim().isNotEmpty)
-            ? message!.trim()
-            : 'دفتر روی دستگاه ذخیره است. سرور هنوز آن را برنگردانده و با اتصال بعدی دوباره فرستاده می‌شود.',
-        textAlign: TextAlign.right,
-        style: const TextStyle(
-          color: AppTheme.title,
-          fontWeight: FontWeight.w700,
-          fontSize: 12,
-          height: 1.4,
-        ),
-      ),
-    );
-  }
-}
 
 class _OverdueBanner extends StatelessWidget {
   const _OverdueBanner({required this.book});

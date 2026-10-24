@@ -13,7 +13,7 @@ import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/asset_editor_sheet.dart';
 import 'package:invest/ui/widgets/dual_currency_chart.dart';
 import 'package:invest/ui/widgets/profit_alert_sheet.dart';
-import 'package:invest/ui/widgets/offline_banner.dart';
+import 'package:invest/ui/widgets/header_status.dart';
 import 'package:provider/provider.dart';
 
 Future<void> openAssetDetail(
@@ -98,8 +98,7 @@ class AssetDetailPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(asset.name),
-        bottom: connectionStripFor(context),
+        title: HeaderStatusTitle(title: asset.name),
         centerTitle: true,
         actions: [
           ProfitAlertBell(

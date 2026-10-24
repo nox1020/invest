@@ -242,7 +242,6 @@ class _PortfolioValueCardState extends State<PortfolioValueCard> {
 
   Widget _header() {
     final offline = widget.offline;
-    final sync = widget.lastSyncedAt;
     final row = Row(children: [
       Flexible(
         flex: 2,
@@ -267,23 +266,8 @@ class _PortfolioValueCardState extends State<PortfolioValueCard> {
       ),
       const Icon(Icons.chevron_left_rounded, size: 16, color: AppTheme.muted),
     ]);
-    if (!offline) return row;
-    // Offline: the last-sync tag gets its own line so it is never cut.
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      row,
-      const SizedBox(height: 6),
-      Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: DashTag(
-          sync == null
-              ? 'دادهٔ ذخیره‌شده'
-              : 'دادهٔ ذخیره‌شده · همگام‌سازی ${hhmm(sync)}',
-          key: const ValueKey('pv-offline'),
-          color: kAmber,
-          icon: Icons.cloud_off_rounded,
-        ),
-      ),
-    ]);
+    // Offline / last-sync state is shown in the header line only.
+    return row;
   }
 
   Widget _stats() {

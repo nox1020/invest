@@ -89,7 +89,7 @@ class _CapitalChartPageState extends State<CapitalChartPage>
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 36),
             children: [
               _StatusRibbon(
-                offline: !state.connectionStatus.isOnline,
+                offline: false, // connection state lives in the header line
                 holdings: snap.holdingCount,
                 openLots: snap.openLotCount,
                 yearLabel: WithdrawalAllowance.yearCaption(

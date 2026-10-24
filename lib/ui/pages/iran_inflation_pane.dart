@@ -62,18 +62,6 @@ class _IranInflationPaneState extends State<IranInflationPane> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: shellPagePadding(),
               children: [
-                if (state.iranInflationError != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Text(
-                      state.iranInflationError!,
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        color: AppTheme.muted,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
                 _HeroCard(
                   snap: snap,
                   onTap: () => openInflationDetail(

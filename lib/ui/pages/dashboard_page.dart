@@ -255,22 +255,6 @@ class _DashboardBodyState extends State<_DashboardBody>
                         overflow: TextOverflow.ellipsis,
                         style: mutedStyle(11.5)),
                   ),
-                  Flexible(
-                    child: DashTag(
-                      conn.isOnline
-                          ? (syncAt == null
-                              ? 'همگام'
-                              : 'به‌روز ${hhmm(syncAt)}')
-                          : conn.short,
-                      key: const ValueKey('dash-sync'),
-                      color: conn.isOnline ? AppTheme.positive : conn.color,
-                      icon: conn.isOnline
-                          ? Icons.cloud_done_rounded
-                          : conn == AppConnectionStatus.localOnly
-                              ? Icons.phone_android_rounded
-                              : Icons.cloud_off_outlined,
-                    ),
-                  ),
                 ]),
               ),
               const SizedBox(height: 12),

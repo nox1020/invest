@@ -4,11 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:invest/data/projects_store.dart';
 import 'package:invest/ui/pages/projects_page.dart' show ensureProjectsReady, importProjectsText;
 import 'package:invest/data/write_queue.dart';
-import 'package:invest/ui/widgets/pending_writes_panel.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:invest/domain/services/biz_annual_report.dart';
-import 'package:invest/ui/widgets/offline_banner.dart';
+import 'package:invest/ui/widgets/header_status.dart';
 import 'package:provider/provider.dart';
 
 import 'package:invest/data/biz_store.dart';
@@ -127,7 +126,8 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('ملک و دفتر'),
+          title: HeaderStatusTitle(
+              title: 'ملک و دفتر', source: StoreStatusSource.biz(_store)),
           actions: [
             ListenableBuilder(
               listenable: _store,
@@ -141,12 +141,10 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
               ),
             ),
           ],
-          bottom: connectionStripFor(context,
-              queuesWrites: true,
-              below: TabBar(controller: _tabs, tabs: const [
-                Tab(text: 'معاملات ملک'),
-                Tab(text: 'جدول ماهانه'),
-              ])),
+          bottom: TabBar(controller: _tabs, tabs: const [
+            Tab(text: 'معاملات ملک'),
+            Tab(text: 'جدول ماهانه'),
+          ]),
         ),
         // Scaffold places the FAB above system insets / keyboard; only the
         // trades tab has it, so it never covers the monthly table.
@@ -167,33 +165,19 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
         body: ListenableBuilder(
           listenable: _store,
           builder: (context, _) {
-            final err = _store.lastError;
-            final banner = _store.showingCache || err != null
-                ? MaterialBanner(
-                    content: Text(err ?? offlineQueueNote),
-                    actions: [
-                      TextButton(
-                          onPressed: () => ensureBizReady(context, _store),
-                          child: const Text('تلاش دوباره')),
-                    ],
-                  )
-                : null;
             if (!_store.loaded) {
               // Never spin forever: a failed first load shows the error.
-              if (banner != null && !_store.syncing) {
-                return Column(children: [banner]);
+              // Never spin forever: details/retry are in the header status.
+              if (_store.lastError != null && !_store.syncing) {
+                return Center(
+                  child: TextButton(
+                      onPressed: () => ensureBizReady(context, _store),
+                      child: const Text('بارگیری نشد · تلاش دوباره')),
+                );
               }
               return const Center(child: CircularProgressIndicator());
             }
             return Column(children: [
-              if (banner != null) banner,
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: PendingWritesPanel(
-                    queue: _store.queue,
-                    onSendNow: () => ensureBizReady(context, _store)),
-              ),
-              if (_store.syncing) const LinearProgressIndicator(minHeight: 2),
               Expanded(
                 child: TabBarView(controller: _tabs, children: [
                   _TradesTab(store: _store),

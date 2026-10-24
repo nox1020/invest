@@ -54,7 +54,7 @@ class InvestApiClient {
   InvestApiClient(
     this._session, {
     http.Client? client,
-    this.timeout = const Duration(seconds: 10),
+    this.timeout = const Duration(seconds: 20),
   }) : _client = client ?? http.Client();
 
   final SessionStore _session;
@@ -292,6 +292,8 @@ class InvestApiClient {
         'GET',
         _uri('/invest/api/v1/auth/status'),
         includeCookie: includeCookie,
+        // Short probe; data reads get the longer default (slow mobile links).
+        timeout: const Duration(seconds: 10),
       );
       if (data['authenticated'] == true) {
         final phone = _text(data['phone'])?.trim() ?? '';

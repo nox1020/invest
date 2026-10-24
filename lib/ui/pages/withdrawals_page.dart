@@ -82,7 +82,7 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
             padding: shellPagePadding(extraForFab: state.canMutate),
             children: [
               _StatusRibbon(
-                offline: !state.connectionStatus.isOnline,
+                offline: false, // connection state lives in the header line
                 count: history.length,
                 yearLabel: WithdrawalAllowance.yearCaption(
                   allowance.yearKey,

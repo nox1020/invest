@@ -269,7 +269,7 @@ void main() {
 
     testWidgets('offline: last sync tag and stored rate', (t) async {
       await pump(t, card(live: false, offline: true));
-      expect(find.text('دادهٔ ذخیره‌شده · همگام‌سازی ۰۸:۴۲'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pv-offline')), findsNothing); // header only
       expect(find.textContaining('نرخ ذخیره‌شده'), findsOneWidget);
       expect(find.byKey(const ValueKey('pv-live')), findsNothing);
     });

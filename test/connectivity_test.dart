@@ -160,7 +160,8 @@ void main() {
                   pageTitle: 'داشبورد',
                   status: AppConnectionStatus.waitingNetwork,
                   pending: 2))));
-      expect(find.text('آفلاین · در انتظار شبکه — ۲ تغییر در صف'), findsOneWidget);
+      expect(
+          find.text('آفلاین · در انتظار شبکه — ۲ تغییر در صف'), findsOneWidget);
     });
 
     testWidgets('notice: reason, last sync, retry; hidden online/reauth',
@@ -250,36 +251,36 @@ void main() {
       }
     }
 
-    String tag(WidgetTester t) {
-      final w = find.descendant(
-          of: find.byKey(const ValueKey('dash-sync')),
-          matching: find.byType(Text));
-      return t.widget<Text>(w.first).data!;
+    void noBodyStatus() {
+      expect(find.byKey(const ValueKey('dash-sync')), findsNothing);
+      expect(find.byKey(const ValueKey('pv-offline')), findsNothing);
+      expect(find.byKey(const ValueKey('offline-notice')), findsNothing);
+      expect(find.textContaining('در حال اتصال'), findsNothing);
+      expect(find.textContaining('InvestApiException'), findsNothing);
     }
 
-    testWidgets('read-only offline: tag, card label, FAB hidden', (t) async {
-      await pumpDash(t, _state());
-      expect(tag(t), 'آفلاین');
-      expect(find.text('دادهٔ ذخیره‌شده · همگام‌سازی ۰۸:۴۲'), findsOneWidget);
+    testWidgets('read-only offline: no body notices, FAB hidden', (t) async {
+      final s = _state()..error = 'assets: InvestApiException(/network_error)';
+      await pumpDash(t, s);
+      noBodyStatus();
       expect(find.byKey(const ValueKey('fab-main')), findsNothing);
     });
 
-    testWidgets('session expired: tag says so, FAB hidden', (t) async {
+    testWidgets('session expired: no body notices, FAB hidden', (t) async {
       await pumpDash(t, _state(reauth: true));
-      expect(tag(t), 'ورود لازم');
+      noBodyStatus();
       expect(find.byKey(const ValueKey('fab-main')), findsNothing);
     });
 
-    testWidgets('local workspace is writable: «محلی», FAB shown', (t) async {
+    testWidgets('local workspace is writable: FAB shown', (t) async {
       await pumpDash(t, _state(remote: false, readOnly: false));
-      expect(tag(t), 'محلی');
+      noBodyStatus();
       expect(find.byKey(const ValueKey('fab-main')), findsOneWidget);
     });
 
-    testWidgets('online: synced tag and FAB', (t) async {
+    testWidgets('online: FAB shown, no status rows', (t) async {
       await pumpDash(t, _state(offline: false, readOnly: false));
-      expect(tag(t), startsWith('به‌روز'));
-      expect(find.byKey(const ValueKey('pv-offline')), findsNothing);
+      noBodyStatus();
       expect(find.byKey(const ValueKey('fab-main')), findsOneWidget);
     });
   });

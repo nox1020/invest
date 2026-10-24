@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:invest/ui/widgets/offline_banner.dart';
+import 'package:invest/ui/widgets/header_status.dart';
 import 'package:provider/provider.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 
@@ -14,7 +14,6 @@ import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/biz_page.dart' show parseBizDate, bizDateText;
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
-import 'package:invest/ui/widgets/pending_writes_panel.dart';
 
 /// Binds [store] to the signed-in Vinor account, or shows its cache offline.
 Future<void> ensureProjectsReady(BuildContext context, ProjectsStore store,
@@ -142,8 +141,9 @@ class _ProjectsPageState extends State<ProjectsPage> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('پروژه‌ها / پیمانکاری'),
-          bottom: connectionStripFor(context, queuesWrites: true),
+          title: HeaderStatusTitle(
+              title: 'پروژه‌ها / پیمانکاری',
+              source: StoreStatusSource.projects(_store)),
           actions: [
             ListenableBuilder(
               listenable: _store,
@@ -174,32 +174,18 @@ class _ProjectsPageState extends State<ProjectsPage> {
         body: ListenableBuilder(
           listenable: _store,
           builder: (context, _) {
-            final err = _store.lastError;
-            final banner = _store.showingCache || err != null
-                ? MaterialBanner(
-                    content: Text(err ?? offlineQueueNote),
-                    actions: [
-                      TextButton(
-                          onPressed: () => ensureProjectsReady(context, _store),
-                          child: const Text('تلاش دوباره')),
-                    ],
-                  )
-                : null;
             if (!_store.loaded) {
-              if (banner != null && !_store.syncing) {
-                return Column(children: [banner]);
+              // Never spin forever: details/retry are in the header status.
+              if (_store.lastError != null && !_store.syncing) {
+                return Center(
+                  child: TextButton(
+                      onPressed: () => ensureProjectsReady(context, _store),
+                      child: const Text('بارگیری نشد · تلاش دوباره')),
+                );
               }
               return const Center(child: CircularProgressIndicator());
             }
             return Column(children: [
-              if (banner != null) banner,
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: PendingWritesPanel(
-                    queue: _store.queue,
-                    onSendNow: () => ensureProjectsReady(context, _store)),
-              ),
-              if (_store.syncing) const LinearProgressIndicator(minHeight: 2),
               Expanded(child: _list(context)),
             ]);
           },

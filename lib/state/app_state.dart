@@ -1203,11 +1203,14 @@ class AppState extends ChangeNotifier {
     refreshing = true;
     notifyListeners();
     try {
-      if (offline && readOnlyOffline && useRemote) {
+      // Any remote-backed offline state probes (not only read-only), so the
+      // app always finds its way back once the server answers.
+      var reconnected = false;
+      if (offline && useRemote) {
         if (await _probeOnline()) {
           offline = false;
           readOnlyOffline = false;
-          _flushStoreQueuesAfterReconnect();
+          reconnected = true;
         } else {
           error = null;
           return;
@@ -1220,6 +1223,8 @@ class AppState extends ChangeNotifier {
           fetchSettings: plan.fetchSettings,
           checkApiVersion: plan.checkApiVersion,
         );
+        // Flush store queues after the book loaded, not in parallel with it.
+        if (reconnected && !offline) _flushStoreQueuesAfterReconnect();
       } else if (!useRemote) {
         await _publishLocalPortfolio();
         error = null;
@@ -1277,7 +1282,13 @@ class AppState extends ChangeNotifier {
       debugPrint('Invest refresh failed: $cause\n$st');
       offline = true;
       offlineCause = OfflineCause.network;
-      final loaded = await _applyPortfolioCache();
+      // A book already on screen stays (read-only) even if the disk cache
+      // cannot be read; before, this path left offline+writable with a raw
+      // error banner and the auto-probe never ran again (stuck «connecting»).
+      final hadBook = assets.isNotEmpty ||
+          openTrades.isNotEmpty ||
+          closedTrades.isNotEmpty;
+      final loaded = hadBook || await _applyPortfolioCache();
       if (loaded) {
         readOnlyOffline = true;
         error = null;

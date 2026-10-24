@@ -2,9 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:invest/data/write_queue.dart';
-import 'package:invest/ui/widgets/pending_writes_panel.dart';
 import 'package:flutter/services.dart';
-import 'package:invest/ui/widgets/offline_banner.dart';
+import 'package:invest/ui/widgets/header_status.dart';
 import 'package:provider/provider.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 
@@ -90,8 +89,9 @@ class _PwoPageState extends State<PwoPage> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('PWO · برداشت ماهانه'),
-          bottom: connectionStripFor(context, queuesWrites: true),
+          title: HeaderStatusTitle(
+              title: 'PWO · برداشت ماهانه',
+              source: StoreStatusSource.pwo(_store)),
           actions: [
             IconButton(
               tooltip: 'تنظیمات PWO',
@@ -116,7 +116,7 @@ class _PwoPageState extends State<PwoPage> {
             if (!_store.loaded) {
               if (_store.lastError != null && !_store.syncing) {
                 return _ErrorRetry(
-                  message: _store.lastError!,
+                  message: 'دادهٔ PWO بارگیری نشد.',
                   onRetry: () => _store.refresh(),
                 );
               }
@@ -134,23 +134,6 @@ class _PwoPageState extends State<PwoPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
               children: [
-                PendingWritesPanel(
-                    queue: _store.queue, onSendNow: () => ensurePwoReady(context, _store)),
-                if (_store.showingCache && _store.lastError != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Material(
-                      key: const ValueKey('pwo-offline'),
-                      color: _bad.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                      child: Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Text(
-                            'نمایش دادهٔ ذخیره‌شده. ${_store.lastError}',
-                            style: const TextStyle(color: _bad)),
-                      ),
-                    ),
-                  ),
                 if (years.length > 1)
                   Wrap(
                     spacing: 8,

@@ -80,7 +80,7 @@ class _AssetsPageState extends State<AssetsPage>
             padding: shellPagePadding(extraForFab: state.canMutate),
             children: [
               _StatusRibbon(
-                offline: !state.connectionStatus.isOnline,
+                offline: false, // connection state lives in the header line
                 holdings: holdings.length,
                 openLots: openLots,
                 assetRows: state.assets.length,

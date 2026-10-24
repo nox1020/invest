@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:invest/config/app_config.dart';
-import 'package:invest/data/biz_store.dart';
 import 'package:invest/data/notification_inbox_store.dart';
-import 'package:invest/data/projects_store.dart';
-import 'package:invest/data/pwo_store.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
@@ -17,8 +14,7 @@ import 'package:invest/ui/pages/settings_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/asset_editor_sheet.dart';
 import 'package:invest/ui/widgets/connection_status_title.dart';
-import 'package:invest/ui/widgets/offline_banner.dart';
-import 'package:invest/ui/widgets/user_error.dart';
+import 'package:invest/ui/widgets/header_status.dart';
 import 'package:provider/provider.dart';
 
 class InvestApp extends StatelessWidget {
@@ -139,29 +135,20 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final initialLoad = state.loading && state.metrics == null;
     final updating =
         state.refreshing || (index == HomeTabs.index && state.commodityIndexLoading);
-    // Offline/auth states win over the index tab's own loading cue.
-    final connectionStatus =
-        state.connectionStatus == AppConnectionStatus.connected && updating
-            ? AppConnectionStatus.updating
-            : state.connectionStatus;
 
     return Scaffold(
       appBar: AppBar(
         centerTitle: false,
         titleSpacing: 16,
-        title: ListenableBuilder(
-          listenable: Listenable.merge([
-            PwoStore.instance.queue,
-            BizStore.instance.queue,
-            ProjectsStore.instance.queue,
-          ]),
-          builder: (context, _) => ConnectionStatusTitle(
-            pageTitle: titles[index],
-            status: connectionStatus,
-            pending: state.pendingWrites,
-          ),
+        title: HeaderStatusTitle(
+          title: titles[index],
+          alwaysShow: true,
+          extraBusy: index == HomeTabs.index && state.commodityIndexLoading,
+          extraError: index == HomeTabs.index &&
+              (state.commodityIndexError != null ||
+                  state.iranInflationError != null),
         ),
-        flexibleSpace: updating
+        flexibleSpace: updating && !state.offline
             ? const Align(
                 alignment: Alignment.bottomCenter,
                 child: ConnectionProgressBar(),
@@ -196,12 +183,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               },
               child: Column(
                 children: [
-                  if (state.reauthRequired) const _ReauthBanner(),
-                  // Reason + retry for every offline state; the widget hides
-                  // itself online and on auth expiry (own banner above).
-                  const OfflineReadOnlyNotice(),
-                  if (state.error != null && state.error!.isNotEmpty)
-                    UserErrorBanner(message: state.error!),
+                  // Connection / sync notices live in the header line only.
                   Expanded(
                     child: IndexedStack(
                       index: index,
@@ -243,45 +225,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),
             label: 'تنظیمات',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ReauthBanner extends StatelessWidget {
-  const _ReauthBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        color: AppTheme.card,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'نشست سرور تأیید نشد. داده‌های ذخیره‌شده سر جایش است. برای ثبت تغییر، دوباره وارد شوید.',
-            textAlign: TextAlign.right,
-            style: TextStyle(color: AppTheme.text, fontSize: 13, height: 1.4),
-          ),
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: TextButton(
-              style: TextButton.styleFrom(foregroundColor: AppTheme.positive),
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const LoginPage()),
-                );
-              },
-              child: const Text('ورود دوباره'),
-            ),
           ),
         ],
       ),

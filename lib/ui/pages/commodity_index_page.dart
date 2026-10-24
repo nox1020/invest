@@ -77,8 +77,6 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final offlineHint = state.offline ||
-        (state.commodityIndexError?.contains('آفلاین') ?? false);
     final wallex = _wallexQuotes(state.wallexMarkets);
     final essentialsPulse = marketPulse(
       state.commodityIndex,
@@ -114,8 +112,6 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
             updatedAt: _page == 2
                 ? state.iranInflation?.fetchedAt
                 : state.commodityIndexUpdatedAt,
-            offlineHint: offlineHint ||
-                (state.iranInflationError?.contains('آفلاین') ?? false),
             page: _page,
             wallexCount: state.wallexMarkets.length,
             inflationPeriod: state.iranInflation?.periodLabel,
@@ -163,16 +159,6 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
             ),
           ),
         ],
-        if (state.commodityIndexError != null &&
-            state.commodityIndex.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              state.commodityIndexError!,
-              textAlign: TextAlign.right,
-              style: const TextStyle(color: AppTheme.muted, fontSize: 11),
-            ),
-          ),
         Expanded(
           child: PageView(
             controller: _pageController,
@@ -366,7 +352,6 @@ class _WallexSortChips extends StatelessWidget {
 class _IndexHeader extends StatelessWidget {
   const _IndexHeader({
     this.updatedAt,
-    this.offlineHint = false,
     required this.page,
     required this.wallexCount,
     this.inflationPeriod,
@@ -377,7 +362,6 @@ class _IndexHeader extends StatelessWidget {
   });
 
   final DateTime? updatedAt;
-  final bool offlineHint;
   final int page;
   final int wallexCount;
   final String? inflationPeriod;
@@ -396,9 +380,7 @@ class _IndexHeader extends StatelessWidget {
       3 => 'اتاق فکر',
       _ => 'نبض بازار',
     };
-    final subtitle = offlineHint
-        ? 'نمایش داده‌های ذخیره‌شده — اتصال اینترنت برای بروزرسانی'
-        : switch (page) {
+    final subtitle = switch (page) {
             1 => pulse.isEmpty
                 ? '$wallexCount بازار تومان — مرتب‌سازی حجم، صعود و نزول'
                 : pulse.headline,
