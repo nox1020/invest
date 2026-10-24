@@ -8,6 +8,7 @@ import 'package:invest/ui/widgets/pending_writes_panel.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:invest/domain/services/biz_annual_report.dart';
+import 'package:invest/ui/widgets/offline_banner.dart';
 import 'package:provider/provider.dart';
 
 import 'package:invest/data/biz_store.dart';
@@ -140,10 +141,12 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
               ),
             ),
           ],
-          bottom: TabBar(controller: _tabs, tabs: const [
-            Tab(text: 'معاملات ملک'),
-            Tab(text: 'جدول ماهانه'),
-          ]),
+          bottom: connectionStripFor(context,
+              queuesWrites: true,
+              below: TabBar(controller: _tabs, tabs: const [
+                Tab(text: 'معاملات ملک'),
+                Tab(text: 'جدول ماهانه'),
+              ])),
         ),
         // Scaffold places the FAB above system insets / keyboard; only the
         // trades tab has it, so it never covers the monthly table.

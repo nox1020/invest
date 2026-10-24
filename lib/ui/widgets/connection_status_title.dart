@@ -1,32 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:invest/domain/services/connection_status.dart';
+import 'package:invest/ui/widgets/dashboard_kit.dart' show fa;
 
-/// Telegram-style connection state shown under the page title.
-enum AppConnectionStatus {
-  connected,
-  updating,
-  offline;
-
-  String get label => switch (this) {
-        connected => 'متصل',
-        updating => 'در حال به‌روزرسانی...',
-        offline => 'آفلاین',
-      };
-
-  Color get color => switch (this) {
-        connected => const Color(0xFF6EE7A8),
-        updating => const Color(0xFFE8F0EC),
-        offline => const Color(0xFFB7C4BC),
-      };
-
-  static AppConnectionStatus resolve({
-    required bool offline,
-    required bool updating,
-  }) {
-    if (updating) return AppConnectionStatus.updating;
-    if (offline) return AppConnectionStatus.offline;
-    return AppConnectionStatus.connected;
-  }
-}
+export 'package:invest/domain/services/connection_status.dart';
 
 /// Two-line AppBar title: page name + Telegram-like connection subtitle.
 class ConnectionStatusTitle extends StatelessWidget {
@@ -34,10 +10,14 @@ class ConnectionStatusTitle extends StatelessWidget {
     super.key,
     required this.pageTitle,
     required this.status,
+    this.pending = 0,
   });
 
   final String pageTitle;
   final AppConnectionStatus status;
+
+  /// Unsent queued writes; shown after the status («· ۲ در صف»).
+  final int pending;
 
   @override
   Widget build(BuildContext context) {
@@ -62,13 +42,16 @@ class ConnectionStatusTitle extends StatelessWidget {
           switchInCurve: Curves.easeOut,
           switchOutCurve: Curves.easeIn,
           child: Row(
-            key: ValueKey(status),
+            key: ValueKey('$status-$pending'),
             children: [
               _StatusDot(status: status),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  status.label,
+                  pending > 0
+                      ? '${status.label} — ${fa('$pending')} تغییر در صف'
+                      : status.label,
+                  key: const ValueKey('conn-status'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -94,7 +77,8 @@ class _StatusDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (status == AppConnectionStatus.updating) {
+    if (status == AppConnectionStatus.updating ||
+        status == AppConnectionStatus.connecting) {
       return SizedBox(
         width: 8,
         height: 8,

@@ -23,9 +23,22 @@ class InvestApiException implements Exception {
 /// Result of session validation — distinguishes offline from logged-out.
 enum AuthCheckStatus { authenticated, unauthenticated, offline }
 
+/// Why the server could not be reached: no answer at all (no internet,
+/// DNS, timeout) vs. an answer that was not usable (5xx, HTML, redirect).
+enum OfflineCause { network, server }
+
+OfflineCause offlineCauseOf(Object e) => e is InvestApiException &&
+        e.statusCode != null &&
+        e.errorCode != 'network_error'
+    ? OfflineCause.server
+    : OfflineCause.network;
+
 class AuthCheckResult {
-  const AuthCheckResult(this.status, {this.phone});
+  const AuthCheckResult(this.status, {this.phone, this.cause});
   final AuthCheckStatus status;
+
+  /// Set when [status] is offline.
+  final OfflineCause? cause;
 
   /// Phone the server bound to this cookie. Empty when the status route
   /// did not report one.
@@ -268,7 +281,7 @@ class InvestApiClient {
       return bearerOnly;
     }
     if (bearerOnly.status == AuthCheckStatus.offline) {
-      return const AuthCheckResult(AuthCheckStatus.offline);
+      return AuthCheckResult(AuthCheckStatus.offline, cause: bearerOnly.cause);
     }
     return bearerOnly;
   }
@@ -293,7 +306,7 @@ class InvestApiClient {
         return const AuthCheckResult(AuthCheckStatus.unauthenticated);
       }
       // Network, timeout, 5xx, redirect, or HTML — keep the local session.
-      return const AuthCheckResult(AuthCheckStatus.offline);
+      return AuthCheckResult(AuthCheckStatus.offline, cause: offlineCauseOf(e));
     }
   }
 

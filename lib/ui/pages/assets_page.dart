@@ -80,7 +80,7 @@ class _AssetsPageState extends State<AssetsPage>
             padding: shellPagePadding(extraForFab: state.canMutate),
             children: [
               _StatusRibbon(
-                offline: state.offline,
+                offline: !state.connectionStatus.isOnline,
                 holdings: holdings.length,
                 openLots: openLots,
                 assetRows: state.assets.length,
@@ -163,13 +163,19 @@ class _StatusRibbon extends StatelessWidget {
         Icon(
           offline ? Icons.cloud_off_outlined : Icons.account_tree_outlined,
           size: 14,
-          color: offline ? AppTheme.negative : AppTheme.muted,
+          color: offline
+              ? context.watch<AppState>().connectionStatus.color
+              : AppTheme.muted,
         ),
         const SizedBox(width: 6),
         Text(
-          offline ? 'آفلاین' : 'میز دارایی',
+          offline
+              ? context.watch<AppState>().connectionStatus.short
+              : 'میز دارایی',
           style: TextStyle(
-            color: offline ? AppTheme.negative : AppTheme.muted,
+            color: offline
+                ? context.watch<AppState>().connectionStatus.color
+                : AppTheme.muted,
             fontSize: 11,
             fontWeight: FontWeight.w700,
           ),

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:invest/config/app_config.dart';
+import 'package:invest/data/biz_store.dart';
 import 'package:invest/data/notification_inbox_store.dart';
+import 'package:invest/data/projects_store.dart';
+import 'package:invest/data/pwo_store.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
@@ -136,18 +139,27 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final initialLoad = state.loading && state.metrics == null;
     final updating =
         state.refreshing || (index == HomeTabs.index && state.commodityIndexLoading);
-    final connectionStatus = AppConnectionStatus.resolve(
-      offline: state.offline,
-      updating: updating,
-    );
+    // Offline/auth states win over the index tab's own loading cue.
+    final connectionStatus =
+        state.connectionStatus == AppConnectionStatus.connected && updating
+            ? AppConnectionStatus.updating
+            : state.connectionStatus;
 
     return Scaffold(
       appBar: AppBar(
         centerTitle: false,
         titleSpacing: 16,
-        title: ConnectionStatusTitle(
-          pageTitle: titles[index],
-          status: connectionStatus,
+        title: ListenableBuilder(
+          listenable: Listenable.merge([
+            PwoStore.instance.queue,
+            BizStore.instance.queue,
+            ProjectsStore.instance.queue,
+          ]),
+          builder: (context, _) => ConnectionStatusTitle(
+            pageTitle: titles[index],
+            status: connectionStatus,
+            pending: state.pendingWrites,
+          ),
         ),
         flexibleSpace: updating
             ? const Align(
@@ -185,7 +197,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               child: Column(
                 children: [
                   if (state.reauthRequired) const _ReauthBanner(),
-                  if (state.readOnlyOffline) const OfflineReadOnlyNotice(),
+                  // Reason + retry for every offline state; the widget hides
+                  // itself online and on auth expiry (own banner above).
+                  const OfflineReadOnlyNotice(),
                   if (state.error != null && state.error!.isNotEmpty)
                     UserErrorBanner(message: state.error!),
                   Expanded(
@@ -260,6 +274,7 @@ class _ReauthBanner extends StatelessWidget {
           Align(
             alignment: AlignmentDirectional.centerStart,
             child: TextButton(
+              style: TextButton.styleFrom(foregroundColor: AppTheme.positive),
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(builder: (_) => const LoginPage()),

@@ -17,6 +17,7 @@ import 'package:invest/ui/widgets/double_count_panel.dart';
 import 'package:invest/ui/widgets/tg_percent_wheel.dart';
 import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
+import 'package:invest/ui/widgets/offline_banner.dart';
 
 /// Economist desk for withdrawal policy, capacity, and ledger history.
 class WithdrawalsPage extends StatefulWidget {
@@ -81,7 +82,7 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
             padding: shellPagePadding(extraForFab: state.canMutate),
             children: [
               _StatusRibbon(
-                offline: state.offline,
+                offline: !state.connectionStatus.isOnline,
                 count: history.length,
                 yearLabel: WithdrawalAllowance.yearCaption(
                   allowance.yearKey,
@@ -160,9 +161,7 @@ Future<void> _editAnnualWithdrawalPct(
   AppState state,
 ) async {
   if (!state.canMutate) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('در حالت آفلاین ذخیره ممکن نیست')),
-    );
+    showReadOnlySnack(context);
     return;
   }
   // Fire-and-forget: awaiting platform haptics can hang under widget tests.
@@ -219,13 +218,19 @@ class _StatusRibbon extends StatelessWidget {
         Icon(
           offline ? Icons.cloud_off_outlined : Icons.account_balance_outlined,
           size: 14,
-          color: offline ? AppTheme.negative : AppTheme.muted,
+          color: offline
+              ? context.watch<AppState>().connectionStatus.color
+              : AppTheme.muted,
         ),
         const SizedBox(width: 6),
         Text(
-          offline ? 'آفلاین' : 'میز نقدینگی',
+          offline
+              ? context.watch<AppState>().connectionStatus.short
+              : 'میز نقدینگی',
           style: TextStyle(
-            color: offline ? AppTheme.negative : AppTheme.muted,
+            color: offline
+                ? context.watch<AppState>().connectionStatus.color
+                : AppTheme.muted,
             fontSize: 11,
             fontWeight: FontWeight.w700,
           ),
@@ -828,13 +833,7 @@ Future<void> showRecordWithdrawalDialog(
 }) async {
   final state = context.read<AppState>();
   if (!state.canMutate) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.',
-        ),
-      ),
-    );
+    showReadOnlySnack(context);
     return;
   }
   final draft = existing;

@@ -14,6 +14,7 @@ import 'package:invest/ui/widgets/settings_ui.dart';
 import 'package:invest/ui/widgets/user_error.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:provider/provider.dart';
+import 'package:invest/ui/widgets/offline_banner.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -41,11 +42,7 @@ class _SettingsPageState extends State<SettingsPage> {
   ) async {
     if (_busy || state.readOnlyOffline) {
       if (state.readOnlyOffline && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('در حالت آفلاین ذخیره ممکن نیست'),
-          ),
-        );
+        showReadOnlySnack(context);
       }
       return;
     }

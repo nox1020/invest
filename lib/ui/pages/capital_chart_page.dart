@@ -89,7 +89,7 @@ class _CapitalChartPageState extends State<CapitalChartPage>
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 36),
             children: [
               _StatusRibbon(
-                offline: state.offline,
+                offline: !state.connectionStatus.isOnline,
                 holdings: snap.holdingCount,
                 openLots: snap.openLotCount,
                 yearLabel: WithdrawalAllowance.yearCaption(
@@ -203,13 +203,19 @@ class _StatusRibbon extends StatelessWidget {
         Icon(
           offline ? Icons.cloud_off_outlined : Icons.insights_outlined,
           size: 14,
-          color: offline ? AppTheme.negative : AppTheme.muted,
+          color: offline
+              ? context.watch<AppState>().connectionStatus.color
+              : AppTheme.muted,
         ),
         const SizedBox(width: 6),
         Text(
-          offline ? 'آفلاین' : 'میز سرمایه',
+          offline
+              ? context.watch<AppState>().connectionStatus.short
+              : 'میز سرمایه',
           style: TextStyle(
-            color: offline ? AppTheme.negative : AppTheme.muted,
+            color: offline
+                ? context.watch<AppState>().connectionStatus.color
+                : AppTheme.muted,
             fontSize: 11,
             fontWeight: FontWeight.w700,
           ),

@@ -15,6 +15,7 @@ import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/local_platform.dart';
 import 'package:invest/data/notification_inbox_store.dart';
 import 'package:invest/data/offline_cache_store.dart';
+import 'package:invest/domain/services/connection_status.dart';
 import 'package:invest/data/remote_invest_service.dart';
 import 'package:invest/data/repositories.dart';
 import 'package:invest/data/session_store.dart';
@@ -96,6 +97,9 @@ class AppState extends ChangeNotifier {
   bool reauthRequired = false;
   bool offline = false;
   bool readOnlyOffline = false;
+
+  /// Why the last server check failed (null when online or unknown).
+  OfflineCause? offlineCause;
   DateTime? lastSyncedAt;
   String? userPhone;
   String baseUrl = AppConfig.defaultBaseUrl;
@@ -367,6 +371,7 @@ class AppState extends ChangeNotifier {
             _startAutoRefreshTimer();
           } on InvestApiException catch (e) {
             if (e.errorCode == 'network_error' || e.statusCode == null) {
+              offlineCause = OfflineCause.network;
               await _bootOfflineWithSession();
               _startAutoRefreshTimer();
             } else {
@@ -374,6 +379,7 @@ class AppState extends ChangeNotifier {
             }
           }
         case AuthCheckStatus.offline:
+          offlineCause = auth.cause;
           await _bootOfflineWithSession();
         case AuthCheckStatus.unauthenticated:
           if ((_session?.sessionCookie ?? '').trim().isNotEmpty) {
@@ -550,6 +556,7 @@ class AppState extends ChangeNotifier {
         checkApiVersion: true,
       );
       _startAutoRefreshTimer();
+      _flushStoreQueuesAfterReconnect();
       return true;
     } catch (_) {
       return false;
@@ -566,7 +573,11 @@ class AppState extends ChangeNotifier {
       if (auth.status == AuthCheckStatus.authenticated) {
         await _noteServerPhone(auth.phone);
         reauthRequired = false;
+        offlineCause = null;
         return true;
+      }
+      if (auth.status == AuthCheckStatus.offline) {
+        offlineCause = auth.cause ?? OfflineCause.network;
       }
       if (auth.status == AuthCheckStatus.unauthenticated &&
           (_session?.sessionCookie ?? '').trim().isNotEmpty) {
@@ -577,7 +588,37 @@ class AppState extends ChangeNotifier {
       }
       return false;
     } catch (_) {
+      offlineCause = OfflineCause.network;
       return false;
+    }
+  }
+
+  /// Unsent writes across the PWO, ملک و دفتر and projects queues.
+  int get pendingWrites =>
+      PwoStore.instance.queue.items.length +
+      BizStore.instance.queue.items.length +
+      ProjectsStore.instance.queue.items.length;
+
+  /// Status the AppBar subtitle, dashboard tag and banners all read.
+  AppConnectionStatus get connectionStatus => AppConnectionStatus.resolve(
+        offline: offline,
+        updating: refreshing,
+        localOnly: !useRemote,
+        reauth: reauthRequired,
+        cause: offlineCause,
+      );
+
+  /// Back online: send what the stores queued while offline. The stores
+  /// fetch fresh data after flushing; failures stay queued with their keys.
+  void _flushStoreQueuesAfterReconnect() {
+    for (final r in <Future<void> Function()>[
+      PwoStore.instance.refresh,
+      BizStore.instance.refresh,
+      ProjectsStore.instance.refresh,
+    ]) {
+      unawaited(r().catchError((Object e, StackTrace st) {
+        logLocalFailure('reconnect-flush', e, st);
+      }));
     }
   }
 
@@ -628,8 +669,10 @@ class AppState extends ChangeNotifier {
       offline = false;
       readOnlyOffline = false;
       useRemote = true;
+      offlineCause = null;
       await _loadRemoteData();
       _startAutoRefreshTimer();
+      _flushStoreQueuesAfterReconnect();
     } finally {
       loading = false;
       notifyListeners();
@@ -666,6 +709,7 @@ class AppState extends ChangeNotifier {
     reauthRequired = false;
     offline = false;
     readOnlyOffline = false;
+    offlineCause = null;
     userPhone = null;
     metrics = null;
     assets = [];
@@ -1163,6 +1207,7 @@ class AppState extends ChangeNotifier {
         if (await _probeOnline()) {
           offline = false;
           readOnlyOffline = false;
+          _flushStoreQueuesAfterReconnect();
         } else {
           error = null;
           return;
@@ -1231,6 +1276,7 @@ class AppState extends ChangeNotifier {
     if (cause is InvestApiException && cause.errorCode == 'network_error') {
       debugPrint('Invest refresh failed: $cause\n$st');
       offline = true;
+      offlineCause = OfflineCause.network;
       final loaded = await _applyPortfolioCache();
       if (loaded) {
         readOnlyOffline = true;
@@ -1267,6 +1313,7 @@ class AppState extends ChangeNotifier {
     }
     if (again.status == AuthCheckStatus.offline) {
       offline = true;
+      offlineCause = again.cause ?? OfflineCause.network;
       final loaded = await _applyPortfolioCache();
       if (loaded) {
         readOnlyOffline = true;

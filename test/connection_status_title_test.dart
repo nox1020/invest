@@ -16,10 +16,10 @@ void main() {
     );
   }
 
-  test('resolve prefers updating over offline', () {
+  test('resolve: probing while offline reads as connecting', () {
     expect(
       AppConnectionStatus.resolve(offline: true, updating: true),
-      AppConnectionStatus.updating,
+      AppConnectionStatus.connecting,
     );
     expect(
       AppConnectionStatus.resolve(offline: true, updating: false),
@@ -39,7 +39,7 @@ void main() {
 
   testWidgets('shows offline subtitle', (tester) async {
     await tester.pumpWidget(wrap(AppConnectionStatus.offline));
-    expect(find.text('آفلاین'), findsOneWidget);
+    expect(find.text('آفلاین · در انتظار شبکه'), findsOneWidget);
     expect(find.text('متصل'), findsNothing);
   });
 

@@ -9,6 +9,7 @@ import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/settings_ui.dart';
 import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
+import 'package:invest/ui/widgets/offline_banner.dart';
 
 Future<void> showPriceAlertEditor(
   BuildContext context, {
@@ -20,9 +21,7 @@ Future<void> showPriceAlertEditor(
 }) async {
   final state = context.read<AppState>();
   if (state.readOnlyOffline) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('در حالت آفلاین ذخیره ممکن نیست')),
-    );
+    showReadOnlySnack(context);
     return;
   }
   final existing = state.settings.alertFor(

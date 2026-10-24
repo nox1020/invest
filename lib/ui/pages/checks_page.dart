@@ -8,6 +8,7 @@ import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:invest/ui/widgets/user_error.dart';
+import 'package:invest/ui/widgets/offline_banner.dart';
 import 'package:provider/provider.dart';
 
 const _iranianBanks = <String>[
@@ -205,7 +206,9 @@ class _ChecksPageState extends State<ChecksPage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('مدیریت چک‌ها')),
+        appBar: AppBar(
+            title: const Text('مدیریت چک‌ها'),
+            bottom: connectionStripFor(context)),
         floatingActionButton: state.canMutate
             ? FloatingActionButton.extended(
                 onPressed: () => openCheckEditor(context),
@@ -1112,11 +1115,7 @@ List<_StatusAction> _statusActions(BankCheck check) {
 Future<void> openCheckEditor(BuildContext context, {BankCheck? existing}) {
   final state = context.read<AppState>();
   if (!state.canMutate) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('در حالت آفلاین فقط مشاهده ممکن است.'),
-      ),
-    );
+    showReadOnlySnack(context);
     return Future.value();
   }
   return Navigator.of(context).push(

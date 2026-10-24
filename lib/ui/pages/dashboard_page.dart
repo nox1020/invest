@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/domain/services/connection_status.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/index_analytics.dart';
 import 'package:invest/domain/services/year_nav_compare.dart';
@@ -182,6 +183,7 @@ class _DashboardBodyState extends State<_DashboardBody>
     }
 
     final syncAt = state.lastSyncedAt;
+    final conn = state.connectionStatus;
     final dial = [
       SpeedDialAction(
           id: 'qa-trade',
@@ -255,17 +257,18 @@ class _DashboardBodyState extends State<_DashboardBody>
                   ),
                   Flexible(
                     child: DashTag(
-                      state.offline
-                          ? 'آفلاین'
-                          : syncAt == null
+                      conn.isOnline
+                          ? (syncAt == null
                               ? 'همگام'
-                              : 'به‌روز ${hhmm(syncAt)}',
+                              : 'به‌روز ${hhmm(syncAt)}')
+                          : conn.short,
                       key: const ValueKey('dash-sync'),
-                      color:
-                          state.offline ? AppTheme.negative : AppTheme.positive,
-                      icon: state.offline
-                          ? Icons.cloud_off_outlined
-                          : Icons.cloud_done_rounded,
+                      color: conn.isOnline ? AppTheme.positive : conn.color,
+                      icon: conn.isOnline
+                          ? Icons.cloud_done_rounded
+                          : conn == AppConnectionStatus.localOnly
+                              ? Icons.phone_android_rounded
+                              : Icons.cloud_off_outlined,
                     ),
                   ),
                 ]),
@@ -279,7 +282,9 @@ class _DashboardBodyState extends State<_DashboardBody>
                   trend: trend,
                   usdIsLive: state.usdtIsLive,
                   pricesAsOf: state.pricesAsOf,
-                  offline: state.offline,
+                  // Local workspace is live local data, not a stale cache.
+                  offline: !conn.isOnline &&
+                      conn != AppConnectionStatus.localOnly,
                   lastSyncedAt: syncAt,
                   projects: projects,
                   refreshing: state.refreshing,

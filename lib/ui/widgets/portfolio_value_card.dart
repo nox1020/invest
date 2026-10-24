@@ -254,7 +254,8 @@ class _PortfolioValueCardState extends State<PortfolioValueCard> {
         flex: 3,
         child: Align(
           alignment: AlignmentDirectional.centerStart,
-          child: offline
+          // «زنده» only when prices really are live (not in local mode).
+          child: offline || !widget.usdIsLive
               ? const SizedBox.shrink()
               : const DashTag('زنده', key: ValueKey('pv-live'), color: AppTheme.positive, icon: Icons.circle),
         ),
@@ -274,7 +275,9 @@ class _PortfolioValueCardState extends State<PortfolioValueCard> {
       Align(
         alignment: AlignmentDirectional.centerStart,
         child: DashTag(
-          sync == null ? 'آفلاین' : 'آفلاین · آخرین همگام‌سازی ${hhmm(sync)}',
+          sync == null
+              ? 'دادهٔ ذخیره‌شده'
+              : 'دادهٔ ذخیره‌شده · همگام‌سازی ${hhmm(sync)}',
           key: const ValueKey('pv-offline'),
           color: kAmber,
           icon: Icons.cloud_off_rounded,

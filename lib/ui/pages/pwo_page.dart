@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:invest/data/write_queue.dart';
 import 'package:invest/ui/widgets/pending_writes_panel.dart';
 import 'package:flutter/services.dart';
+import 'package:invest/ui/widgets/offline_banner.dart';
 import 'package:provider/provider.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 
@@ -90,6 +91,7 @@ class _PwoPageState extends State<PwoPage> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('PWO · برداشت ماهانه'),
+          bottom: connectionStripFor(context, queuesWrites: true),
           actions: [
             IconButton(
               tooltip: 'تنظیمات PWO',

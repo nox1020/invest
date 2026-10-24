@@ -33,6 +33,8 @@ class PendingWritesPanel extends StatelessWidget {
                 if (onSendNow != null)
                   TextButton(
                     key: const ValueKey('pending-send'),
+                    style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.positive),
                     onPressed: queue.flushing ? null : onSendNow,
                     child: Text(queue.flushing ? 'در حال ارسال…' : 'ارسال الان'),
                   ),

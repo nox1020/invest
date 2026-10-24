@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:invest/ui/widgets/offline_banner.dart';
 import 'package:provider/provider.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 
@@ -142,6 +143,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('پروژه‌ها / پیمانکاری'),
+          bottom: connectionStripFor(context, queuesWrites: true),
           actions: [
             ListenableBuilder(
               listenable: _store,
