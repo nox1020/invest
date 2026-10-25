@@ -548,8 +548,8 @@ extension _CompactDash on _DashboardBodyState {
         color: toneOf(snap.totalPnl),
         title: 'سود و زیان',
         line: 'باز، تحقق‌یافته، امسال و مقایسه سالانه',
-        value: signedToman(snap.totalPnl),
-        valueColor: toneOf(snap.totalPnl),
+        value: signedToman(snap.totalPnl + state.realizedBreakdown.property + state.realizedBreakdown.projects),
+        valueColor: toneOf(snap.totalPnl + state.realizedBreakdown.property + state.realizedBreakdown.projects),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Align(
             alignment: AlignmentDirectional.centerEnd,
@@ -563,7 +563,7 @@ extension _CompactDash on _DashboardBodyState {
                 text: 'دلار فقط با بهای خرید ثبت‌شده محاسبه می‌شود. برای لات‌های بدون دلار، «—» می‌بینید.',
               ),
             ),
-          _PnlLedger(snap: snap, usd: _usd, yoy: yoy, projects: projects, usdt: usdt ?? 0),
+          _PnlLedger(snap: snap, usd: _usd, yoy: yoy, projects: projects, property: state.realizedBreakdown.property, usdt: usdt ?? 0),
         ]),
       ),
       if (alerts.isNotEmpty)
@@ -685,8 +685,12 @@ class _PnlLedger extends StatelessWidget {
     required this.usd,
     required this.yoy,
     this.projects,
+    this.property = 0,
     this.usdt = 0,
   });
+
+  /// Profit of sold property deals («ملک و دفتر»).
+  final double property;
 
   final ProjectTotals? projects;
   final double usdt;
@@ -728,7 +732,14 @@ class _PnlLedger extends StatelessWidget {
         usd: snap.realizedUsd,
       ),
       yearSpec,
-      if (projects != null && projects!.count > 0) ...[
+      if (property != 0)
+        _PnlSpec(
+          title: 'ملک و دفتر',
+          caption: 'سود معاملات ملک فروخته‌شده',
+          toman: property,
+          usd: usdt > 0 ? property / usdt : null,
+        ),
+      if (projects != null && projects!.count > 0)
         _PnlSpec(
           title: 'پیمانکاری',
           caption: fa(projects!.activeCount > 0
@@ -737,15 +748,19 @@ class _PnlLedger extends StatelessWidget {
           toman: projects!.realized,
           usd: usdt > 0 ? projects!.realized / usdt : null,
         ),
+      if (property != 0 || (projects != null && projects!.count > 0))
         _PnlSpec(
           title: 'کل تحقق‌یافته',
-          caption: 'معاملات بسته‌شده + پروژه‌های تمام‌شده',
-          toman: snap.realizedPnl + projects!.realized,
+          caption: [
+            'معاملات بسته‌شده',
+            if (property != 0) 'ملک',
+            if (projects != null && projects!.count > 0) 'پروژه‌های تمام‌شده',
+          ].join(' + '),
+          toman: snap.realizedPnl + property + (projects?.realized ?? 0),
           usd: snap.realizedUsd == null || usdt <= 0
               ? null
-              : snap.realizedUsd! + projects!.realized / usdt,
+              : snap.realizedUsd! + (property + (projects?.realized ?? 0)) / usdt,
         ),
-      ],
     ];
 
     return AnimatedSwitcher(

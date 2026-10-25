@@ -84,6 +84,21 @@ class _RefreshStepException implements Exception {
 }
 
 /// App-wide state — online (Vinor API), offline cache, or local SQLite.
+/// Realized profit by source (toman).
+class RealizedBreakdown {
+  const RealizedBreakdown({this.trades = 0, this.property = 0, this.projects = 0});
+  final double trades;
+  final double property;
+  final double projects;
+  double get total => trades + property + projects;
+  bool get hasOther => property != 0 || projects != 0;
+}
+
+/// Profit of sold property deals (same figure as the «ملک و دفتر» page).
+double propertyRealized(BizSnapshot snap) => snap.trades
+    .where((t) => t.sold)
+    .fold<double>(0, (s, t) => s + (t.profit ?? 0));
+
 class AppState extends ChangeNotifier {
   AppState({http.Client? httpClient}) : _httpClient = httpClient;
 
@@ -264,13 +279,29 @@ class AppState extends ChangeNotifier {
       .where((w) => w.status != 'rejected')
       .fold<double>(0, (s, w) => s + w.amount);
 
-  WithdrawalAllowance get withdrawalAllowance {
-    // Prefer Σ closed lots so allowance matches the dashboard realized ledger
-    // even when remote metrics lag local closed trades.
-    final realized = closedTrades.fold<double>(
+  /// Every realized profit source, counted once each:
+  /// closed asset lots + sold property deals («ملک و دفتر») + finished
+  /// contracting projects. Running projects (expected profit) and unsold
+  /// properties are never counted.
+  RealizedBreakdown get realizedBreakdown {
+    final trades = closedTrades.fold<double>(
       0,
       (s, t) => s + (t.realizedPnl ?? 0),
     );
+    final biz = BizStore.instance;
+    final ps = ProjectsStore.instance;
+    return RealizedBreakdown(
+      trades: trades,
+      property: biz.loaded ? propertyRealized(biz.snap) : 0,
+      projects: ps.loaded && ps.snap.hasData ? ps.snap.totals.realized : 0,
+    );
+  }
+
+  WithdrawalAllowance get withdrawalAllowance {
+    // Prefer Σ closed lots so allowance matches the dashboard realized ledger
+    // even when remote metrics lag local closed trades; property deals and
+    // finished projects are realized profit too.
+    final realized = realizedBreakdown.total;
     // Year is always "today" in the current calendar: a cached/offline
     // metrics.yearKey can be from another year or calendar.
     final cal = settings.calendar;

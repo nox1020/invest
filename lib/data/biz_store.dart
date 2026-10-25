@@ -156,6 +156,13 @@ class BizStore extends ChangeNotifier {
   }
 
   @visibleForTesting
+  void debugSet(BizSnapshot s) {
+    _snap = s;
+    loaded = true;
+    notifyListeners();
+  }
+
+  @visibleForTesting
   void debugReset() {
     _remote = null;
     _account = null;

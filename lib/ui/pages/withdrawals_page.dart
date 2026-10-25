@@ -7,6 +7,8 @@ import 'package:invest/domain/services/withdrawal_allowance.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/data/biz_store.dart';
+import 'package:invest/data/projects_store.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/ui/pages/biz_page.dart';
@@ -62,7 +64,8 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     return ListenableBuilder(
-      listenable: PwoStore.instance,
+      listenable: Listenable.merge(
+          [PwoStore.instance, BizStore.instance, ProjectsStore.instance]),
       builder: (context, _) => _buildBody(context, state),
     );
   }
@@ -101,7 +104,7 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
                 title: 'سود و برداشت',
               ),
               const SizedBox(height: 10),
-              _BalanceLedger(allowance: allowance),
+              _BalanceLedger(allowance: allowance, breakdown: state.realizedBreakdown),
               const SizedBox(height: 10),
               _CoveragePanel(allowance: allowance),
               if (PwoStore.instance.loaded) ...[
@@ -433,8 +436,19 @@ class _CapacityHero extends StatelessWidget {
 }
 
 class _BalanceLedger extends StatelessWidget {
-  const _BalanceLedger({required this.allowance});
+  const _BalanceLedger({required this.allowance, this.breakdown});
   final WithdrawalAllowance allowance;
+  final RealizedBreakdown? breakdown;
+
+  String get _caption {
+    final b = breakdown;
+    if (b == null || !b.hasOther) return 'سود بسته‌شده معاملات';
+    return [
+      'معاملات ${formatCompactToman(b.trades)}',
+      if (b.property != 0) 'ملک ${formatCompactToman(b.property)}',
+      if (b.projects != 0) 'پروژه ${formatCompactToman(b.projects)}',
+    ].join(' · ');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -452,7 +466,7 @@ class _BalanceLedger extends StatelessWidget {
           _LedgerRow(
             label: 'سود تحقق‌یافته',
             value: formatMoney(allowance.realizedPnl),
-            caption: 'سود بسته‌شده معاملات',
+            caption: _caption,
             tone: profitTone,
             showDivider: true,
           ),
