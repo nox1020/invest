@@ -55,6 +55,11 @@ class MainActivity : FlutterFragmentActivity() {
                 "takePending" -> synchronized(pendingSms) {
                     val copy = ArrayList(pendingSms); pendingSms.clear(); result.success(copy)
                 }
+                "getEnabled" -> result.success(SmsReceiver.storedEnabled(this))
+                "setEnabled" -> {
+                    SmsReceiver.storeEnabled(this, call.argument<Boolean>("on") == true)
+                    result.success(true)
+                }
                 "takeRejected" -> result.success(SmsReceiver.takeRejected(this))
                 "cancel" -> {
                     val fp = call.argument<String>("fp")

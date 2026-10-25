@@ -23,6 +23,7 @@ void main() {
   var readGranted = true;
   var statusFails = false;
   var statusHangs = false;
+  bool? nativeOn;
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     BankSmsStore.debugReset();
@@ -32,6 +33,7 @@ void main() {
     readGranted = true;
     statusFails = false;
     statusHangs = false;
+    nativeOn = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(BankSmsStore.channel, (c) async {
       calls.add(c.method);
@@ -41,6 +43,11 @@ void main() {
         case 'takePending':
         case 'takeRejected':
           return <Object?>[];
+        case 'getEnabled':
+          return nativeOn;
+        case 'setEnabled':
+          nativeOn = (c.arguments as Map)['on'] as bool;
+          return true;
         case 'status':
           if (statusHangs) return Completer<Object?>().future;
           if (statusFails) {
@@ -321,5 +328,58 @@ void main() {
     expect(find.textContaining('timeout'), findsWidgets);
     final p = await tester.runAsync(SharedPreferences.getInstance);
     expect(p!.getBool(BankSmsStore.kEnabled), isTrue);
+  });
+
+  test('restart keeps it on (store recreated)', () async {
+    await BankSmsStore.instance.tryEnable();
+    expect(nativeOn, isTrue);
+    BankSmsStore.debugReset();
+    await BankSmsStore.instance.load();
+    expect(BankSmsStore.instance.enabled, isTrue);
+  });
+
+  test(
+      'restart with Flutter prefs lost (process killed before write): '
+      'native committed flag wins', () async {
+    await BankSmsStore.instance.tryEnable();
+    SharedPreferences.resetStatic();
+    SharedPreferences.setMockInitialValues({});
+    BankSmsStore.debugReset();
+    await BankSmsStore.instance.load();
+    expect(BankSmsStore.instance.enabled, isTrue);
+    final p = await SharedPreferences.getInstance();
+    expect(p.getBool(BankSmsStore.kEnabled), isTrue, reason: 'resynced');
+  });
+
+  test('permission denied then restart: still on', () async {
+    granted = false;
+    await BankSmsStore.instance.tryEnable();
+    BankSmsStore.debugReset();
+    await BankSmsStore.instance.recheck();
+    expect(BankSmsStore.instance.enabled, isTrue);
+  });
+
+  test('tap during an in-flight load is not overwritten by the old value',
+      () async {
+    final s = BankSmsStore.instance;
+    final loading = s.load(); // reads "off"
+    final tap = s.setEnabled(true);
+    await loading;
+    await tap;
+    expect(s.enabled, isTrue);
+    BankSmsStore.debugReset();
+    await BankSmsStore.instance.load();
+    expect(BankSmsStore.instance.enabled, isTrue);
+  });
+
+  test('only an explicit off turns it off, and that survives restart',
+      () async {
+    await BankSmsStore.instance.tryEnable();
+    await BankSmsStore.instance.disable();
+    BankSmsStore.debugReset();
+    await BankSmsStore.instance.recheck();
+    await BankSmsStore.instance.syncOnOpen();
+    expect(BankSmsStore.instance.enabled, isFalse);
+    expect(nativeOn, isFalse);
   });
 }

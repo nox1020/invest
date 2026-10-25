@@ -130,22 +130,71 @@ class BankSmsStore extends ChangeNotifier {
       await _load();
     } catch (e) {
       _err('load', e);
+      final n = await _nativeEnabled();
+      if (_userSet == null && n != null) enabled = n;
       _loaded = true; // keep defaults; never block the switch
+      notifyListeners();
       _bindChannel();
+    }
+  }
+
+  /// The switch's single source of truth is the native, synchronously
+  /// committed flag (survives an immediate process kill); Flutter prefs are
+  /// the fallback when the native side is unavailable.
+  Future<bool?> _nativeEnabled() async {
+    try {
+      final v = await channel.invokeMethod<Object?>('getEnabled');
+      return v is bool ? v : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _persistEnabled(bool v) async {
+    try {
+      await channel.invokeMethod('setEnabled', {'on': v});
+    } catch (_) {}
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (!await p.setBool(kEnabled, v)) _err('save', 'setBool false');
+    } catch (e) {
+      _err('save', e);
     }
   }
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
-    enabled = p.getBool(kEnabled) ?? false;
-    lastScanMs = p.getInt(_kLastScan) ?? 0;
-    wantEnabled = p.getBool(_kWant) ?? false;
+    bool? dartOn;
+    try {
+      dartOn = p.getBool(kEnabled);
+    } catch (e) {
+      _err('load.on', e);
+    }
+    final nativeOn = await _nativeEnabled();
+    final on = nativeOn ?? dartOn ?? false;
+    if (_userSet == null) enabled = on;
+    if (nativeOn != null && dartOn != nativeOn) {
+      try {
+        await p.setBool(kEnabled, nativeOn);
+      } catch (_) {}
+    }
+    T? safe<T>(T? Function() f) {
+      try {
+        return f();
+      } catch (e) {
+        _err('load', e);
+        return null;
+      }
+    }
+
+    lastScanMs = safe(() => p.getInt(_kLastScan)) ?? 0;
+    wantEnabled = safe(() => p.getBool(_kWant)) ?? false;
     _handled
       ..clear()
-      ..addAll(p.getStringList(_kHandled) ?? const []);
+      ..addAll(safe(() => p.getStringList(_kHandled)) ?? const []);
     cardPerson.clear();
     try {
-      final m = jsonDecode(p.getString(_kCards) ?? '{}');
+      final m = jsonDecode(safe(() => p.getString(_kCards)) ?? '{}');
       if (m is Map) {
         m.forEach((k, v) {
           if (k is String && v is String) cardPerson[k] = v;
@@ -153,7 +202,8 @@ class BankSmsStore extends ChangeNotifier {
       }
     } catch (_) {}
     pending.clear();
-    for (final s in p.getStringList(_kPending) ?? const <String>[]) {
+    for (final s
+        in safe(() => p.getStringList(_kPending)) ?? const <String>[]) {
       try {
         final it = BankSmsItem.fromJson(jsonDecode(s));
         if (it != null) pending.add(it);
@@ -188,15 +238,17 @@ class BankSmsStore extends ChangeNotifier {
         _kPending, [for (final it in pending) jsonEncode(it.toJson())]);
   }
 
+  /// Set by an explicit user tap in this run; loading never overrides it.
+  bool? _userSet;
+
   Future<void> setEnabled(bool v) async {
     // UI first: the switch reflects the tap at once whatever happens next.
+    _userSet = v;
     enabled = v;
     notifyListeners();
+    await _persistEnabled(v);
     await load();
     enabled = v;
-    final p = await SharedPreferences.getInstance();
-    final ok = await p.setBool(kEnabled, v);
-    if (!ok) _err('save', 'setBool returned false');
     if (v && lastScanMs == 0) {
       // Start from the last two days, not the whole inbox history.
       lastScanMs = DateTime.now()

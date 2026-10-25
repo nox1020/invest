@@ -40,8 +40,22 @@ class SmsReceiver : BroadcastReceiver() {
             return d.joinToString("") { "%02x".format(it) }
         }
 
-        fun enabled(ctx: Context) = ctx.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            .getBoolean("flutter.bank_sms_enabled", false)
+        /** Native flag committed synchronously (null = never set here). */
+        fun storedEnabled(ctx: Context): Boolean? {
+            val p = ctx.getSharedPreferences(NATIVE, Context.MODE_PRIVATE)
+            return if (p.contains("enabled")) p.getBoolean("enabled", false) else null
+        }
+
+        /** commit(): written to disk before returning, survives a process kill. */
+        fun storeEnabled(ctx: Context, on: Boolean) {
+            ctx.getSharedPreferences(NATIVE, Context.MODE_PRIVATE).edit().putBoolean("enabled", on).commit()
+            ctx.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE).edit()
+                .putBoolean("flutter.bank_sms_enabled", on).commit()
+        }
+
+        fun enabled(ctx: Context) = storedEnabled(ctx)
+            ?: ctx.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                .getBoolean("flutter.bank_sms_enabled", false)
 
         fun readInbox(ctx: Context, since: Long): List<Map<String, Any>> {
             val out = mutableListOf<Map<String, Any>>()
