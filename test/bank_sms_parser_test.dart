@@ -1,6 +1,7 @@
 // All samples are invented (fake amounts/accounts); no real SMS in this repo.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/domain/services/bank_sms_parser.dart';
+import 'package:invest/ui/widgets/bank_sms_ui.dart';
 
 void main() {
   final rx = DateTime(2026, 10, 25, 14, 30);
@@ -80,5 +81,28 @@ void main() {
     expect(j.values.whereType<String>().any((s) => s.contains('برداشت:')),
         isFalse);
     expect(BankSmsItem.fromJson(j)!.toman, a.toman);
+  });
+
+  test('Blu-style: amount then «برداشت» on the same line is confident', () {
+    final r = p('blu',
+        'بلو\n۱۰۰,۰۰۰ تومان از حساب شما برداشت شد\nمانده: ۲۰,۴۰۰,۰۰۰ تومان\n۱۴۰۵/۰۸/۰۳ ۱۶:۳۵')!;
+    expect(r.bank, 'بلو');
+    expect(r.toman, 100000);
+    expect(r.balanceToman, 20400000);
+    expect(r.lowConfidence, isFalse);
+  });
+
+  test('single amount besides balance is confident', () {
+    final r = p('blu',
+        'بلو\nانتقال کارت به کارت\n۵۵,۰۰۰ تومان\nموجودی: ۱,۰۰۰,۰۰۰ تومان')!;
+    expect(r.toman, 55000);
+    expect(r.lowConfidence, isFalse);
+  });
+
+  test('friendly error hides platform stack traces', () {
+    expect(
+        bankSmsFriendlyError(
+            Exception('PlatformException(java.lang.NoSuchMethodError: ...)')),
+        isNot(contains('java')));
   });
 }

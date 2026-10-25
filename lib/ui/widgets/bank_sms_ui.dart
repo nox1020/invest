@@ -17,6 +17,26 @@ import 'package:provider/provider.dart';
 
 enum BankSmsTarget { personal, system }
 
+/// Short user-facing text; platform/stack details go to the diagnostics line.
+String bankSmsFriendlyError(Object e) {
+  if (e is ArgumentError || e is StateError) {
+    return e
+        .toString()
+        .replaceFirst('Invalid argument(s): ', '')
+        .replaceFirst('Bad state: ', '');
+  }
+  var m = e.toString().replaceAll(RegExp(r'\s+'), ' ');
+  final first =
+      RegExp(r'[A-Za-z_.]*(Exception|Error)[A-Za-z_.]*').firstMatch(m);
+  final kind = 'save: ${first?.group(0) ?? e.runtimeType}';
+  BankSmsStore.instance.lastError =
+      kind.length > 120 ? kind.substring(0, 120) : kind;
+  if (m.length > 80 || m.contains('Exception') || m.contains('Error')) {
+    return 'ثبت انجام نشد؛ دوباره تلاش کنید. (جزئیات در تنظیمات › پیامک بانک)';
+  }
+  return m;
+}
+
 String _when(DateTime d) {
   final j = BankSmsItem(fp: '', bank: '', toman: 0, at: d).jalali;
   String two(int v) => v.toString().padLeft(2, '0');
@@ -174,10 +194,7 @@ class _BankSmsConfirmSheetState extends State<BankSmsConfirmSheet> {
       if (mounted) {
         setState(() {
           _busy = false;
-          _error = e
-              .toString()
-              .replaceFirst('Invalid argument(s): ', '')
-              .replaceFirst('Bad state: ', '');
+          _error = bankSmsFriendlyError(e);
         });
       }
     }

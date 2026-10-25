@@ -202,6 +202,15 @@ BankSmsItem? parseBankSms(String sender, String body, DateTime receivedAt) {
       .where((c) => _amountKw
           .hasMatch(t.substring(c.start >= 24 ? c.start - 24 : 0, c.start)))
       .firstOrNull;
+  // «۱۰۰,۰۰۰ تومان برداشت شد» / «مبلغ ... از حساب شما برداشت» (Blu-style):
+  // the withdrawal word follows the amount on the same line.
+  amount ??= usable.where((c) {
+    final end = c.end + 30 > t.length ? t.length : c.end + 30;
+    final after = t.substring(c.end, end).split('\n').first;
+    return _withdrawKw.hasMatch(after) && !_depositKw.hasMatch(after);
+  }).firstOrNull;
+  // A single withdrawal-looking amount besides the balance is unambiguous.
+  if (amount == null && hasW && usable.length == 1) amount = usable.first;
   if (amount == null && hasW && usable.isNotEmpty) {
     amount = usable.first;
     low = true;
