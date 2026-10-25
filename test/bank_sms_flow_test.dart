@@ -505,4 +505,36 @@ void main() {
     await tester.pump();
     expect(s.pending, isNotEmpty);
   });
+
+  testWidgets('header «ریست همه»: dialog then local state cleared',
+      (tester) async {
+    final s = BankSmsStore.instance;
+    await tester.runAsync(() async {
+      await s.setEnabled(true);
+      final it = (await s.ingest([sms('برداشت: 3,300,000')])).single;
+      await s.markHandled(it.fp);
+      await s.ingest([sms('برداشت: 4,400,000')]);
+    });
+    await tester.pumpWidget(const MaterialApp(home: BankSmsPage()));
+    await tester.pump();
+    final btn = find.byKey(const ValueKey('bank-sms-reset-header'));
+    expect(btn, findsOneWidget);
+    expect(find.descendant(of: find.byType(AppBar), matching: btn),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byType(AppBar), matching: find.text('ریست همه')),
+        findsOneWidget);
+    await tester.tap(btn);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('روی سرور می‌مانند'), findsOneWidget);
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('bank-sms-reset-confirm')));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(s.pending, isEmpty);
+    expect(s.history, isEmpty);
+    expect(s.enabled, isTrue, reason: 'switch kept');
+  });
 }

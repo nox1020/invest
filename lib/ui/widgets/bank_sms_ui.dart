@@ -741,7 +741,26 @@ class BankSmsPage extends StatelessWidget {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const Text('برداشت‌های بانکی')),
+        appBar: AppBar(
+          title: const Text('برداشت‌های بانکی'),
+          actions: [
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 8),
+              child: Tooltip(
+                message: 'ریست همهٔ اطلاعات پیامک روی این گوشی',
+                child: TextButton.icon(
+                  key: const ValueKey('bank-sms-reset-header'),
+                  style:
+                      TextButton.styleFrom(foregroundColor: AppTheme.negative),
+                  onPressed: () => _reset(context),
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  label: const Text('ریست همه',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ),
+          ],
+        ),
         body: ListenableBuilder(
           listenable: store,
           builder: (context, _) {
@@ -804,7 +823,8 @@ class BankSmsPage extends StatelessWidget {
                     ),
                   ),
                 const SizedBox(height: 16),
-                Text(fa('تاریخچه (${store.history.length} · $saved ثبت‌شده)'),
+                Text(
+                    fa('تاریخچه: ${store.history.length} مورد، $saved ثبت‌شده'),
                     style: const TextStyle(fontWeight: FontWeight.w800)),
                 if (store.history.isEmpty)
                   Padding(
@@ -841,7 +861,7 @@ class BankSmsPage extends StatelessWidget {
                       side: const BorderSide(color: AppTheme.negative)),
                   onPressed: () => _reset(context),
                   icon: const Icon(Icons.restart_alt_rounded),
-                  label: const Text('ریست'),
+                  label: const Text('ریست همه'),
                 ),
                 const SizedBox(height: 4),
                 Text(
