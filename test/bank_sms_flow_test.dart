@@ -1,4 +1,6 @@
 // Fake SMS only (invented banks/amounts); nothing real in this public repo.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,6 +22,7 @@ void main() {
   var granted = true;
   var readGranted = true;
   var statusFails = false;
+  var statusHangs = false;
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     BankSmsStore.debugReset();
@@ -28,6 +31,7 @@ void main() {
     granted = true;
     readGranted = true;
     statusFails = false;
+    statusHangs = false;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(BankSmsStore.channel, (c) async {
       calls.add(c.method);
@@ -38,6 +42,7 @@ void main() {
         case 'takeRejected':
           return <Object?>[];
         case 'status':
+          if (statusHangs) return Completer<Object?>().future;
           if (statusFails) {
             throw PlatformException(code: 'status_failed');
           }
@@ -168,15 +173,18 @@ void main() {
     expect(BankSmsStore.instance.enabled, isTrue);
   });
 
-  test('missing permission → remembered, auto-enabled after grant', () async {
+  test(
+      'missing permission: switch still on and persisted; request shown; '
+      'auto-clears after grant; off stays off', () async {
     granted = false;
     final s = BankSmsStore.instance;
     expect(await s.tryEnable(), isFalse);
-    expect(s.enabled, isFalse);
+    expect(s.enabled, isTrue);
+    final p = await SharedPreferences.getInstance();
+    expect(p.getBool(BankSmsStore.kEnabled), isTrue);
     expect(s.wantEnabled, isTrue);
     expect(calls, contains('request'));
-    await s.recheck();
-    expect(s.enabled, isFalse);
+    expect(s.diagnostics, contains('RECEIVE ✗'));
     granted = true; // user allowed it in Android settings and came back
     await s.recheck();
     expect(s.enabled, isTrue);
@@ -185,6 +193,23 @@ void main() {
     expect(s.enabled, isFalse);
     await s.recheck();
     expect(s.enabled, isFalse, reason: 'turned off by user stays off');
+  });
+
+  test('native channel missing entirely: still enables and persists', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(BankSmsStore.channel, null);
+    final s = BankSmsStore.instance;
+    await s.tryEnable();
+    expect(s.enabled, isTrue);
+    expect(s.diagnostics, contains('native: none'));
+  });
+
+  test('status error is surfaced in diagnostics', () async {
+    statusFails = true;
+    final s = BankSmsStore.instance;
+    await s.tryEnable();
+    expect(s.enabled, isTrue);
+    expect(s.diagnostics, contains('status_failed'));
   });
 
   Future<void> pumpSettings(WidgetTester tester) async {
@@ -267,5 +292,34 @@ void main() {
     expect(find.byIcon(Icons.cancel_rounded),
         findsNWidgets(2)); // READ + full-screen
     expect(find.byKey(const ValueKey('bank-sms-guide')), findsNothing);
+  });
+
+  testWidgets(
+      'status never answers: checking… then timeout shown; switch '
+      'turns on immediately and persists', (tester) async {
+    statusHangs = true;
+    await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: BankSmsSettingsSheet())));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('bank-sms-checking')), findsOneWidget);
+    expect(find.byKey(const ValueKey('bank-sms-diag')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('bank-sms-switch')));
+    await tester.pump();
+    expect(BankSmsStore.instance.enabled, isTrue);
+    expect(
+        tester
+            .widget<SwitchListTile>(
+                find.byKey(const ValueKey('bank-sms-switch')))
+            .value,
+        isTrue);
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump(const Duration(seconds: 5));
+    expect(find.byKey(const ValueKey('bank-sms-checking')), findsNothing);
+    expect(find.byKey(const ValueKey('bank-sms-unknown')), findsOneWidget);
+    expect(find.textContaining('timeout'), findsWidgets);
+    final p = await tester.runAsync(SharedPreferences.getInstance);
+    expect(p!.getBool(BankSmsStore.kEnabled), isTrue);
   });
 }

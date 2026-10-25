@@ -16,7 +16,13 @@ class BankSmsCaps {
     this.fullScreen = true,
     this.sdk = 0,
     this.error,
+    this.version = '',
+    this.prefEnabled,
   });
+  final String version;
+
+  /// The enabled flag as the native side reads it (what SmsReceiver sees).
+  final bool? prefEnabled;
   final bool supported, read, receive, notify, fullScreen;
   final int sdk;
 
@@ -40,6 +46,8 @@ class BankSmsCaps {
       notify: b('notify', true),
       fullScreen: b('fullScreen', true),
       sdk: (m['sdk'] as num?)?.toInt() ?? 0,
+      version: '${m['version'] ?? ''}',
+      prefEnabled: m['prefEnabled'] is bool ? m['prefEnabled'] as bool : null,
     );
   }
 }
@@ -80,6 +88,23 @@ class BankSmsStore extends ChangeNotifier {
   final List<BankSmsItem> pending = [];
   BankSmsCaps caps = const BankSmsCaps();
 
+  /// One short, non-sensitive diagnostics line for screenshots.
+  String get diagnostics {
+    String f(bool v) => v ? '✓' : '✗';
+    final c = caps;
+    final parts = <String>[
+      if (c.version.isNotEmpty) 'v${c.version}',
+      if (c.sdk > 0) 'API ${c.sdk}',
+      if (c.supported && !c.unknown)
+        'RECEIVE ${f(c.receive)} READ ${f(c.read)} NOTIF ${f(c.notify)} FS ${f(c.fullScreen)}',
+      if (!c.supported) 'native: none',
+      'on=${enabled ? 1 : 0}',
+      if (c.prefEnabled != null) 'native.on=${c.prefEnabled! ? 1 : 0}',
+      if (lastError != null) 'err: $lastError',
+    ];
+    return parts.join(' · ');
+  }
+
   /// Fired for a withdrawal SMS that arrived (or was tapped) right now and
   /// should pop the confirm sheet.
   final _arrivals = StreamController<BankSmsItem>.broadcast();
@@ -89,7 +114,26 @@ class BankSmsStore extends ChangeNotifier {
   bool get loaded => _loaded;
 
   Future<void>? _loading;
-  Future<void> load() => _loaded ? Future.value() : (_loading ??= _load());
+  Future<void> load() => _loaded ? Future.value() : (_loading ??= _safeLoad());
+
+  /// Last non-sensitive error (type + short message), shown in the sheet.
+  String? lastError;
+  void _err(String where, Object e) {
+    var m = e.toString().replaceAll(RegExp(r'\s+'), ' ');
+    if (m.length > 120) m = '${m.substring(0, 120)}…';
+    lastError = '$where: ${e.runtimeType} $m';
+    notifyListeners();
+  }
+
+  Future<void> _safeLoad() async {
+    try {
+      await _load();
+    } catch (e) {
+      _err('load', e);
+      _loaded = true; // keep defaults; never block the switch
+      _bindChannel();
+    }
+  }
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
@@ -145,10 +189,14 @@ class BankSmsStore extends ChangeNotifier {
   }
 
   Future<void> setEnabled(bool v) async {
+    // UI first: the switch reflects the tap at once whatever happens next.
+    enabled = v;
+    notifyListeners();
     await load();
     enabled = v;
     final p = await SharedPreferences.getInstance();
-    await p.setBool(kEnabled, v);
+    final ok = await p.setBool(kEnabled, v);
+    if (!ok) _err('save', 'setBool returned false');
     if (v && lastScanMs == 0) {
       // Start from the last two days, not the whole inbox history.
       lastScanMs = DateTime.now()
@@ -225,21 +273,30 @@ class BankSmsStore extends ChangeNotifier {
     await p.setBool(_kWant, v);
   }
 
-  /// Switch turned on: ask for permissions; enable (and persist) as soon as
-  /// SMS permissions are granted, otherwise remember the intent.
+  /// Switch turned on: persisted immediately; permissions are checked and
+  /// requested afterwards and never turn it back off. Returns whether SMS
+  /// receive permission is (as far as Android reports) granted.
   Future<bool> tryEnable() async {
-    await load();
-    var c = await refreshCaps();
-    if (c.denied) c = await requestPermissions();
-    if (c.denied) {
-      await _setWant(true);
-      notifyListeners();
-      return false;
+    try {
+      await setEnabled(true);
+    } catch (e) {
+      _err('enable', e);
     }
-    await _setWant(false);
-    await setEnabled(true);
-    await syncOnOpen();
-    return true;
+    var ok = true;
+    try {
+      var c = await refreshCaps();
+      if (c.denied) c = await requestPermissions();
+      ok = !c.denied;
+      await _setWant(!ok);
+    } catch (e) {
+      _err('perm', e);
+    }
+    unawaited(syncOnOpen().catchError((Object e) {
+      _err('scan', e);
+      return const <BankSmsItem>[];
+    }));
+    notifyListeners();
+    return ok;
   }
 
   Future<void> disable() async {
@@ -249,14 +306,21 @@ class BankSmsStore extends ChangeNotifier {
 
   /// After coming back from system settings: auto-enable if requested.
   Future<void> recheck() async {
-    await load();
-    final c = await refreshCaps();
-    if (wantEnabled && !enabled && c.supported && !c.denied) {
-      await _setWant(false);
-      await setEnabled(true);
-      await syncOnOpen();
+    try {
+      final c = await refreshCaps(); // independent of prefs loading
+      await load();
+      if (wantEnabled && c.supported && !c.denied) {
+        await _setWant(false);
+        if (!enabled) await setEnabled(true);
+        await syncOnOpen();
+      }
+    } catch (e) {
+      _err('recheck', e);
     }
   }
+
+  /// false until the first status answer (or timeout/error) arrives.
+  bool capsChecked = false;
 
   Future<BankSmsCaps> refreshCaps() async {
     try {
@@ -275,6 +339,8 @@ class BankSmsStore extends ChangeNotifier {
     } catch (e) {
       caps = BankSmsCaps(supported: true, error: e.runtimeType.toString());
     }
+    capsChecked = true;
+    if (caps.error != null) _err('status', caps.error!);
     notifyListeners();
     return caps;
   }

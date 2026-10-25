@@ -479,11 +479,16 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
   }
 
   Future<void> _toggle(bool v) async {
-    if (v) {
-      await store.tryEnable();
-    } else {
-      await store.disable();
+    try {
+      if (v) {
+        await store.tryEnable();
+      } else {
+        await store.disable();
+      }
+    } catch (e) {
+      store.lastError = 'toggle: ${e.runtimeType}';
     }
+    await store.refreshCaps();
   }
 
   @override
@@ -496,13 +501,13 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Row(children: [
                 Icon(
-                    c.unknown
+                    (c.unknown || !c.supported)
                         ? Icons.help_rounded
                         : ok
                             ? Icons.check_circle_rounded
                             : Icons.cancel_rounded,
                     size: 18,
-                    color: c.unknown
+                    color: (c.unknown || !c.supported)
                         ? Colors.orange
                         : ok
                             ? AppTheme.positive
@@ -532,15 +537,31 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
                   value: store.enabled,
                   onChanged: _toggle,
                 ),
-                if (c.supported) ...[
-                  const Divider(),
+                const Divider(),
+                if (!store.capsChecked)
+                  const Padding(
+                    key: ValueKey('bank-sms-checking'),
+                    padding: EdgeInsets.symmetric(vertical: 4),
+                    child: Row(children: [
+                      SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2)),
+                      SizedBox(width: 8),
+                      Text('در حال بررسی مجوزها…',
+                          style: TextStyle(fontSize: 13)),
+                    ]),
+                  )
+                else ...[
                   row(c.receive, 'دریافت پیامک (تشخیص لحظه‌ای)'),
                   row(c.read, 'خواندن پیامک‌ها (بررسی هنگام باز کردن برنامه)'),
                   row(c.notify, 'اعلان‌ها'),
                   row(c.fullScreen, 'نمایش پنجرهٔ تمام‌صفحه روی قفل صفحه'),
-                  if (c.unknown)
+                  if (c.unknown || !c.supported)
                     Text(
-                      'وضعیت مجوزها از اندروید خوانده نشد (${c.error}). کلید را روشن کنید؛ اگر اجازه نباشد اندروید خودش می‌پرسد.',
+                      c.supported
+                          ? 'وضعیت مجوزها از اندروید خوانده نشد (${c.error}). کلید را روشن کنید؛ اگر اجازه نباشد اندروید خودش می‌پرسد.'
+                          : 'بخش اندرویدی پاسخ نداد؛ وضعیت مجوزها نامشخص است.',
                       key: const ValueKey('bank-sms-unknown'),
                       style:
                           const TextStyle(fontSize: 12, color: Colors.orange),
@@ -574,6 +595,13 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
                   ),
                 ],
                 const SizedBox(height: 8),
+                const SizedBox(height: 8),
+                SelectableText(
+                  store.diagnostics,
+                  key: const ValueKey('bank-sms-diag'),
+                  textDirection: TextDirection.ltr,
+                  style: const TextStyle(fontSize: 10, color: AppTheme.muted),
+                ),
                 Wrap(spacing: 8, children: [
                   if (needGuide)
                     OutlinedButton(

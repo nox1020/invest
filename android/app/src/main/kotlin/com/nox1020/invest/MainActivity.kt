@@ -112,6 +112,8 @@ class MainActivity : FlutterFragmentActivity() {
             "notify" to notify,
             "fullScreen" to fullScreen,
             "sdk" to Build.VERSION.SDK_INT,
+            "version" to (try { packageManager.getPackageInfo(packageName, 0).versionName ?: "" } catch (e: Throwable) { "" }),
+            "prefEnabled" to SmsReceiver.enabled(this),
         )
     }
 
