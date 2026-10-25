@@ -79,6 +79,14 @@ class SmsReceiver : BroadcastReceiver() {
             return s
         }
 
+        /** Fingerprint only (no SMS text); commit() survives a process kill. */
+        fun rememberHandled(ctx: Context, fp: String) {
+            val p = ctx.getSharedPreferences(NATIVE, Context.MODE_PRIVATE)
+            val s = HashSet(p.getStringSet("rejected", emptySet())!!)
+            s.add(fp)
+            p.edit().putStringSet("rejected", s).commit()
+        }
+
         fun cancel(ctx: Context, fp: String) = NotificationManagerCompat.from(ctx).cancel(fp.hashCode())
 
         private fun notify(ctx: Context, addr: String, body: String, date: Long) {

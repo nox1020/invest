@@ -63,7 +63,10 @@ class MainActivity : FlutterFragmentActivity() {
                 "takeRejected" -> result.success(SmsReceiver.takeRejected(this))
                 "cancel" -> {
                     val fp = call.argument<String>("fp")
-                    if (fp != null) SmsReceiver.cancel(this, fp)
+                    if (fp != null) {
+                        SmsReceiver.cancel(this, fp)
+                        if (call.argument<Boolean>("handled") == true) SmsReceiver.rememberHandled(this, fp)
+                    }
                     result.success(null)
                 }
                 else -> result.notImplemented()

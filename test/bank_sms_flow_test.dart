@@ -382,4 +382,55 @@ void main() {
     expect(BankSmsStore.instance.enabled, isFalse);
     expect(nativeOn, isFalse);
   });
+
+  testWidgets(
+      'saved SMS disappears at once, card hides, fields deleted, '
+      'never offered again after restart', (tester) async {
+    final s = BankSmsStore.instance;
+    late String fp;
+    await tester.runAsync(() async {
+      await PwoStore.instance.load();
+      await s.setEnabled(true);
+      fp = (await s
+              .ingest([sms('بانک ملت\nبرداشت: 4,000,000\nمانده: 9,000,000')]))
+          .single
+          .fp;
+    });
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: Column(children: [
+      const BankSmsCard(),
+      Expanded(child: BankSmsConfirmSheet(item: s.pending.single)),
+    ]))));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('bank-sms-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sms-dup')), findsNothing);
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('sms-save')));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pump();
+    expect(s.pending, isEmpty);
+    expect(find.byKey(const ValueKey('bank-sms-card')), findsNothing);
+    expect(calls, contains('cancel'));
+    final p = await tester.runAsync(SharedPreferences.getInstance);
+    expect(p!.getStringList('bank_sms_pending_v1'), isEmpty);
+    // Same SMS again (inbox scan after restart): ignored.
+    await tester.runAsync(() async {
+      BankSmsStore.debugReset();
+      final again = await BankSmsStore.instance
+          .ingest([sms('بانک ملت\nبرداشت: 4,000,000\nمانده: 9,000,000')]);
+      expect(again, isEmpty);
+      expect(BankSmsStore.instance.isHandled(fp), isTrue);
+    });
+  });
+
+  test('rejected SMS is removed the same way', () async {
+    final s = BankSmsStore.instance;
+    await s.setEnabled(true);
+    final it = (await s.ingest([sms('برداشت: 7,000,000')])).single;
+    await s.markHandled(it.fp);
+    expect(s.pending, isEmpty);
+    expect(await s.ingest([sms('برداشت: 7,000,000')]), isEmpty);
+  });
 }

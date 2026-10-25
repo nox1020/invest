@@ -304,7 +304,11 @@ class BankSmsStore extends ChangeNotifier {
   }
 
   /// Confirmed or rejected: never offered again.
-  Future<void> markHandled(String fp) async {
+  /// Saved («ثبت») or rejected («رد»): removed from the list at once, its
+  /// parsed fields deleted; only the fingerprint is kept (also committed
+  /// natively) so the same SMS is never offered again. The SMS itself stays
+  /// in the phone's inbox — Android lets only the default SMS app delete it.
+  Future<void> markHandled(String fp, {bool fromNative = false}) async {
     await load();
     pending.removeWhere((x) => x.fp == fp);
     _handled.remove(fp);
@@ -312,11 +316,15 @@ class BankSmsStore extends ChangeNotifier {
     if (_handled.length > _maxHandled) {
       _handled.removeRange(0, _handled.length - _maxHandled);
     }
-    await _save();
-    notifyListeners();
+    notifyListeners(); // card / list update live before any disk write
     try {
-      await channel.invokeMethod('cancel', {'fp': fp});
+      await channel.invokeMethod('cancel', {'fp': fp, 'handled': !fromNative});
     } catch (_) {}
+    try {
+      await _save();
+    } catch (e) {
+      _err('handled', e);
+    }
   }
 
   Future<void> _setWant(bool v) async {
@@ -426,7 +434,7 @@ class BankSmsStore extends ChangeNotifier {
       final rejected =
           await channel.invokeMethod<List<Object?>>('takeRejected');
       for (final fp in rejected ?? const <Object?>[]) {
-        if (fp is String) await markHandled(fp);
+        if (fp is String) await markHandled(fp, fromNative: true);
       }
       final tapped = await channel.invokeMethod<List<Object?>>('takePending');
       if (tapped != null && tapped.isNotEmpty) {
