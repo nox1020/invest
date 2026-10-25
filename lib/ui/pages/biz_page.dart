@@ -1,6 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:invest/data/bank_sms_store.dart';
+import 'package:invest/domain/services/dashboard_snapshot.dart';
+import 'package:invest/domain/services/full_export.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/data/projects_store.dart';
 import 'package:invest/ui/pages/projects_page.dart' show ensureProjectsReady, importProjectsText;
@@ -1309,6 +1312,54 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
 }
 
 
+/// Every module's data for the comprehensive export; empty when there is no
+/// app state (then the report stays biz-only).
+Future<Map<String, List<List<Object?>>>> _fullSheets(BuildContext context, BizStore store) async {
+  AppState? state;
+  try {
+    state = Provider.of<AppState>(context, listen: false);
+  } catch (_) {
+    return const {};
+  }
+  final months = await store.monthsAllYears();
+  final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
+  final snap = DashboardSnapshot.compute(
+    assets: state.assets,
+    openTrades: state.openTrades,
+    closedTrades: state.closedTrades,
+    usdtTmn: usdt,
+    calendar: state.settings.calendar,
+    metrics: state.metrics,
+    checks: state.checks,
+  );
+  final now = DateTime.now();
+  final yearKey = '${store.snap.year ?? Jalali.now().year}';
+  final b = state.realizedBreakdown;
+  final ps = ProjectsStore.instance;
+  final pwo = PwoStore.instance;
+  final sms = BankSmsStore.instance;
+  return buildFullExport(
+    now: now,
+    yearKey: yearKey,
+    holdings: snap.holdings,
+    holdingsValue: snap.holdingsValue,
+    nav: snap.marketValue,
+    openTrades: state.openTrades,
+    closedTrades: state.closedTrades,
+    tradesRealized: b.trades,
+    yearTradesRealized: snap.yearRealizedPnl,
+    biz: store.snap,
+    bizMonths: months,
+    projects: ps.loaded ? ps.snap.items : const [],
+    pwo: pwo.loaded ? pwo.ledger : null,
+    withdrawals: state.withdrawals,
+    checks: state.checks,
+    smsHistory: sms.history,
+    priceAlerts: state.settings.priceAlerts,
+    usdtTmn: usdt,
+  );
+}
+
 /// Test hook: replaces the share sheet.
 @visibleForTesting
 Future<void> Function(Uint8List bytes, String name, String mime)? bizShareOverride;
@@ -1328,7 +1379,7 @@ Future<void> _exportAnnual(BuildContext context, BizStore store) async {
           ListTile(
             title: Text('خروجی سالانهٔ ${year ?? ''}',
                 style: const TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: const Text('معاملات خرید/فروش در این سال و جدول ماهانه'),
+            subtitle: const Text('گزارش جامع تا این لحظه: خلاصه، دارایی‌ها، معاملات، ملک، جدول ماهانه، تبلیغات، PWO، برداشت‌ها، چک‌ها، پروژه‌ها، پیامک بانکی و هشدارها'),
           ),
           ListTile(
             key: const ValueKey('biz-export-xlsx'),
@@ -1349,7 +1400,7 @@ Future<void> _exportAnnual(BuildContext context, BizStore store) async {
   if (kind == null || !context.mounted) return;
   final messenger = ScaffoldMessenger.of(context);
   try {
-    final r = BizAnnualReport.from(store.snap);
+    final r = BizAnnualReport.from(store.snap, extra: await _fullSheets(context, store));
     late Uint8List bytes;
     late String mime;
     if (kind == 'xlsx') {
@@ -1373,5 +1424,110 @@ Future<void> _exportAnnual(BuildContext context, BizStore store) async {
     }
   } catch (e) {
     messenger.showSnackBar(SnackBar(content: Text('ساخت خروجی انجام نشد: $e')));
+  }
+}
+
+/// «ثبت مبلغ تبلیغات» (dashboard shortcut): adds an advertising cost to the
+/// office monthly table of the entry's month (→ «عملکرد», ads and net).
+Future<void> showAddAdsSheet(BuildContext context, {BizStore? store}) async {
+  final s = store ?? BizStore.instance;
+  if (!s.loaded) await ensureBizReady(context, s);
+  if (!context.mounted) return;
+  if (s.readOnly) {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+        content: Text('برای ثبت تبلیغات وارد حساب شوید (ملک و دفتر فقط‌خواندنی است).')));
+    return;
+  }
+  final j = Jalali.now();
+  String two(int v) => v.toString().padLeft(2, '0');
+  final dateCtl = TextEditingController(text: '${j.year}/${two(j.month)}/${two(j.day)}');
+  final amountCtl = TextEditingController();
+  final noteCtl = TextEditingController();
+  String? err;
+  final ok = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (c) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: StatefulBuilder(builder: (c, set) {
+        final inset = MediaQuery.viewInsetsOf(c).bottom;
+        final pad = MediaQuery.viewPaddingOf(c).bottom;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + (inset > pad ? inset : pad)),
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              const Text('ثبت مبلغ تبلیغات',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: AppTheme.title)),
+              const SizedBox(height: 4),
+              const Text('به ستون «تبلیغات» همان ماه در جدول ماهانه (عملکرد) اضافه می‌شود و خالص ماه را کم می‌کند.',
+                  style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+              const SizedBox(height: 14),
+              TextField(
+                key: const ValueKey('ads-amount'),
+                controller: amountCtl,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                textDirection: TextDirection.ltr,
+                decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                key: const ValueKey('ads-date'),
+                controller: dateCtl,
+                keyboardType: TextInputType.datetime,
+                textDirection: TextDirection.ltr,
+                decoration: const InputDecoration(labelText: 'تاریخ (شمسی)', hintText: '1405/08/03'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                key: const ValueKey('ads-note'),
+                controller: noteCtl,
+                decoration: const InputDecoration(labelText: 'یادداشت (اختیاری) — مثلاً دیوار'),
+              ),
+              if (err != null) ...[
+                const SizedBox(height: 8),
+                Text(err!, key: const ValueKey('ads-error'), style: const TextStyle(color: AppTheme.negative, fontSize: 12)),
+              ],
+              const SizedBox(height: 14),
+              FilledButton(
+                key: const ValueKey('ads-save'),
+                onPressed: () {
+                  final a = parseFlexibleNumber(amountCtl.text);
+                  final d = _parseJalali(dateCtl.text);
+                  if (a == null || a <= 0) return set(() => err = 'مبلغ معتبر وارد کنید');
+                  if (d == null) return set(() => err = 'تاریخ را به شکل ۱۴۰۵/۰۸/۰۳ وارد کنید');
+                  Navigator.pop(c, true);
+                },
+                child: const Text('ثبت'),
+              ),
+            ]),
+          ),
+        );
+      }),
+    ),
+  );
+  if (ok != true || !context.mounted) return;
+  final amount = parseFlexibleNumber(amountCtl.text)!;
+  final d = _parseJalali(dateCtl.text)!;
+  final date = '${d.year}/${two(d.month)}/${two(d.day)}';
+  final done = await _guard(context, () => s.addAds(d.year, d.month, amount, date: date, note: noteCtl.text));
+  if (done && context.mounted) {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        content: Text('تبلیغات ${formatMoney(amount)} برای ${pwoMonthNames[d.month - 1]} ${d.year} ثبت شد')));
+  }
+}
+
+Jalali? _parseJalali(String raw) {
+  final t = raw.trim().replaceAllMapped(RegExp('[۰-۹]'), (m) => '${'۰۱۲۳۴۵۶۷۸۹'.indexOf(m[0]!)}').replaceAll('-', '/');
+  final p = t.split('/');
+  if (p.length != 3) return null;
+  final y = int.tryParse(p[0]), m = int.tryParse(p[1]), d = int.tryParse(p[2]);
+  if (y == null || m == null || d == null || y < 1300 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  try {
+    final j = Jalali(y, m, d);
+    return j.day == d ? j : null;
+  } catch (_) {
+    return null;
   }
 }

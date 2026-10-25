@@ -253,6 +253,11 @@ class _DashboardBodyState extends State<_DashboardBody>
           label: 'ثبت برداشت',
           onTap: () => showWithdrawalChooser(context)),
       SpeedDialAction(
+          id: 'qa-ads',
+          icon: Icons.campaign_rounded,
+          label: 'ثبت مبلغ تبلیغات',
+          onTap: () => showAddAdsSheet(context)),
+      SpeedDialAction(
           id: 'qa-project',
           icon: Icons.engineering_rounded,
           label: 'پروژه‌ها',
@@ -261,7 +266,7 @@ class _DashboardBodyState extends State<_DashboardBody>
           id: 'qa-export',
           icon: Icons.ios_share_rounded,
           label: 'خروجی سالانه',
-          onTap: () => bizHas ? exportBizAnnual(context, biz) : openBiz()),
+          onTap: () => exportBizAnnual(context, biz)),
     ];
     return DashSpeedDial(
       key: const ValueKey('dash-dial'),

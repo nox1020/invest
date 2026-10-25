@@ -14,14 +14,20 @@ const _monthNames = [
 /// One year of «ملک و دفتر»: trades bought or sold in the year plus the
 /// monthly table. Pure data → Excel (xlsx) / PDF bytes. Read-only.
 class BizAnnualReport {
-  BizAnnualReport._(this.year, this.trades, this.months, this.tradeProfitByMonth);
+  BizAnnualReport._(this.year, this.trades, this.months, this.tradeProfitByMonth, this.extra);
+
+  /// Comprehensive sheets (summary, assets, trades, PWO, cheques, …) placed
+  /// before the property/month sheets. Empty = the classic biz-only report.
+  final Map<String, List<List<Object?>>> extra;
+  bool get full => extra.isNotEmpty;
 
   final int year;
   final List<PropertyTrade> trades;
   final List<BizMonth> months;
   final Map<int, double> tradeProfitByMonth;
 
-  static BizAnnualReport from(BizSnapshot s, {int? year}) {
+  static BizAnnualReport from(BizSnapshot s,
+      {int? year, Map<String, List<List<Object?>>> extra = const {}}) {
     final y = year ?? s.year ?? 0;
     bool inYear(String d) => d.startsWith('$y/');
     final ts = [
@@ -35,7 +41,7 @@ class BizAnnualReport {
       tp[m] = (tp[m] ?? 0) + (t.profit ?? 0);
     }
     return BizAnnualReport._(
-        y, ts, [for (final m in s.months) if (m.year == y) m], tp);
+        y, ts, [for (final m in s.months) if (m.year == y) m], tp, extra);
   }
 
   Iterable<PropertyTrade> get soldInYear =>
@@ -76,15 +82,16 @@ class BizAnnualReport {
         ],
       ];
 
-  String get fileStem => 'ملک-و-دفتر-$year';
+  String get fileStem => full ? 'گزارش-جامع-$year' : 'ملک-و-دفتر-$year';
 
   // ------------------------------------------------------------------ xlsx
 
   Uint8List toXlsx() {
     final sheets = <String, List<List<Object?>>>{
-      'معاملات': [tradeHeaders, ...tradeRows(),
+      ...extra,
+      'معاملات ملک سال $year': [tradeHeaders, ...tradeRows(),
         if (trades.isNotEmpty) ['جمع سود فروخته‌شده در سال', null, null, null, null, null, null, null, soldProfit]],
-      'جدول ماهانه': [monthHeaders, ...monthRows()],
+      'جدول ماهانه $year': [monthHeaders, ...monthRows()],
     };
     final names = sheets.keys.toList();
     final a = Archive();
@@ -171,6 +178,9 @@ class BizAnnualReport {
 
   static String _n(Object? v) {
     if (v == null) return '';
+    if (v is double && v != v.roundToDouble() && v.abs() < 1000) {
+      return v.toStringAsFixed(2);
+    }
     if (v is num) {
       final neg = v < 0;
       final s = v.abs().round().toString().replaceAllMapped(
@@ -219,12 +229,17 @@ class BizAnnualReport {
           alignment: pw.Alignment.centerLeft,
           child: pw.Text('${c.pageNumber} / ${c.pagesCount}', style: const pw.TextStyle(fontSize: 8))),
       build: (c) => [
-        pw.Text(_z('گزارش سالانهٔ ملک و دفتر — سال $year'),
+        pw.Text(_z(full ? 'گزارش جامع سالانه — سال $year (تا این لحظه)' : 'گزارش سالانهٔ ملک و دفتر — سال $year'),
             style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16)),
         pw.SizedBox(height: 4),
         pw.Text(
             _z('سود معاملات فروخته‌شده در سال: ${_n(soldProfit)} تومان · خالص ماهانهٔ سال: ${_n(monthSum((m) => m.net))} تومان'),
             style: const pw.TextStyle(fontSize: 10)),
+        for (final e in extra.entries)
+          if (e.value.length > 1 || e.key == 'خلاصه') ...[
+            h2(e.key),
+            table([for (final x in e.value.first) '${x ?? ''}'], e.value.skip(1).toList()),
+          ],
         h2('معاملات ملک (${trades.length})'),
         if (trades.isEmpty) pw.Text('معامله‌ای در این سال ثبت نشده.') else table(tradeHeaders, tradeRows(), pctCol: 9),
         h2('جدول ماهانه (تومان)'),

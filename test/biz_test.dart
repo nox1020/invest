@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/biz_remote.dart';
 import 'package:invest/data/biz_store.dart';
+import 'package:invest/domain/services/full_export.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/session_store.dart';
@@ -20,6 +21,7 @@ class FakeBizServer {
   final trades = <Map<String, dynamic>>[];
   final ops = <int, Map<String, double>>{};
   final pwo = <int, double>{1: 126700000};
+  final notes = <int, String>{};
   final calls = <String>[];
   final bodies = <String, Map<String, dynamic>>{};
   int _id = 0;
@@ -46,7 +48,7 @@ class FakeBizServer {
           final p = pwo[m] ?? 0;
           return {
             'year': year, 'month': m, 'staff': s, 'ads': a, 'income': i,
-            'pwo': p, 'net': i - s - a - p, 'has_ops': ops.containsKey(m),
+            'pwo': p, 'net': i - s - a - p, 'has_ops': ops.containsKey(m), 'note': notes[m] ?? '',
           };
         }()
     ];
@@ -87,9 +89,14 @@ class FakeBizServer {
     } else if (tm != null && r.method == 'DELETE') {
       trades.removeWhere((t) => t['id'] == int.parse(tm.group(1)!));
     } else if (mm != null && r.method == 'PUT') {
-      ops[int.parse(mm.group(2)!)] = {
-        for (final e in body.entries) e.key: (e.value as num).toDouble()
+      final mo = int.parse(mm.group(2)!);
+      // Like the server: fields missing from the body keep their value.
+      ops[mo] = {
+        ...?ops[mo],
+        for (final e in body.entries)
+          if (e.value is num) e.key: (e.value as num).toDouble()
       };
+      if (body['note'] is String) notes[mo] = body['note'] as String;
     } else if (r.method == 'POST' && path == '/import') {
       if (trades.isNotEmpty || ops.isNotEmpty) {
         return http.Response(
@@ -509,5 +516,22 @@ void main() {
     expect(got.values.every((v) => v > 500), isTrue);
     expect(s.calls.where((c) => !c.startsWith('GET')), isEmpty); // read-only
     expect(tester.takeException(), isNull);
+  });
+
+  test('ads shortcut adds to the month total, keeps staff/income, logs a line', () async {
+    final s = FakeBizServer()..pwo.clear();
+    s.ops[8] = {'staff': 30, 'ads': 100, 'income': 1000};
+    final store = BizStore.instance;
+    await store.bindAccount(BizRemote(await _api(s)), '0912');
+    await store.addAds(1405, 8, 250, date: '1405/08/03', note: 'دیوار');
+    await store.addAds(1405, 8, 50, date: '1405/08/04');
+    expect(s.bodies['PUT /months/1405/8']!.keys.toSet(), {'ads', 'note'});
+    expect(s.ops[8], {'staff': 30, 'ads': 400, 'income': 1000});
+    final m = store.snap.months.firstWhere((x) => x.month == 8);
+    expect(m.ads, 400);
+    expect(m.net, 1000 - 30 - 400);
+    expect(m.note.split('\n'), ['تبلیغات 1405/08/03: 250 — دیوار', 'تبلیغات 1405/08/04: 50']);
+    expect(adsLine.hasMatch(m.note.split('\n').first), isTrue);
+    expect(() => store.addAds(1405, 8, 0, date: '1405/08/04'), throwsArgumentError);
   });
 }

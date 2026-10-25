@@ -39,6 +39,7 @@ class BizMonth {
   double get income => _d(raw['income']);
   double get net => _d(raw['net']);
   bool get hasOps => raw['has_ops'] == true;
+  String get note => '${raw['note'] ?? ''}';
   bool get isEmpty => !hasOps && pwo == 0;
 }
 
@@ -156,8 +157,9 @@ class BizStore extends ChangeNotifier {
   }
 
   @visibleForTesting
-  void debugSet(BizSnapshot s) {
+  void debugSet(BizSnapshot s, {String? account}) {
     _snap = s;
+    _account = account;
     loaded = true;
     notifyListeners();
   }
@@ -329,6 +331,45 @@ class BizStore extends ChangeNotifier {
     final t = _snap.trades.where((x) => x.id == id).firstOrNull;
     return _write('حذف معامله «${t == null ? id : _t(t.raw)}»',
         BizRemote.deleteTradeReq(id, year: _year));
+  }
+
+  /// Monthly rows of every year the server knows (read-only fetches; the
+  /// selected year is not changed). Falls back to the loaded year offline.
+  Future<List<BizMonth>> monthsAllYears() async {
+    final out = <int, List<BizMonth>>{};
+    final cur = _snap.year;
+    if (cur != null) out[cur] = [for (final m in _snap.months) if (m.year == cur) m];
+    final r = _remote;
+    if (r != null) {
+      for (final y in _snap.years) {
+        if (out.containsKey(y)) continue;
+        try {
+          final raw = await r.fetch(year: y).timeout(const Duration(seconds: 8));
+          out[y] = [for (final m in BizSnapshot(raw).months) if (m.year == y) m];
+        } catch (_) {}
+      }
+    }
+    return [for (final y in out.keys.toList()..sort()) ...out[y]!];
+  }
+
+  /// Adds an advertising cost to month [m] of year [y] (adds to the month's
+  /// «تبلیغات» total and logs one line in its note). Only `ads` and `note`
+  /// are sent; staff/income stay as they are on the server.
+  Future<void> addAds(int y, int m, double amount, {required String date, String note = ''}) async {
+    if (amount <= 0) throw ArgumentError('amount');
+    if (_snap.year != y) await selectYear(y);
+    if (_snap.year != y) {
+      throw StateError('جدول ماهانهٔ سال $y بارگیری نشد؛ دوباره تلاش کنید.');
+    }
+    final cur = _snap.months.where((x) => x.year == y && x.month == m).firstOrNull;
+    final ads = (cur?.ads ?? 0) + amount;
+    final n = note.trim().replaceAll('\n', ' ');
+    final line = 'تبلیغات $date: ${amount.round().toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',')}${n.isEmpty ? '' : ' — $n'}';
+    final old = cur?.note ?? '';
+    var newNote = old.isEmpty ? line : '$old\n$line';
+    // Server keeps 500 chars: never cut the existing note, skip the log line.
+    if (newNote.length > 500) newNote = old;
+    await _write('تبلیغات $y/$m', BizRemote.putMonthReq(y, m, {'ads': ads, 'note': newNote}));
   }
 
   Future<void> saveMonth(int y, int m, Map<String, dynamic> body) =>
