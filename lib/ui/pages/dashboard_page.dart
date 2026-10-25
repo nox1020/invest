@@ -216,8 +216,6 @@ class _DashboardBodyState extends State<_DashboardBody>
 
     void openPwo() => Navigator.of(context)
         .push(MaterialPageRoute<void>(builder: (_) => const PwoPage()));
-    void openBiz() => Navigator.of(context)
-        .push(MaterialPageRoute<void>(builder: (_) => const BizPage()));
 
     void openAlert(DashAlert a) {
       switch (a.kind) {
