@@ -153,7 +153,7 @@ class _SettingsPageState extends State<SettingsPage> {
             title: 'پیامک بانک',
             children: [
               ListenableBuilder(
-                listenable: BankSmsStore.instance,
+                listenable: BankSmsStore.instance..load(),
                 builder: (context, _) => TgSettingsTile(
                   key: const ValueKey('settings-bank-sms'),
                   icon: Icons.sms_rounded,

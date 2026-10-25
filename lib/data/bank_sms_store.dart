@@ -51,6 +51,7 @@ class BankSmsStore extends ChangeNotifier {
   static const _kLastScan = 'bank_sms_last_scan_ms';
   static const _kHandled = 'bank_sms_handled_v1';
   static const _kPending = 'bank_sms_pending_v1';
+  static const _kWant = 'bank_sms_want_v1';
   static const _kCards = 'bank_sms_card_person_v1';
   static const _maxHandled = 600;
 
@@ -59,6 +60,11 @@ class BankSmsStore extends ChangeNotifier {
 
   bool _loaded = false;
   bool enabled = false;
+
+  /// The user tried to turn it on but a permission was missing; enabled
+  /// automatically once the permissions are granted (e.g. after returning
+  /// from Android's app settings).
+  bool wantEnabled = false;
   int lastScanMs = 0;
   final List<String> _handled = [];
   final List<BankSmsItem> pending = [];
@@ -77,6 +83,7 @@ class BankSmsStore extends ChangeNotifier {
     final p = await SharedPreferences.getInstance();
     enabled = p.getBool(kEnabled) ?? false;
     lastScanMs = p.getInt(_kLastScan) ?? 0;
+    wantEnabled = p.getBool(_kWant) ?? false;
     _handled
       ..clear()
       ..addAll(p.getStringList(_kHandled) ?? const []);
@@ -200,6 +207,45 @@ class BankSmsStore extends ChangeNotifier {
     } catch (_) {}
   }
 
+  Future<void> _setWant(bool v) async {
+    wantEnabled = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kWant, v);
+  }
+
+  /// Switch turned on: ask for permissions; enable (and persist) as soon as
+  /// SMS permissions are granted, otherwise remember the intent.
+  Future<bool> tryEnable() async {
+    await load();
+    var c = await refreshCaps();
+    if (c.supported && !c.granted) c = await requestPermissions();
+    if (c.supported && !c.granted) {
+      await _setWant(true);
+      notifyListeners();
+      return false;
+    }
+    await _setWant(false);
+    await setEnabled(true);
+    await syncOnOpen();
+    return true;
+  }
+
+  Future<void> disable() async {
+    await _setWant(false);
+    await setEnabled(false);
+  }
+
+  /// After coming back from system settings: auto-enable if requested.
+  Future<void> recheck() async {
+    await load();
+    final c = await refreshCaps();
+    if (wantEnabled && !enabled && c.supported && c.granted) {
+      await _setWant(false);
+      await setEnabled(true);
+      await syncOnOpen();
+    }
+  }
+
   Future<BankSmsCaps> refreshCaps() async {
     try {
       caps = BankSmsCaps.fromMap(await channel.invokeMethod('status'));
@@ -212,7 +258,7 @@ class BankSmsStore extends ChangeNotifier {
 
   Future<BankSmsCaps> requestPermissions() async {
     try {
-      await channel.invokeMethod('request');
+      await channel.invokeMethod('request').timeout(const Duration(minutes: 2));
     } catch (_) {}
     return refreshCaps();
   }

@@ -16,11 +16,13 @@ Map<String, Object> sms(String body, {String addr = 'Mellat'}) => {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final calls = <String>[];
+  var granted = true;
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     BankSmsStore.debugReset();
     PwoStore.instance.debugReset();
     calls.clear();
+    granted = true;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(BankSmsStore.channel, (c) async {
       calls.add(c.method);
@@ -32,8 +34,8 @@ void main() {
           return <Object?>[];
         case 'status':
           return {
-            'read': true,
-            'receive': true,
+            'read': granted,
+            'receive': granted,
             'notify': true,
             'fullScreen': false,
             'sdk': 34
@@ -145,5 +147,80 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     });
     expect(s.pending, isEmpty);
+  });
+
+  test('switch on with permissions granted persists', () async {
+    final s = BankSmsStore.instance;
+    expect(await s.tryEnable(), isTrue);
+    expect(s.enabled, isTrue);
+    final p = await SharedPreferences.getInstance();
+    expect(p.getBool(BankSmsStore.kEnabled), isTrue);
+    BankSmsStore.debugReset();
+    await BankSmsStore.instance.load();
+    expect(BankSmsStore.instance.enabled, isTrue);
+  });
+
+  test('missing permission → remembered, auto-enabled after grant', () async {
+    granted = false;
+    final s = BankSmsStore.instance;
+    expect(await s.tryEnable(), isFalse);
+    expect(s.enabled, isFalse);
+    expect(s.wantEnabled, isTrue);
+    expect(calls, contains('request'));
+    await s.recheck();
+    expect(s.enabled, isFalse);
+    granted = true; // user allowed it in Android settings and came back
+    await s.recheck();
+    expect(s.enabled, isTrue);
+    expect(s.wantEnabled, isFalse);
+    await s.disable();
+    expect(s.enabled, isFalse);
+    await s.recheck();
+    expect(s.enabled, isFalse, reason: 'turned off by user stays off');
+  });
+
+  Future<void> pumpSettings(WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+            body: MediaQuery(
+                data: MediaQueryData(
+                    size: Size(400, 800),
+                    viewPadding: EdgeInsets.only(bottom: 48),
+                    padding: EdgeInsets.only(bottom: 48)),
+                child: BankSmsSettingsSheet()))));
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pump();
+  }
+
+  testWidgets('settings: guide hidden when granted; switch reflects state',
+      (tester) async {
+    await pumpSettings(tester);
+    expect(find.byKey(const ValueKey('bank-sms-guide')), findsNothing);
+    expect(find.byKey(const ValueKey('bank-sms-app-settings')), findsNothing);
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('bank-sms-switch')));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+    expect(BankSmsStore.instance.enabled, isTrue);
+    expect(
+        tester
+            .widget<SwitchListTile>(
+                find.byKey(const ValueKey('bank-sms-switch')))
+            .value,
+        isTrue);
+  });
+
+  testWidgets(
+      'settings: guide + button shown when SMS permission missing, '
+      'clear of the navigation bar', (tester) async {
+    granted = false;
+    await pumpSettings(tester);
+    expect(find.byKey(const ValueKey('bank-sms-guide')), findsOneWidget);
+    final btn = find.byKey(const ValueKey('bank-sms-app-settings'));
+    await tester.ensureVisible(btn);
+    await tester.pump();
+    expect(tester.getRect(btn).bottom, lessThanOrEqualTo(800 - 48));
   });
 }

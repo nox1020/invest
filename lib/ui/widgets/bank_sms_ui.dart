@@ -464,12 +464,12 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    store.load().then((_) => store.refreshCaps());
+    store.recheck();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
-    if (s == AppLifecycleState.resumed) store.refreshCaps();
+    if (s == AppLifecycleState.resumed) store.recheck();
   }
 
   @override
@@ -480,16 +480,10 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
 
   Future<void> _toggle(bool v) async {
     if (v) {
-      final caps = await store.requestPermissions();
-      if (caps.supported && !caps.granted) {
-        if (mounted) setState(() {});
-        // Keep it on only if granted; the guide below explains the rest.
-        await store.setEnabled(false);
-        return;
-      }
+      await store.tryEnable();
+    } else {
+      await store.disable();
     }
-    await store.setEnabled(v);
-    if (v) await store.syncOnOpen();
   }
 
   @override
@@ -508,8 +502,11 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
                 Expanded(child: Text(t, style: const TextStyle(fontSize: 13))),
               ]),
             );
+        final mq = MediaQuery.of(context);
+        final bottom = 16 + mq.viewPadding.bottom + mq.viewInsets.bottom;
+        final needGuide = !c.supported || !c.granted;
         return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          padding: EdgeInsets.fromLTRB(16, 0, 16, bottom),
           child: SingleChildScrollView(
             child: Column(
               key: const ValueKey('bank-sms-settings'),
@@ -540,22 +537,34 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
                   for (final e in store.cardPerson.entries)
                     _CardPersonRow(card: e.key, personId: e.value),
                 ],
-                const SizedBox(height: 8),
-                const Text(
-                  'اگر اندروید اجازهٔ پیامک را نداد (اندروید ۱۳ به بعد برای برنامه‌های نصب‌شده با APK):\n'
-                  '۱. «تنظیمات برنامه» را بزنید.\n'
-                  '۲. منوی ⋮ بالای صفحه ← «اجازه دادن به تنظیمات محدودشده».\n'
-                  '۳. برگردید، «مجوزها» ← «پیامک» ← «اجازه دادن».\n'
-                  '۴. دوباره کلید بالا را روشن کنید.',
-                  style: TextStyle(fontSize: 12, height: 1.6),
-                ),
+                if (store.wantEnabled && !store.enabled)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                        'پس از دادن اجازهٔ پیامک، با برگشتن به برنامه خودکار فعال می‌شود.',
+                        key: ValueKey('bank-sms-waiting'),
+                        style: TextStyle(fontSize: 12, color: Colors.orange)),
+                  ),
+                if (needGuide) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'اگر اندروید اجازهٔ پیامک را نداد (اندروید ۱۳ به بعد برای برنامه‌های نصب‌شده با APK):\n'
+                    '۱. «تنظیمات برنامه» را بزنید.\n'
+                    '۲. منوی ⋮ بالای صفحه ← «اجازه دادن به تنظیمات محدودشده».\n'
+                    '۳. برگردید، «مجوزها» ← «پیامک» ← «اجازه دادن».\n'
+                    '۴. به برنامه برگردید؛ خودکار فعال می‌شود.',
+                    key: ValueKey('bank-sms-guide'),
+                    style: TextStyle(fontSize: 12, height: 1.6),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Wrap(spacing: 8, children: [
-                  OutlinedButton(
-                    key: const ValueKey('bank-sms-app-settings'),
-                    onPressed: store.openAppSettings,
-                    child: const Text('تنظیمات برنامه'),
-                  ),
+                  if (needGuide)
+                    OutlinedButton(
+                      key: const ValueKey('bank-sms-app-settings'),
+                      onPressed: store.openAppSettings,
+                      child: const Text('تنظیمات برنامه'),
+                    ),
                   if (c.supported && !c.fullScreen)
                     OutlinedButton(
                       onPressed: store.openFullScreenSettings,
