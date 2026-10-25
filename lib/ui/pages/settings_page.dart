@@ -4,6 +4,7 @@ import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:flutter/material.dart';
 import 'package:invest/data/bank_sms_store.dart';
 import 'package:invest/ui/widgets/bank_sms_ui.dart';
+import 'package:invest/ui/pages/permissions_page.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/services/notification_service.dart';
@@ -152,6 +153,13 @@ class _SettingsPageState extends State<SettingsPage> {
           TgSettingsSection(
             title: 'پیامک بانک',
             children: [
+              TgSettingsTile(
+                key: const ValueKey('settings-permissions'),
+                icon: Icons.verified_user_rounded,
+                iconColor: const Color(0xFF34AADF),
+                title: 'اجازه‌های برنامه',
+                onTap: () => openPermissionsPage(context),
+              ),
               ListenableBuilder(
                 listenable: BankSmsStore.instance..load(),
                 builder: (context, _) => TgSettingsTile(

@@ -10,6 +10,7 @@ import 'package:invest/domain/services/pwo_ledger.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/pages/permissions_page.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/dashboard_kit.dart';
@@ -448,6 +449,9 @@ class _BankSmsWatcherState extends State<BankSmsWatcher>
     };
     _sub = s.arrivals.listen(_pop);
     _sync();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) maybeShowPermissionsOnboarding(context);
+    });
   }
 
   Future<void> _sync() async {
@@ -622,7 +626,7 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
                 ],
                 if (store.cardPerson.isNotEmpty) ...[
                   const Divider(),
-                  const Text('کارت ← برداشت‌کننده (برای انتخاب خودکار)',
+                  const Text('کارت › برداشت‌کننده (برای انتخاب خودکار)',
                       style: TextStyle(fontWeight: FontWeight.w700)),
                   for (final e in store.cardPerson.entries)
                     _CardPersonRow(card: e.key, personId: e.value),
@@ -640,8 +644,8 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
                   const Text(
                     'اگر اندروید اجازهٔ پیامک را نداد (اندروید ۱۳ به بعد برای برنامه‌های نصب‌شده با APK):\n'
                     '۱. «تنظیمات برنامه» را بزنید.\n'
-                    '۲. منوی ⋮ بالای صفحه ← «اجازه دادن به تنظیمات محدودشده».\n'
-                    '۳. برگردید، «مجوزها» ← «پیامک» ← «اجازه دادن».\n'
+                    '۲. منوی سه‌نقطه بالای صفحه › «اجازه دادن به تنظیمات محدودشده».\n'
+                    '۳. برگردید، «مجوزها» › «پیامک» › «اجازه دادن».\n'
                     '۴. به برنامه برگردید؛ خودکار فعال می‌شود.',
                     key: ValueKey('bank-sms-guide'),
                     style: TextStyle(fontSize: 12, height: 1.6),
@@ -740,7 +744,7 @@ class BankSmsPage extends StatelessWidget {
         child: AlertDialog(
           title: const Text('ریست برداشت‌های بانکی؟'),
           content: const Text(
-              'فهرست در انتظار، تاریخچه، سابقهٔ پیامک‌های بررسی‌شده، کارت ← برداشت‌کننده و زمان آخرین بررسی از همین گوشی پاک می‌شود تا پیامک‌ها دوباره بررسی شوند.\n\n'
+              'فهرست در انتظار، تاریخچه، سابقهٔ پیامک‌های بررسی‌شده، کارت › برداشت‌کننده و زمان آخرین بررسی از همین گوشی پاک می‌شود تا پیامک‌ها دوباره بررسی شوند.\n\n'
               'برداشت‌هایی که قبلاً ثبت کرده‌اید پاک نمی‌شوند و روی سرور می‌مانند. ممکن است همان پیامک‌ها دوباره پیشنهاد شوند؛ مراقب ثبت تکراری باشید.'),
           actions: [
             TextButton(

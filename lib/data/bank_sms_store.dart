@@ -17,9 +17,15 @@ class BankSmsCaps {
     this.sdk = 0,
     this.error,
     this.version = '',
+    this.battery = true,
+    this.maker = '',
     this.prefEnabled,
   });
   final String version;
+
+  /// Exempt from battery optimisation (background SMS stays reliable).
+  final bool battery;
+  final String maker;
 
   /// The enabled flag as the native side reads it (what SmsReceiver sees).
   final bool? prefEnabled;
@@ -45,6 +51,8 @@ class BankSmsCaps {
       receive: b('receive'),
       notify: b('notify', true),
       fullScreen: b('fullScreen', true),
+      battery: b('battery', true),
+      maker: '${m['maker'] ?? ''}',
       sdk: (m['sdk'] as num?)?.toInt() ?? 0,
       version: '${m['version'] ?? ''}',
       prefEnabled: m['prefEnabled'] is bool ? m['prefEnabled'] as bool : null,
@@ -492,6 +500,18 @@ class BankSmsStore extends ChangeNotifier {
       await channel.invokeMethod('request').timeout(const Duration(minutes: 2));
     } catch (_) {}
     return refreshCaps();
+  }
+
+  Future<void> requestBattery() async {
+    try {
+      await channel.invokeMethod('requestBattery');
+    } catch (_) {}
+  }
+
+  Future<void> openAutostart() async {
+    try {
+      await channel.invokeMethod('openAutostart');
+    } catch (_) {}
   }
 
   Future<void> openAppSettings() async {

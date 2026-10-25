@@ -2,7 +2,9 @@ package com.nox1020.invest
 
 import android.Manifest
 import android.app.NotificationManager
+import android.content.ComponentName
 import android.content.Intent
+import android.os.PowerManager
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -33,6 +35,15 @@ class MainActivity : FlutterFragmentActivity() {
                     result.error("status_failed", e.javaClass.simpleName, null)
                 }
                 "request" -> requestSms(result)
+                "requestBattery" -> {
+                    try {
+                        startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+                    } catch (e: Throwable) {
+                        try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Throwable) {}
+                    }
+                    result.success(null)
+                }
+                "openAutostart" -> { result.success(openAutostart()) }
                 "openAppSettings" -> {
                     openSettings(Settings.ACTION_APPLICATION_DETAILS_SETTINGS); result.success(null)
                 }
@@ -122,6 +133,10 @@ class MainActivity : FlutterFragmentActivity() {
             "receive" to granted(Manifest.permission.RECEIVE_SMS),
             "notify" to notify,
             "fullScreen" to fullScreen,
+            "battery" to (try {
+                getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) ?: true
+            } catch (e: Throwable) { true }),
+            "maker" to (Build.MANUFACTURER ?: "").lowercase(),
             "sdk" to Build.VERSION.SDK_INT,
             "version" to (try { packageManager.getPackageInfo(packageName, 0).versionName ?: "" } catch (e: Throwable) { "" }),
             "prefEnabled" to SmsReceiver.enabled(this),
@@ -146,6 +161,25 @@ class MainActivity : FlutterFragmentActivity() {
             permReply?.success(granted(Manifest.permission.RECEIVE_SMS))
             permReply = null
         }
+    }
+
+    /** Vendor auto-start / background pages (Xiaomi, Samsung, Huawei, Oppo, Vivo). */
+    private fun openAutostart(): Boolean {
+        val candidates = listOf(
+            ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+            ComponentName("com.samsung.android.lool", "com.samsung.android.sm.battery.ui.BatteryActivity"),
+            ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity"),
+            ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+            ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
+            ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+        )
+        for (c in candidates) {
+            try {
+                startActivity(Intent().setComponent(c).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return true
+            } catch (_: Throwable) {}
+        }
+        openSettings(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+        return false
     }
 
     private fun openSettings(action: String) {
