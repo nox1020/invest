@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/domain/services/pwo_ledger.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
@@ -110,6 +111,44 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('amounts always red; change vs previous month: less green, more red',
+        (tester) async {
+      await boot(tester);
+      tester.view.physicalSize = const Size(800, 9000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpAndSettle();
+      final l = PwoStore.instance.ledger;
+      var checked = 0;
+      for (final y in l.years) {
+        for (final m in l.monthsOf(y)) {
+          final prev = l.previousOf(m);
+          final f = find.byKey(ValueKey('pwo-amount-${m.year}-${m.month}'));
+          if (f.evaluate().isEmpty) continue;
+          // The amount itself is a withdrawal: always red.
+          expect(tester.widget<Text>(f).style!.color, AppTheme.negative);
+          final d = find.byKey(ValueKey('pwo-delta-${m.year}-${m.month}'));
+          if (prev == null) {
+            expect(d, findsNothing);
+            checked++;
+            continue;
+          }
+          // The change line follows the month-over-month rule.
+          final color = tester.widget<Text>(d).style!.color;
+          if (prev.total == m.total) {
+            expect(color, AppTheme.muted, reason: '${m.month} neutral');
+          } else if (m.total < prev.total) {
+            expect(color, AppTheme.positive, reason: '${m.month} less → green');
+          } else {
+            expect(color, AppTheme.negative, reason: '${m.month} more → red');
+          }
+          checked++;
+        }
+      }
+      expect(checked, greaterThan(1));
+    });
+
     for (final kb in [0.0, 300.0]) {
       testWidgets('edit month sheet, keyboard=$kb', (tester) async {
         await boot(tester);
@@ -186,5 +225,12 @@ void main() {
       expect(find.byKey(const ValueKey('pwo-amount-2')), findsOneWidget);
       expect(find.byKey(const ValueKey('pwo-amount-3')), findsNothing);
     });
+  });
+
+  test('pwoTrendColor rule', () {
+    expect(pwoTrendColor(80, 100), AppTheme.positive);
+    expect(pwoTrendColor(120, 100), AppTheme.negative);
+    expect(pwoTrendColor(100, 100), isNull);
+    expect(pwoTrendColor(100, null), isNull);
   });
 }

@@ -61,6 +61,9 @@ Future<bool> _guard(BuildContext context, Future<void> Function() op) async {
 
 const _bad = AppTheme.negative;
 
+/// Withdrawal (برداشت) amounts are always red; deposits (واریز) green.
+const pwoWithdrawalColor = AppTheme.negative;
+
 /// PWO — monthly personal withdrawals vs. monthly target.
 class PwoPage extends StatefulWidget {
   const PwoPage({super.key, this.store});
@@ -313,10 +316,8 @@ class _SummaryCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(_mil(total),
               key: const ValueKey('pwo-year-total'),
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w800)),
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800, color: pwoWithdrawalColor)),
           const SizedBox(height: 8),
           Text('هدف ماهانه: ${_mil(target)} · میانگین: ${_mil(avg)}'),
           Text('رسیده به هدف: $met از $count ماه',
@@ -349,7 +350,9 @@ class _PersonsCard extends StatelessWidget {
                   Text(names[i],
                       style: const TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 4),
-                  Text(_mil(totals[i]), textAlign: TextAlign.center),
+                  Text(_mil(totals[i]),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: pwoWithdrawalColor)),
                 ],
               ),
             ),
@@ -357,6 +360,13 @@ class _PersonsCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Colour of a month's withdrawal vs the previous month: less = green,
+/// more = red, equal or no previous month = null (neutral).
+Color? pwoTrendColor(double current, double? previous) {
+  if (previous == null || current == previous) return null;
+  return current < previous ? _good : _bad;
 }
 
 class _MonthTile extends StatelessWidget {
@@ -378,13 +388,15 @@ class _MonthTile extends StatelessWidget {
     final ok = month.meets(target);
     final c = ok ? _good : _bad;
     String? delta;
-    Color? dc;
+    // Month-over-month: withdrawing LESS than last month is good (green),
+    // MORE is red, equal / first month neutral. Amount and delta agree.
+    final dc = pwoTrendColor(month.total, prev?.total);
     if (prev != null) {
       final d = month.total - prev!.total;
       final pct = prev!.total > 0 ? d / prev!.total * 100 : null;
-      delta = 'نسبت به ماه قبل: ${formatCompactToman(d, showSign: true)}'
+      final arrow = d < 0 ? '▼ ' : d > 0 ? '▲ ' : '';
+      delta = 'نسبت به ماه قبل: $arrow${formatCompactToman(d, showSign: true)}'
           '${pct == null ? '' : ' (${formatPct(pct)})'}';
-      dc = d >= 0 ? _good : _bad;
     }
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -411,7 +423,10 @@ class _MonthTile extends StatelessWidget {
                         style: const TextStyle(fontWeight: FontWeight.w700)),
                   ),
                   Text(_mil(month.total),
-                      style: TextStyle(color: c, fontWeight: FontWeight.w800)),
+                      key: ValueKey('pwo-amount-${month.year}-${month.month}'),
+                      style: const TextStyle(
+                          color: pwoWithdrawalColor,
+                          fontWeight: FontWeight.w800)),
                 ],
               ),
               const SizedBox(height: 6),
@@ -420,7 +435,9 @@ class _MonthTile extends StatelessWidget {
                   '${p.name}: ${_mil(month.of(p.id))}'
               ].join('  ·  ')),
               if (delta != null)
-                Text(delta, style: TextStyle(color: dc, fontSize: 12)),
+                Text(delta,
+                    key: ValueKey('pwo-delta-${month.year}-${month.month}'),
+                    style: TextStyle(color: dc ?? AppTheme.muted, fontSize: 12)),
             ],
           ),
         ),
@@ -954,7 +971,10 @@ class PwoEntryCard extends StatelessWidget {
             leading: Icon(Icons.stacked_bar_chart_rounded, color: c ?? _good),
             title: const Text('PWO · برداشت ماهانه',
                 style: TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text(sub, style: c == null ? null : TextStyle(color: c)),
+            subtitle: Text(sub,
+                style: c == null
+                    ? null
+                    : const TextStyle(color: pwoWithdrawalColor)),
             trailing: const Icon(Icons.chevron_left_rounded),
             onTap: () => Navigator.of(context)
                 .push(MaterialPageRoute(builder: (_) => const PwoPage())),
@@ -1114,8 +1134,13 @@ class _MonthTxSection extends StatelessWidget {
                 key: ValueKey('pwo-tx-${t.id}'),
                 contentPadding: EdgeInsets.zero,
                 dense: true,
-                title: Text(
-                    '${l.personById(t.personId)?.name ?? t.personId}: ${_mil(t.amount)}'),
+                title: Text.rich(TextSpan(children: [
+                  TextSpan(
+                      text: '${l.personById(t.personId)?.name ?? t.personId}: '),
+                  TextSpan(
+                      text: _mil(t.amount),
+                      style: const TextStyle(color: pwoWithdrawalColor)),
+                ])),
                 subtitle: t.note.isEmpty ? null : Text(t.note),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
