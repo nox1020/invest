@@ -15,3 +15,9 @@
 -keep class kotlinx.coroutines.** { *; }
 -keep class com.github.dart_lang.jni.** { *; }
 -dontwarn kotlinx.coroutines.**
+
+# Also looked up by name from Dart (package:jni generated bindings): results
+# and errors of suspend calls. These were renamed in 1.0.221 (audit).
+-keep class kotlin.Unit { *; }
+-keep class kotlin.Result { *; }
+-keep class kotlin.Result$Failure { *; }

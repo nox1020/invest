@@ -70,6 +70,17 @@ String? bankSmsDuplicateHint(
   return null;
 }
 
+/// Any recorded withdrawal (PWO single tx or system) carrying [tag].
+bool bankSmsIsRecorded(String tag, AppState? app, PwoStore pwo) {
+  for (final m in pwo.ledger.months.values) {
+    if (m.txs.any((t) => t.note.contains(tag))) return true;
+  }
+  for (final w in app?.withdrawals ?? const []) {
+    if (w.note.contains(tag)) return true;
+  }
+  return false;
+}
+
 /// Prefilled one-tap confirm. Returns true when recorded.
 Future<bool> showBankSmsConfirm(BuildContext context, BankSmsItem it) async {
   final r = await showModalBottomSheet<bool>(
@@ -155,6 +166,17 @@ class _BankSmsConfirmSheetState extends State<BankSmsConfirmSheet> {
       return;
     }
     final it = widget.item;
+    if (bankSmsIsRecorded(it.tag, _app, _pwo)) {
+      await BankSmsStore.instance.markHandled(it.fp, status: 'recorded');
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+          content: Text('این پیامک قبلاً ثبت شده بود؛ دوباره ثبت نشد.')));
+      Navigator.of(context).pop(false);
+      return;
+    }
+    var base = _note.text.trim();
+    if (base.length > 180) base = base.substring(0, 180);
+    final note = '$base ${it.tag}'.trim();
     setState(() {
       _busy = true;
       _error = null;
@@ -168,7 +190,7 @@ class _BankSmsConfirmSheetState extends State<BankSmsConfirmSheet> {
         final j = it.jalali;
         try {
           await _pwo.addTx(j.year, j.month, _person!, v.roundToDouble(),
-              note: _note.text.trim(), idempotencyKey: it.idempotencyKey);
+              note: note, idempotencyKey: it.idempotencyKey);
         } on WriteQueuedException {
           // Queued with the same key: will be sent once when online.
         }
@@ -181,9 +203,7 @@ class _BankSmsConfirmSheetState extends State<BankSmsConfirmSheet> {
           throw StateError('در حالت آفلاین ثبت برداشت سیستم ممکن نیست.');
         }
         await app.recordWithdrawal(
-            amount: v.roundToDouble(),
-            note: _note.text.trim(),
-            createdAt: toIsoDate(it.at));
+            amount: v.roundToDouble(), note: note, createdAt: toIsoDate(it.at));
       }
       await BankSmsStore.instance.markHandled(it.fp,
           status: 'saved',
@@ -313,6 +333,7 @@ class _BankSmsConfirmSheetState extends State<BankSmsConfirmSheet> {
             Row(children: [
               TextButton(
                 key: const ValueKey('sms-reject'),
+                style: TextButton.styleFrom(foregroundColor: Colors.white70),
                 onPressed: _busy ? null : _reject,
                 child: const Text('رد'),
               ),
@@ -418,6 +439,13 @@ class _BankSmsWatcherState extends State<BankSmsWatcher>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     final s = BankSmsStore.instance;
+    BankSmsStore.recordedLookup = (tag) {
+      AppState? app;
+      try {
+        app = Provider.of<AppState>(context, listen: false);
+      } catch (_) {}
+      return bankSmsIsRecorded(tag, app, PwoStore.instance);
+    };
     _sub = s.arrivals.listen(_pop);
     _sync();
   }
@@ -455,6 +483,7 @@ class _BankSmsWatcherState extends State<BankSmsWatcher>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _sub?.cancel();
+    BankSmsStore.recordedLookup = null;
     super.dispose();
   }
 
@@ -783,6 +812,8 @@ class BankSmsPage extends StatelessWidget {
                 ),
                 OutlinedButton.icon(
                   key: const ValueKey('bank-sms-rescan'),
+                  style:
+                      OutlinedButton.styleFrom(foregroundColor: Colors.white),
                   onPressed: () => _rescan(context),
                   icon: const Icon(Icons.refresh_rounded),
                   label: const Text('بررسی دوباره پیامک‌ها'),
@@ -809,6 +840,8 @@ class BankSmsPage extends StatelessWidget {
                       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                         TextButton(
                           key: ValueKey('bank-sms-reject-${it.fp}'),
+                          style: TextButton.styleFrom(
+                              foregroundColor: Colors.white70),
                           onPressed: () => store.markHandled(it.fp),
                           child: const Text('رد'),
                         ),
@@ -845,9 +878,11 @@ class BankSmsPage extends StatelessWidget {
                     subtitle: Text('${d.bank} · ${_when(d.at)}',
                         style: mutedStyle(11)),
                     trailing: Text(
-                      d.saved
-                          ? 'ثبت‌شده · ${d.target == 'system' ? 'سیستم' : 'شخصی'}'
-                          : 'رد شده',
+                      d.status == 'recorded'
+                          ? 'قبلاً ثبت شده'
+                          : d.saved
+                              ? 'ثبت‌شده · ${d.target == 'system' ? 'سیستم' : 'شخصی'}'
+                              : 'رد شده',
                       style: TextStyle(
                           fontSize: 12,
                           color: d.saved ? AppTheme.positive : AppTheme.muted),

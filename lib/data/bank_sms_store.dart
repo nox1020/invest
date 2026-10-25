@@ -95,7 +95,7 @@ class BankSmsStore extends ChangeNotifier {
 
   /// One short, non-sensitive diagnostics line for screenshots.
   String get diagnostics {
-    String f(bool v) => v ? '✓' : '✗';
+    String f(bool v) => v ? 'ok' : 'NO';
     final c = caps;
     final parts = <String>[
       if (c.version.isNotEmpty) 'v${c.version}',
@@ -318,6 +318,18 @@ class BankSmsStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Set by the UI: does any recorded withdrawal (PWO or system) carry this
+  /// SMS tag in its note? Lets a reset never cause a double entry.
+  static bool Function(String tag)? recordedLookup;
+
+  bool _isRecorded(String tag) {
+    try {
+      return recordedLookup?.call(tag) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   bool isHandled(String fp) => _handled.contains(fp);
 
   /// Parses raw `{address, body, date}` maps; returns the newly added items.
@@ -335,6 +347,13 @@ class BankSmsStore extends ChangeNotifier {
       final it =
           parseBankSms(addr, body, DateTime.fromMillisecondsSinceEpoch(ms));
       if (it == null || isHandled(it.fp)) continue;
+      if (_isRecorded(it.tag)) {
+        // Already saved before (e.g. after «ریست»): never offer it again.
+        pending.removeWhere((x) => x.fp == it.fp);
+        pending.add(it);
+        await markHandled(it.fp, status: 'recorded');
+        continue;
+      }
       final dup = pending.indexWhere((x) => x.fp == it.fp);
       if (dup >= 0) {
         added.add(pending[dup]);
@@ -542,7 +561,7 @@ class BankSmsDecision {
   final String? target;
   final DateTime decidedAt;
 
-  bool get saved => status == 'saved';
+  bool get saved => status == 'saved' || status == 'recorded';
 
   Map<String, Object?> toJson() => {
         'bank': bank,

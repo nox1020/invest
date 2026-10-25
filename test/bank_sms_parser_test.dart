@@ -62,7 +62,7 @@ void main() {
   });
 
   test('amount in toman is kept as is', () {
-    expect(p('x', 'برداشت 20,000 تومان')!.toman, 20000);
+    expect(p('98700000', 'برداشت 20,000 تومان')!.toman, 20000);
   });
 
   test('deposit, OTP and ads are ignored', () {
@@ -104,5 +104,20 @@ void main() {
         bankSmsFriendlyError(
             Exception('PlatformException(java.lang.NoSuchMethodError: ...)')),
         isNot(contains('java')));
+  });
+
+  test('failed/reversed transactions and ads from non-bank senders ignored',
+      () {
+    expect(
+        p('Mellat', 'بانک ملت\nخرید ناموفق\nمبلغ: 500,000\nمانده: 1,000,000'),
+        isNull);
+    expect(p('Saman', 'بانک سامان\nبرداشت 300,000 لغو شد'), isNull);
+    expect(p('DigiShop', 'خرید اقساطی تا 50,000,000 تومان! همین حالا'), isNull);
+    expect(p('98700000', 'خرید 120,000 تومان'), isNotNull);
+  });
+
+  test('tag is short hash only', () {
+    final r = p('Mellat', 'بانک ملت\nبرداشت: 1,000,000\nمانده: 2,000,000')!;
+    expect(r.tag, matches(RegExp(r'^#[0-9a-f]{8}$')));
   });
 }

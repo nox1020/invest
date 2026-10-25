@@ -29,6 +29,7 @@ void main() {
     BankSmsStore.debugReset();
     PwoStore.instance.debugReset();
     calls.clear();
+    BankSmsStore.recordedLookup = null;
     granted = true;
     readGranted = true;
     statusFails = false;
@@ -191,7 +192,7 @@ void main() {
     expect(p.getBool(BankSmsStore.kEnabled), isTrue);
     expect(s.wantEnabled, isTrue);
     expect(calls, contains('request'));
-    expect(s.diagnostics, contains('RECEIVE ✗'));
+    expect(s.diagnostics, contains('RECEIVE NO'));
     granted = true; // user allowed it in Android settings and came back
     await s.recheck();
     expect(s.enabled, isTrue);
@@ -536,5 +537,50 @@ void main() {
     expect(s.pending, isEmpty);
     expect(s.history, isEmpty);
     expect(s.enabled, isTrue, reason: 'switch kept');
+  });
+
+  testWidgets(
+      'saved note carries the SMS tag; after reset the same SMS is '
+      'recognised as recorded and never offered (no double entry)',
+      (tester) async {
+    final s = BankSmsStore.instance;
+    const body = 'بانک ملت\nبرداشت: 6,000,000\nمانده: 9,000,000';
+    await tester.runAsync(() async {
+      await PwoStore.instance.load();
+      await s.setEnabled(true);
+      await s.ingest([sms(body)]);
+    });
+    final it = s.pending.single;
+    await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: BankSmsConfirmSheet(item: it))));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('sms-save')));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pump();
+    final txs =
+        PwoStore.instance.ledger.months.values.expand((m) => m.txs).toList();
+    expect(txs.single.note, endsWith(it.tag));
+    BankSmsStore.recordedLookup =
+        (tag) => bankSmsIsRecorded(tag, null, PwoStore.instance);
+    await tester.runAsync(() async {
+      await s.reset();
+      final again = await s.ingest([sms(body)]);
+      expect(again, isEmpty);
+    });
+    expect(s.pending, isEmpty);
+    expect(s.history.single.status, 'recorded');
+    // Even if offered by an old sheet, a second save is refused.
+    await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: BankSmsConfirmSheet(item: it))));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('sms-save')));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pump();
+    expect(
+        PwoStore.instance.ledger.months.values.expand((m) => m.txs).length, 1);
   });
 }

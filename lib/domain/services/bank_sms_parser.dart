@@ -30,6 +30,13 @@ class BankSmsItem {
   /// Server idempotency key (A-Z a-z 0-9 _ -, 8..100).
   String get idempotencyKey => 'sms-${fp.substring(0, 32)}';
 
+  /// Short marker appended to the saved note so the same SMS can be
+  /// recognised later as already recorded (also on the server, after a reset
+  /// or on another phone). 8 hex chars of the hash; no SMS content.
+  String get tag => '#${fp.substring(0, 8)}';
+
+  static bool noteHasTag(String note, String tag) => note.contains(tag);
+
   String get note {
     final parts = <String>[bank];
     if (card != null) parts.add('کارت $card');
@@ -128,6 +135,8 @@ String normalizeSmsText(String s) {
 final _otp = RegExp(r'رمز|کد\s*(تایید|تأیید|یکبار|پویا)|otp|password',
     caseSensitive: false);
 final _withdrawKw = RegExp(r'برداشت|خرید|انتقال|کسر|پرداخت|انتقالی');
+final _failed =
+    RegExp(r'ناموفق|عدم موفقیت|لغو شد|برگشت خورد|برگشت داده|انجام نشد|رد شد');
 final _depositKw = RegExp(r'واریز|بستانکار');
 final _balanceKw = RegExp(r'(مانده|موجودی|ماند)\s*[:：]?\s*$');
 final _amountKw = RegExp(r'(برداشت|خرید|انتقال|کسر|پرداخت|مبلغ)[^\d\n]{0,14}$');
@@ -145,6 +154,8 @@ BankSmsItem? parseBankSms(String sender, String body, DateTime receivedAt) {
   final t = normalizeSmsText(body);
   final lower = t.toLowerCase();
   if (_otp.hasMatch(lower)) return null;
+  // Failed / reversed / cancelled transactions.
+  if (_failed.hasMatch(t)) return null;
   final hasW = _withdrawKw.hasMatch(t);
 
   final cands = <_Cand>[];
@@ -267,6 +278,11 @@ BankSmsItem? parseBankSms(String sender, String body, DateTime receivedAt) {
       break;
     }
   }
+
+  // Ads mention «خرید» and amounts too: require a bank signal.
+  final senderLooksBank =
+      RegExp(r'^\+?\d{3,15}$').hasMatch(sender.trim()) || bank != 'بانک';
+  if (!senderLooksBank && bal == null && card == null) return null;
 
   return BankSmsItem(
     fp: bankSmsFingerprint(sender, body),
