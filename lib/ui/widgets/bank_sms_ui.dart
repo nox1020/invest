@@ -228,128 +228,142 @@ class _BankSmsConfirmSheetState extends State<BankSmsConfirmSheet> {
     final it = widget.item;
     final people = _pwo.ledger.activePeople;
     final dup = bankSmsDuplicateHint(it, _target, _app, _pwo);
+    final mq = MediaQuery.of(context);
+    // Buttons sit in a fixed bar above the navigation bar and the keyboard;
+    // only the fields above them scroll.
     return Padding(
+      key: const ValueKey('sms-confirm'),
       padding: EdgeInsets.fromLTRB(
-          16, 0, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
-      child: SingleChildScrollView(
-        child: Column(
-          key: const ValueKey('sms-confirm'),
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(children: [
-              const Icon(Icons.sms_rounded, color: AppTheme.negative),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text('ثبت برداشت از پیامک بانک',
-                    style: Theme.of(context).textTheme.titleMedium),
-              ),
-            ]),
-            const SizedBox(height: 4),
-            Text('${it.bank} · ${_when(it.at)}', style: mutedStyle(12)),
-            const SizedBox(height: 8),
-            Text(
-              '−${formatMoney(it.toman)}',
-              key: const ValueKey('sms-amount-label'),
-              style: const TextStyle(
-                  color: AppTheme.negative,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800),
-            ),
-            if (it.balanceToman != null)
-              Text('مانده: ${formatMoney(it.balanceToman!)}',
-                  style: mutedStyle(12)),
-            if (it.lowConfidence)
-              const Padding(
-                padding: EdgeInsets.only(top: 4),
-                child: Text('مبلغ با اطمینان کم خوانده شد؛ بررسی کنید.',
-                    style: TextStyle(color: Colors.orange, fontSize: 12)),
-              ),
-            const SizedBox(height: 12),
-            SegmentedButton<BankSmsTarget>(
-              key: const ValueKey('sms-target'),
-              segments: const [
-                ButtonSegment(
-                    value: BankSmsTarget.personal,
-                    label: Text('شخصی'),
-                    icon: Icon(Icons.person_rounded)),
-                ButtonSegment(
-                    value: BankSmsTarget.system,
-                    label: Text('سیستم'),
-                    icon: Icon(Icons.account_balance_rounded)),
-              ],
-              selected: {_target},
-              onSelectionChanged: (s) => setState(() => _target = s.first),
-            ),
-            const SizedBox(height: 8),
-            if (_target == BankSmsTarget.personal)
-              DropdownButtonFormField<String>(
-                key: const ValueKey('sms-person'),
-                isExpanded: true,
-                initialValue: _person,
-                decoration: InputDecoration(
-                    labelText:
-                        'برداشت‌کننده · ${pwoMonthNames[it.jalali.month - 1]} ${fa('${it.jalali.year}')}'),
-                items: [
-                  for (final p in people)
-                    DropdownMenuItem(value: p.id, child: Text(p.name)),
+          16, 0, 16, 12 + mq.viewInsets.bottom + mq.viewPadding.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(children: [
+                    const Icon(Icons.sms_rounded, color: AppTheme.negative),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('ثبت برداشت از پیامک بانک',
+                          style: Theme.of(context).textTheme.titleMedium),
+                    ),
+                  ]),
+                  const SizedBox(height: 4),
+                  Text('${it.bank} · ${_when(it.at)}', style: mutedStyle(12)),
+                  const SizedBox(height: 8),
+                  Text(
+                    '−${formatMoney(it.toman)}',
+                    key: const ValueKey('sms-amount-label'),
+                    style: const TextStyle(
+                        color: AppTheme.negative,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800),
+                  ),
+                  if (it.balanceToman != null)
+                    Text('مانده: ${formatMoney(it.balanceToman!)}',
+                        style: mutedStyle(12)),
+                  if (it.lowConfidence)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text('مبلغ با اطمینان کم خوانده شد؛ بررسی کنید.',
+                          style: TextStyle(color: Colors.orange, fontSize: 12)),
+                    ),
+                  const SizedBox(height: 12),
+                  SegmentedButton<BankSmsTarget>(
+                    key: const ValueKey('sms-target'),
+                    segments: const [
+                      ButtonSegment(
+                          value: BankSmsTarget.personal,
+                          label: Text('شخصی'),
+                          icon: Icon(Icons.person_rounded)),
+                      ButtonSegment(
+                          value: BankSmsTarget.system,
+                          label: Text('سیستم'),
+                          icon: Icon(Icons.account_balance_rounded)),
+                    ],
+                    selected: {_target},
+                    onSelectionChanged: (s) =>
+                        setState(() => _target = s.first),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_target == BankSmsTarget.personal)
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey('sms-person'),
+                      isExpanded: true,
+                      initialValue: _person,
+                      decoration: InputDecoration(
+                          labelText:
+                              'برداشت‌کننده · ${pwoMonthNames[it.jalali.month - 1]} ${fa('${it.jalali.year}')}'),
+                      items: [
+                        for (final p in people)
+                          DropdownMenuItem(value: p.id, child: Text(p.name)),
+                      ],
+                      onChanged: (v) => setState(() => _person = v),
+                    ),
+                  TextField(
+                    key: const ValueKey('sms-amount'),
+                    controller: _amount,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9۰-۹٠-٩,]'))
+                    ],
+                    decoration:
+                        const InputDecoration(labelText: 'مبلغ (تومان)'),
+                  ),
+                  TextField(
+                    key: const ValueKey('sms-note'),
+                    controller: _note,
+                    maxLength: 200,
+                    decoration: const InputDecoration(labelText: 'توضیح'),
+                  ),
+                  if (dup != null)
+                    Container(
+                      key: const ValueKey('sms-dup'),
+                      padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.warning_amber_rounded,
+                            color: Colors.orange, size: 18),
+                        const SizedBox(width: 6),
+                        Expanded(
+                            child: Text(dup,
+                                style: const TextStyle(fontSize: 12))),
+                      ]),
+                    ),
+                  if (_error != null)
+                    Text(_error!,
+                        style: const TextStyle(color: AppTheme.negative)),
                 ],
-                onChanged: (v) => setState(() => _person = v),
               ),
-            TextField(
-              key: const ValueKey('sms-amount'),
-              controller: _amount,
-              keyboardType: TextInputType.number,
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9۰-۹٠-٩,]'))
-              ],
-              decoration: const InputDecoration(labelText: 'مبلغ (تومان)'),
             ),
-            TextField(
-              key: const ValueKey('sms-note'),
-              controller: _note,
-              maxLength: 200,
-              decoration: const InputDecoration(labelText: 'توضیح'),
+          ),
+          const SizedBox(height: 8),
+          Row(key: const ValueKey('sms-actions'), children: [
+            TextButton(
+              key: const ValueKey('sms-reject'),
+              style: TextButton.styleFrom(foregroundColor: Colors.white70),
+              onPressed: _busy ? null : _reject,
+              child: const Text('رد'),
             ),
-            if (dup != null)
-              Container(
-                key: const ValueKey('sms-dup'),
-                padding: const EdgeInsets.all(8),
-                margin: const EdgeInsets.only(bottom: 8),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.warning_amber_rounded,
-                      color: Colors.orange, size: 18),
-                  const SizedBox(width: 6),
-                  Expanded(
-                      child: Text(dup, style: const TextStyle(fontSize: 12))),
-                ]),
-              ),
-            if (_error != null)
-              Text(_error!, style: const TextStyle(color: AppTheme.negative)),
-            const SizedBox(height: 8),
-            Row(children: [
-              TextButton(
-                key: const ValueKey('sms-reject'),
-                style: TextButton.styleFrom(foregroundColor: Colors.white70),
-                onPressed: _busy ? null : _reject,
-                child: const Text('رد'),
-              ),
-              const Spacer(),
-              FilledButton.icon(
-                key: const ValueKey('sms-save'),
-                style:
-                    FilledButton.styleFrom(backgroundColor: AppTheme.negative),
-                onPressed: _busy ? null : _save,
-                icon: const Icon(Icons.check_rounded),
-                label: const Text('ثبت'),
-              ),
-            ]),
-          ],
-        ),
+            const Spacer(),
+            FilledButton.icon(
+              key: const ValueKey('sms-save'),
+              style: FilledButton.styleFrom(backgroundColor: AppTheme.negative),
+              onPressed: _busy ? null : _save,
+              icon: const Icon(Icons.check_rounded),
+              label: const Text('ثبت'),
+            ),
+          ]),
+        ],
       ),
     );
   }
@@ -736,6 +750,32 @@ class BankSmsPage extends StatelessWidget {
             n > 0 ? fa('$n برداشت جدید پیدا شد') : 'برداشت جدیدی پیدا نشد')));
   }
 
+  Future<void> _rejectAll(BuildContext context) async {
+    final n = BankSmsStore.instance.pending.length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text(fa('رد همهٔ $n مورد؟')),
+          content: const Text(
+              'همهٔ موارد در انتظار رد می‌شوند و دیگر پیشنهاد نمی‌شوند. چیزی ثبت یا حذف نمی‌شود.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: const Text('انصراف')),
+            FilledButton(
+              key: const ValueKey('bank-sms-reject-all-confirm'),
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('رد همه'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok == true) await BankSmsStore.instance.rejectAll();
+  }
+
   Future<void> _reset(BuildContext context) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -823,8 +863,20 @@ class BankSmsPage extends StatelessWidget {
                   label: const Text('بررسی دوباره پیامک‌ها'),
                 ),
                 const SizedBox(height: 16),
-                Text(fa('در انتظار تأیید (${store.pending.length})'),
-                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                Row(children: [
+                  Expanded(
+                    child: Text(fa('در انتظار تأیید (${store.pending.length})'),
+                        style: const TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                  if (store.pending.length > 1)
+                    TextButton(
+                      key: const ValueKey('bank-sms-reject-all'),
+                      style:
+                          TextButton.styleFrom(foregroundColor: Colors.white70),
+                      onPressed: () => _rejectAll(context),
+                      child: const Text('رد همه'),
+                    ),
+                ]),
                 if (store.pending.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),

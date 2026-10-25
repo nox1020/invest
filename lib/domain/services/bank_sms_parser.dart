@@ -137,6 +137,8 @@ final _otp = RegExp(r'رمز|کد\s*(تایید|تأیید|یکبار|پویا)|
 final _withdrawKw = RegExp(r'برداشت|خرید|انتقال|کسر|پرداخت|انتقالی');
 final _failed =
     RegExp(r'ناموفق|عدم موفقیت|لغو شد|برگشت خورد|برگشت داده|انجام نشد|رد شد');
+final _reminder =
+    RegExp(r'یادآوری|سررسید|مهلت|پرداخت کنید|لطفا|لطفاً|بدهی|قسط');
 final _depositKw = RegExp(r'واریز|بستانکار');
 final _balanceKw = RegExp(r'(مانده|موجودی|ماند)\s*[:：]?\s*$');
 final _amountKw = RegExp(r'(برداشت|خرید|انتقال|کسر|پرداخت|مبلغ)[^\d\n]{0,14}$');
@@ -280,8 +282,16 @@ BankSmsItem? parseBankSms(String sender, String body, DateTime receivedAt) {
   }
 
   // Ads mention «خرید» and amounts too: require a bank signal.
+  final snd = sender.trim().replaceAll(' ', '');
+  // Personal mobile numbers (people, shops) are never bank senders.
+  final isMobile = RegExp(r'^(\+98|0098|98|0)9\d{9}$').hasMatch(snd);
   final senderLooksBank =
-      RegExp(r'^\+?\d{3,15}$').hasMatch(sender.trim()) || bank != 'بانک';
+      (!isMobile && RegExp(r'^\+?\d{3,15}$').hasMatch(snd)) || bank != 'بانک';
+  if (isMobile && bank == 'بانک') return null;
+  // Payment reminders / instalment notices are not withdrawals.
+  if (_reminder.hasMatch(t) && !amount.minus && !t.contains('برداشت')) {
+    return null;
+  }
   if (!senderLooksBank && bal == null && card == null) return null;
 
   return BankSmsItem(

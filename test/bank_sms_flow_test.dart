@@ -583,4 +583,59 @@ void main() {
     expect(
         PwoStore.instance.ledger.months.values.expand((m) => m.txs).length, 1);
   });
+
+  testWidgets('«رد همه» clears the pending list in one go', (tester) async {
+    final s = BankSmsStore.instance;
+    await tester.runAsync(() async {
+      await s.setEnabled(true);
+      await s.ingest([
+        for (var i = 1; i <= 30; i++)
+          sms('برداشت: $i,000,000 مانده: 9,000,000'),
+      ]);
+    });
+    expect(s.pending.length, 30);
+    await tester.pumpWidget(const MaterialApp(home: BankSmsPage()));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('bank-sms-reject-all')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester
+          .tap(find.byKey(const ValueKey('bank-sms-reject-all-confirm')));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(s.pending, isEmpty);
+    expect(s.history.length, 30);
+    expect(
+        await tester.runAsync(
+            () => s.ingest([sms('برداشت: 1,000,000 مانده: 9,000,000')])),
+        isEmpty);
+  });
+
+  testWidgets('confirm sheet buttons stay above a 48px navigation bar',
+      (tester) async {
+    final s = BankSmsStore.instance;
+    await tester.runAsync(() async {
+      await PwoStore.instance.load();
+      await s.setEnabled(true);
+      await s.ingest([sms('بانک ملت\nبرداشت: 1,000,000\nمانده: 2,000,000')]);
+    });
+    tester.view.physicalSize = const Size(400, 640);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+    tester.view.padding = const FakeViewPadding(bottom: 48);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+        home: Builder(
+            builder: (c) => Scaffold(
+                body: TextButton(
+                    onPressed: () => showBankSmsConfirm(c, s.pending.single),
+                    child: const Text('open'))))));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    final save = tester.getRect(find.byKey(const ValueKey('sms-save')));
+    expect(save.bottom, lessThanOrEqualTo(640 - 48));
+    expect(tester.getRect(find.byKey(const ValueKey('sms-reject'))).bottom,
+        lessThanOrEqualTo(640 - 48));
+  });
 }

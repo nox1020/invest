@@ -120,4 +120,14 @@ void main() {
     final r = p('Mellat', 'بانک ملت\nبرداشت: 1,000,000\nمانده: 2,000,000')!;
     expect(r.tag, matches(RegExp(r'^#[0-9a-f]{8}$')));
   });
+
+  test('personal mobile senders and payment reminders are ignored', () {
+    expect(p('+989120000000', 'برای خرید 200,000 بفرست'), isNull);
+    expect(p('09120000000', 'خرید 1,000,000 مانده 5,000,000'), isNull);
+    expect(
+        p('98700000', 'یادآوری: قسط 3,000,000 ریال را تا سررسید پرداخت کنید'),
+        isNull);
+    expect(
+        p('98700000', 'برداشت قسط وام: 3,000,000 مانده: 9,000,000'), isNotNull);
+  });
 }

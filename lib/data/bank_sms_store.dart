@@ -81,7 +81,7 @@ class BankSmsStore extends ChangeNotifier {
   static const _maxHistory = 300;
   static const _kWant = 'bank_sms_want_v1';
   static const _kCards = 'bank_sms_card_person_v1';
-  static const _maxHandled = 600;
+  static const _maxHandled = 5000;
 
   /// Card/account tail → PWO person id (learned on confirm, editable).
   final Map<String, String> cardPerson = {};
@@ -259,6 +259,42 @@ class BankSmsStore extends ChangeNotifier {
         _kPending, [for (final it in pending) jsonEncode(it.toJson())]);
     await p.setStringList(
         _kHistory, [for (final d in history) jsonEncode(d.toJson())]);
+  }
+
+  /// «رد همه»: every pending item → history as rejected, one disk write.
+  Future<int> rejectAll() async {
+    await load();
+    final items = List.of(pending);
+    final now = DateTime.now();
+    for (final it in items) {
+      history.insert(
+          0,
+          BankSmsDecision(
+              bank: it.bank,
+              toman: it.toman,
+              at: it.at,
+              status: 'rejected',
+              decidedAt: now));
+      _handled.remove(it.fp);
+      _handled.add(it.fp);
+    }
+    if (history.length > _maxHistory) {
+      history.removeRange(_maxHistory, history.length);
+    }
+    if (_handled.length > _maxHandled) {
+      _handled.removeRange(0, _handled.length - _maxHandled);
+    }
+    pending.clear();
+    notifyListeners();
+    try {
+      await channel.invokeMethod('reset'); // clears our notifications
+    } catch (_) {}
+    try {
+      await _save();
+    } catch (e) {
+      _err('rejectAll', e);
+    }
+    return items.length;
   }
 
   /// «ریست»: clears only this phone's SMS state (pending, history,

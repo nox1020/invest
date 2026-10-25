@@ -145,9 +145,12 @@ class _ProfitAlertSheetState extends State<_ProfitAlertSheet> {
   void initState() {
     super.initState();
     _enabled = widget.initial.enabled;
-    _profitToman = TextEditingController(text: _seedMoney(widget.initial.profitToman));
-    _lossToman = TextEditingController(text: _seedMoney(widget.initial.lossToman));
-    _profitPct = TextEditingController(text: _seedPct(widget.initial.profitPct));
+    _profitToman =
+        TextEditingController(text: _seedMoney(widget.initial.profitToman));
+    _lossToman =
+        TextEditingController(text: _seedMoney(widget.initial.lossToman));
+    _profitPct =
+        TextEditingController(text: _seedPct(widget.initial.profitPct));
     _lossPct = TextEditingController(text: _seedPct(widget.initial.lossPct));
   }
 
@@ -202,7 +205,9 @@ class _ProfitAlertSheetState extends State<_ProfitAlertSheet> {
         left: 16,
         right: 16,
         top: 8,
-        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+        bottom: 16 +
+            MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).viewPadding.bottom,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
