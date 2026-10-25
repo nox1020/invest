@@ -241,13 +241,13 @@ class PwoStore extends ChangeNotifier {
   /// Online: sent at once and its snapshot applied. Offline, or the answer
   /// never arrived: kept in this account's queue (same idempotency key) and
   /// [WriteQueuedException] thrown. Throws the server's refusal otherwise.
-  Future<void> _write(String label, WriteRequest req) async {
+  Future<void> _write(String label, WriteRequest req, {String? idemKey}) async {
     final acc = _account;
     if (acc == null) throw const PwoReadOnlyException();
     if (queue.account != acc) await queue.bind(acc);
     final r = _remote;
+    final key = idemKey ?? newIdempotencyKey();
     if (r != null && queue.isEmpty) {
-      final key = newIdempotencyKey();
       try {
         final snap = await r.run(req, idempotencyKey: key);
         if (_account != acc) return;
@@ -265,7 +265,7 @@ class PwoStore extends ChangeNotifier {
         throw const WriteQueuedException();
       }
     }
-    final w = await queue.add(acc, req, label);
+    final w = await queue.add(acc, req, label, key: key);
     if (r != null) {
       await refresh();
       final left = queue.items.where((x) => x.key == w.key).firstOrNull;
@@ -413,7 +413,7 @@ class PwoStore extends ChangeNotifier {
 
   /// Adds one withdrawal (toman) to a month; it is summed into the month.
   Future<void> addTx(int year, int month, String personId, double toman,
-      {String note = ''}) async {
+      {String note = '', String? idempotencyKey}) async {
     _ensureWritable();
     if (!toman.isFinite || toman <= 0) {
       throw ArgumentError('مبلغ برداشت باید بیشتر از صفر باشد.');
@@ -432,7 +432,7 @@ class PwoStore extends ChangeNotifier {
                 id: _nextLocalTxId(), personId: personId, amount: toman, note: n));
       });
     }
-    await _write('برداشت تکی ${_who(personId)} ماه $year/$month', PwoRemote.addTxReq(personId, year, month, toman, n));
+    await _write('برداشت تکی ${_who(personId)} ماه $year/$month', PwoRemote.addTxReq(personId, year, month, toman, n), idemKey: idempotencyKey);
   }
 
   Future<void> updateTx(int id, String personId, double toman,

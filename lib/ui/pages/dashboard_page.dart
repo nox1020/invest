@@ -23,6 +23,7 @@ import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/pages/withdrawals_page.dart';
+import 'package:invest/ui/widgets/bank_sms_ui.dart';
 import 'package:invest/ui/widgets/dash_speed_dial.dart';
 import 'package:invest/ui/widgets/dashboard_kit.dart';
 import 'package:invest/ui/widgets/dashboard_sections.dart';
@@ -293,6 +294,7 @@ class _DashboardBodyState extends State<_DashboardBody>
                   ),
                 ),
               ],
+              const BankSmsCard(),
               if (alerts.isNotEmpty) ...[
                 DashSection(
                   title: 'نیازمند توجه',

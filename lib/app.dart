@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:invest/ui/widgets/bank_sms_ui.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/notification_inbox_store.dart';
 import 'package:invest/state/app_state.dart';
@@ -122,7 +123,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      BankSmsWatcher(child: Builder(builder: _buildShell));
+
+  Widget _buildShell(BuildContext context) {
     final state = context.watch<AppState>();
     final pages = [
       const DashboardPage(),

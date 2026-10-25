@@ -2,6 +2,8 @@ import 'package:invest/data/pwo_store.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:flutter/material.dart';
+import 'package:invest/data/bank_sms_store.dart';
+import 'package:invest/ui/widgets/bank_sms_ui.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/services/notification_service.dart';
@@ -142,6 +144,23 @@ class _SettingsPageState extends State<SettingsPage> {
                       : null,
                   onTap: () =>
                       showPwoSettingsSheet(context, PwoStore.instance),
+                  showDivider: false,
+                ),
+              ),
+            ],
+          ),
+          TgSettingsSection(
+            title: 'پیامک بانک',
+            children: [
+              ListenableBuilder(
+                listenable: BankSmsStore.instance,
+                builder: (context, _) => TgSettingsTile(
+                  key: const ValueKey('settings-bank-sms'),
+                  icon: Icons.sms_rounded,
+                  iconColor: const Color(0xFFFF3B30),
+                  title: 'ثبت خودکار برداشت از پیامک بانک',
+                  value: BankSmsStore.instance.enabled ? 'فعال' : 'خاموش',
+                  onTap: () => showBankSmsSettings(context),
                   showDivider: false,
                 ),
               ),
