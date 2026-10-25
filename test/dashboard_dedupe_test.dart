@@ -15,7 +15,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   testWidgets('dashboard avoids duplicating assets allocation desk',
       (tester) async {
-    SharedPreferences.setMockInitialValues({'dash_compact_v1': false});
+    resetDashboardExpandCache();
+    SharedPreferences.setMockInitialValues({'dash_open_v1': ['value', 'pnl', 'pwo', 'cheques', 'mix', 'alerts', 'gold']});
     final state = AppState()
       ..loading = false
       ..authenticated = true
@@ -109,7 +110,8 @@ void main() {
   });
 
   testWidgets('dashboard hero names the open-cheque contribution', (tester) async {
-    SharedPreferences.setMockInitialValues({'dash_compact_v1': false});
+    resetDashboardExpandCache();
+    SharedPreferences.setMockInitialValues({'dash_open_v1': ['value', 'pnl', 'pwo', 'cheques', 'mix', 'alerts', 'gold']});
     final state = AppState()
       ..loading = false
       ..authenticated = true
@@ -162,8 +164,9 @@ void main() {
     expect(find.text('۱٬۲۵۰ تومان'), findsWidgets);
   });
 
-  for (final compact in [true, false]) testWidgets('redesigned dashboard fits 320 px with large text (compact=$compact)', (tester) async {
-    SharedPreferences.setMockInitialValues({'dash_compact_v1': compact, 'dash_open_v1': ['gold', 'cheques', 'pwo']});
+  testWidgets('redesigned dashboard fits 320 px with large text', (tester) async {
+    resetDashboardExpandCache();
+    SharedPreferences.setMockInitialValues({'dash_open_v1': ['value', 'pnl', 'pwo', 'cheques', 'mix', 'alerts', 'gold']});
     final today = DateTime.now();
     String iso(DateTime d) =>
         '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -207,24 +210,12 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('نیازمند توجه'), findsOneWidget);
     expect(find.byKey(const ValueKey('fab-main')), findsOneWidget);
-    if (compact) {
-      expect(find.byKey(const ValueKey('cd-summary')), findsOneWidget);
-      expect(find.byKey(const ValueKey('cd-today-strip')), findsOneWidget);
-      expect(find.byKey(const ValueKey('cd-chip-cheques')), findsOneWidget);
-      expect(find.byKey(const ValueKey('cd-sec-gold-body')), findsOneWidget);
-      expect(find.byKey(const ValueKey('dash-upcoming')), findsNothing);
-      expect(find.byKey(const ValueKey('dash-withdrawable')), findsOneWidget);
-      expect(find.byKey(const ValueKey('cd-updated')), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('cd-sec-gold-head')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('cd-sec-gold-body')), findsNothing);
-      final p = await SharedPreferences.getInstance();
-      expect(p.getStringList('dash_open_v1'), isNot(contains('gold')));
-      await tester.tap(find.byKey(const ValueKey('dash-mode-full')));
-      await tester.pumpAndSettle();
-      expect(p.getBool('dash_compact_v1'), isFalse);
-      expect(find.byKey(const ValueKey('cd-summary')), findsNothing);
-    }
+    expect(find.byKey(const ValueKey('cd-summary')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cd-today-strip')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cd-chip-cheques')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cd-sec-gold-body')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cd-updated')), findsOneWidget);
+    expect(find.byKey(const ValueKey('dash-mode-full')), findsNothing);
     expect(find.byKey(const ValueKey('pv-gold-chip')), findsOneWidget);
     expect(find.byKey(const ValueKey('pv-unpriced')), findsOneWidget);
     expect(find.byKey(const ValueKey('dash-upcoming')), findsOneWidget);
@@ -232,6 +223,19 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('pv-toggle')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('pv-gold-section')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const ValueKey('cd-sec-gold-head')));
+    await tester.tap(find.byKey(const ValueKey('cd-sec-gold-head')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('cd-sec-gold-body')), findsNothing);
+    final p = await SharedPreferences.getInstance();
+    expect(p.getStringList('dash_open_v1'), isNot(contains('gold')));
+    // A rebuilt page keeps the in-memory state (no flash, no overwrite).
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: state, child: const MaterialApp(home: Scaffold(body: DashboardPage()))));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('cd-sec-gold-body')), findsNothing);
+    expect(find.byKey(const ValueKey('cd-sec-value-body')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

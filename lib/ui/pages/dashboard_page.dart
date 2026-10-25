@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/services/connection_status.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/index_analytics.dart';
@@ -11,7 +10,6 @@ import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/biz_page.dart';
 import 'package:invest/ui/pages/capital_chart_page.dart';
 import 'package:invest/ui/pages/checks_page.dart';
-import 'package:invest/ui/pages/quote_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/data/biz_store.dart';
 import 'package:invest/data/projects_store.dart';
@@ -48,6 +46,13 @@ class DashboardPage extends StatelessWidget {
   Widget build(BuildContext context) => const _DashboardBody();
 }
 
+/// Test hook: forget the in-memory expand state between widget tests.
+@visibleForTesting
+void resetDashboardExpandCache() {
+  _DashboardBodyState._openCache = null;
+  _DashboardBodyState._touched = false;
+}
+
 class _DashboardBody extends StatefulWidget {
   const _DashboardBody();
 
@@ -58,41 +63,42 @@ class _DashboardBody extends StatefulWidget {
 class _DashboardBodyState extends State<_DashboardBody>
     with SingleTickerProviderStateMixin {
   bool _usd = false;
-  bool _compact = true;
-  final Set<String> _open = {};
   late final AnimationController _enter;
 
-  static const _kCompact = 'dash_compact_v1';
   static const _kOpen = 'dash_open_v1';
 
-  Future<void> _loadMode() async {
+  /// Open sections, kept for the whole process so a tab switch or a
+  /// rebuilt page never flashes everything closed, and a tap made before
+  /// the stored value arrives is never overwritten by it.
+  static Set<String>? _openCache;
+  Set<String> get _open => _openCache ??= <String>{};
+  static bool _touched = false;
+
+  Future<void> _loadOpen() async {
+    if (_openCache != null && _touched) return;
     try {
       final p = await SharedPreferences.getInstance();
-      if (!mounted) return;
-      setState(() {
-        _compact = p.getBool(_kCompact) ?? true;
-        _open
-          ..clear()
-          ..addAll(p.getStringList(_kOpen) ?? const []);
-      });
+      final stored = p.getStringList(_kOpen);
+      if (!mounted || _touched || stored == null) return;
+      setState(() => _openCache = stored.toSet());
     } catch (_) {}
   }
 
-  void _setCompact(bool v) {
-    setState(() => _compact = v);
-    SharedPreferences.getInstance().then((p) => p.setBool(_kCompact, v)).catchError((_) => false);
-  }
+  void _setUsd(bool v) => setState(() => _usd = v);
 
   void _toggle(String id) {
+    _touched = true;
     setState(() => _open.contains(id) ? _open.remove(id) : _open.add(id));
     final list = _open.toList();
-    SharedPreferences.getInstance().then((p) => p.setStringList(_kOpen, list)).catchError((_) => false);
+    SharedPreferences.getInstance()
+        .then((p) => p.setStringList(_kOpen, list))
+        .catchError((_) => false);
   }
 
   @override
   void initState() {
     super.initState();
-    _loadMode();
+    _loadOpen();
     _enter = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 780),
@@ -158,7 +164,6 @@ class _DashboardBodyState extends State<_DashboardBody>
       openTrades: state.openTrades,
       closedTrades: state.closedTrades,
     );
-    final quotes = _spotlightQuotes(state);
 
     if (snap.isEmpty && state.assets.isEmpty) {
       return RefreshIndicator(
@@ -227,7 +232,6 @@ class _DashboardBodyState extends State<_DashboardBody>
       }
     }
 
-    final syncAt = state.lastSyncedAt;
     final conn = state.connectionStatus;
     final dial = [
       SpeedDialAction(
@@ -306,23 +310,10 @@ class _DashboardBodyState extends State<_DashboardBody>
                         overflow: TextOverflow.ellipsis,
                         style: mutedStyle(11.5)),
                   ),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    flex: 3,
-                    child: Align(
-                      alignment: AlignmentDirectional.centerEnd,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: DashModeToggle(
-                            compact: _compact, onChanged: _setCompact),
-                      ),
-                    ),
-                  ),
                 ]),
               ),
               const SizedBox(height: 12),
-              if (_compact)
-                ..._compactChildren(
+              ..._compactChildren(
                   context,
                   state: state,
                   snap: snap,
@@ -335,148 +326,11 @@ class _DashboardBodyState extends State<_DashboardBody>
                   upcoming: upcoming,
                   openAlert: openAlert,
                   openPwo: openPwo,
-                ),
-              if (!_compact) ...[
-              stage(
-                a: 0.05,
-                b: 0.45,
-                child: PortfolioValueCard(
-                  snap: snap,
-                  trend: trend,
-                  usdIsLive: state.usdtIsLive,
-                  pricesAsOf: state.pricesAsOf,
-                  // Local workspace is live local data, not a stale cache.
+                  yoy: yoy,
+                  anchorsCaption: anchors.caption,
                   offline:
                       !conn.isOnline && conn != AppConnectionStatus.localOnly,
-                  lastSyncedAt: syncAt,
-                  projects: projects,
-                  refreshing: state.refreshing,
-                  onOpenCharts: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const CapitalChartPage(),
-                      ),
-                    );
-                  },
                 ),
-              ),
-              if (quotes.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                stage(
-                  a: 0.18,
-                  b: 0.55,
-                  child: _MarketAnchors(
-                    quotes: quotes,
-                    caption: anchors.caption,
-                    onOpenIndex: () => openHomeTab(context, HomeTabs.index),
-                  ),
-                ),
-              ],
-              const BankSmsCard(),
-              if (alerts.isNotEmpty) ...[
-                DashSection(
-                  title: 'نیازمند توجه',
-                  subtitle: fa('${alerts.length} مورد'),
-                  icon: Icons.notifications_active_rounded,
-                ),
-                DashAlertsList(alerts: alerts, onOpen: openAlert),
-              ],
-              stage(
-                a: 0.28,
-                b: 0.65,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    DashSection(
-                      title: 'سود و زیان',
-                      subtitle: 'عملکرد زنده پورتفو',
-                      icon: Icons.insights_rounded,
-                      trailing: _FxToggle(
-                        usd: _usd,
-                        onChanged: (v) => setState(() => _usd = v),
-                      ),
-                    ),
-                    if (_usd && snap.usdIncomplete)
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 10),
-                        child: _HintBanner(
-                          text:
-                              'دلار فقط با بهای خرید ثبت‌شده محاسبه می‌شود. برای لات‌های بدون دلار، «—» می‌بینید.',
-                        ),
-                      ),
-                    _PnlLedger(
-                        snap: snap,
-                        usd: _usd,
-                        yoy: yoy,
-                        projects: projects,
-                        usdt: usdt ?? 0),
-                  ],
-                ),
-              ),
-              DashSection(
-                title: 'برداشت و PWO',
-                subtitle: pwo == null
-                    ? 'سهمیه سالانه برداشت'
-                    : '${pwoMonthLabel(pwo.month)}'
-                        '${pwo.target > 0 ? ' · هدف ماهانه ${fa(formatCompactToman(pwo.target))}' : ''}',
-                icon: Icons.account_balance_wallet_rounded,
-                actionLabel: 'جدول PWO',
-                onAction: openPwo,
-              ),
-              DashPwoCard(
-                summary: pwo,
-                withdrawable: state.withdrawableAmount,
-                capBaseLabel: 'سهمیه سالانه',
-                onOpenPwo: openPwo,
-                onOpenWithdrawals: () =>
-                    openHomeTab(context, HomeTabs.withdrawals),
-              ),
-              DashSection(
-                title: 'مدیریت چک‌ها',
-                subtitle: 'دریافتی، بدهی و سررسید',
-                icon: Icons.receipt_long_rounded,
-                actionLabel: 'همه',
-                onAction: () => openChecksPage(context),
-              ),
-              const ChecksDashboardCard(digits: fa),
-              if (upcoming.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                DashUpcomingCheques(
-                  key: const ValueKey('dash-upcoming'),
-                  items: upcoming,
-                  calendar: calendar,
-                  onTap: () => openChecksPage(context),
-                ),
-              ],
-              const DashSection(
-                title: 'ملک و دفتر',
-                subtitle: 'خلاصهٔ معاملات و دفتر امسال',
-                icon: Icons.home_work_rounded,
-              ),
-              const BizDashboardCard(digits: fa),
-              if (projects != null)
-                DashSection(
-                  title: 'پروژه‌ها',
-                  subtitle: 'پیمانکاری · سود تحقق‌یافته و در جریان',
-                  icon: Icons.engineering_rounded,
-                  actionLabel: 'همه',
-                  onAction: () => openProjectsPage(context),
-                ),
-              const ProjectsDashboardCard(digits: fa),
-              if (snap.holdings.isNotEmpty) ...[
-                DashSection(
-                  title: 'ترکیب',
-                  subtitle: fa(
-                      '${snap.holdingCount} دارایی · ${snap.openLotCount} لات باز'),
-                  icon: Icons.donut_large_rounded,
-                  actionLabel: 'معاملات',
-                  onAction: () => _openTradesTab(context),
-                ),
-                DashAssetMix(
-                    valuation: valuation,
-                    onOpen: () => _openTradesTab(context)),
-              ],
-              ],
               const SizedBox(height: 28),
             ],
           ),
@@ -501,6 +355,9 @@ extension _CompactDash on _DashboardBodyState {
     required List<UpcomingCheque> upcoming,
     required void Function(DashAlert) openAlert,
     required VoidCallback openPwo,
+    required YearNavCompare yoy,
+    required String? anchorsCaption,
+    required bool offline,
   }) {
     PortfolioTrend win(int days) => PortfolioTrend.window(
           series: state.metrics?.growthSeries ?? const [],
@@ -511,7 +368,15 @@ extension _CompactDash on _DashboardBodyState {
           closedTrades: state.closedTrades,
         );
     final jDay = Jalali.fromDateTime(DateTime.tryParse(today) ?? DateTime.now()).day;
-    final dayTrend = win(1);
+    // «امروز» is only meaningful against a recent close: if the latest stored
+    // day is older than 3 days (app not opened, no server series), show «—»
+    // instead of calling a multi-day move "today".
+    var dayTrend = win(1);
+    final dBase = DateTime.tryParse(dayTrend.baseDate ?? '');
+    final tDay = DateTime.tryParse(today.length >= 10 ? today.substring(0, 10) : today);
+    if (dBase != null && tDay != null && tDay.difference(dBase).inDays > 3) {
+      dayTrend = PortfolioTrend(days: 1, endValue: snap.holdingsValue);
+    }
     final monthTrend = win(jDay < 1 ? 1 : jDay);
 
     // «امروز» chips.
@@ -530,11 +395,18 @@ extension _CompactDash on _DashboardBodyState {
           (a.below != null && a.below! > 0 && v <= a.below!);
     }).length;
     final chips = [
-      if (week.isNotEmpty)
+      if (week.any((u) => u.daysLeft < 0))
+        TodayChip(
+            id: 'overdue',
+            icon: Icons.warning_amber_rounded,
+            label: '${week.where((u) => u.daysLeft < 0).length} چک سررسید گذشته',
+            color: AppTheme.negative,
+            onTap: () => openChecksPage(context)),
+      if (week.any((u) => u.daysLeft >= 0))
         TodayChip(
             id: 'cheques',
             icon: Icons.receipt_long_rounded,
-            label: '${week.length} چک این هفته',
+            label: '${week.where((u) => u.daysLeft >= 0).length} چک این هفته',
             color: kAmber,
             onTap: () => openChecksPage(context)),
       if (smsPending > 0)
@@ -633,6 +505,8 @@ extension _CompactDash on _DashboardBodyState {
     return [
       CompactSummaryCard(
         nav: nav,
+        offline: offline,
+        pricesAsOf: state.pricesAsOf,
         trend30: trend,
         today: dayTrend,
         month: monthTrend,
@@ -641,7 +515,57 @@ extension _CompactDash on _DashboardBodyState {
       ),
       TodayStrip(chips: chips),
       RatesStrip(quotes: rates),
+      if (anchorsCaption != null && anchorsCaption.trim().isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(fa(anchorsCaption),
+              key: const ValueKey('cd-anchor-caption'),
+              style: const TextStyle(color: AppTheme.muted, fontSize: 11, height: 1.4)),
+        ),
       if (pwo != null) PwoProgressCard(summary: pwo, monthLabel: pwoMonthLabel(pwo.month), onTap: openPwo),
+      section(
+        id: 'value',
+        icon: Icons.account_balance_rounded,
+        color: AppTheme.positive,
+        title: 'جزئیات ارزش',
+        line: fa('معادل دلاری، نرخ زنده، چک‌ها، تخصیص و نمودار'),
+        child: PortfolioValueCard(
+          snap: snap,
+          trend: trend,
+          usdIsLive: state.usdtIsLive,
+          pricesAsOf: state.pricesAsOf,
+          offline: offline,
+          lastSyncedAt: state.lastSyncedAt,
+          projects: projects,
+          refreshing: state.refreshing,
+          onOpenCharts: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const CapitalChartPage())),
+        ),
+      ),
+      section(
+        id: 'pnl',
+        icon: Icons.insights_rounded,
+        color: toneOf(snap.totalPnl),
+        title: 'سود و زیان',
+        line: 'باز، تحقق‌یافته، امسال و مقایسه سالانه',
+        value: signedToman(snap.totalPnl),
+        valueColor: toneOf(snap.totalPnl),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: _FxToggle(usd: _usd, onChanged: _setUsd),
+          ),
+          const SizedBox(height: 8),
+          if (_usd && snap.usdIncomplete)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 10),
+              child: _HintBanner(
+                text: 'دلار فقط با بهای خرید ثبت‌شده محاسبه می‌شود. برای لات‌های بدون دلار، «—» می‌بینید.',
+              ),
+            ),
+          _PnlLedger(snap: snap, usd: _usd, yoy: yoy, projects: projects, usdt: usdt ?? 0),
+        ]),
+      ),
       if (alerts.isNotEmpty)
         section(
           id: 'alerts',
@@ -700,7 +624,7 @@ extension _CompactDash on _DashboardBodyState {
           const ChecksDashboardCard(digits: fa),
           if (upcoming.isNotEmpty) ...[
             const SizedBox(height: 8),
-            DashUpcomingCheques(items: upcoming, calendar: state.settings.calendar, onTap: () => openChecksPage(context)),
+            DashUpcomingCheques(key: const ValueKey('dash-upcoming'), items: upcoming, calendar: state.settings.calendar, onTap: () => openChecksPage(context)),
           ],
         ]),
       ),
@@ -753,144 +677,6 @@ extension _CompactDash on _DashboardBodyState {
 
 void _openTradesTab(BuildContext context) {
   openHomeTab(context, HomeTabs.trades);
-}
-
-List<CommodityQuote> _spotlightQuotes(AppState state) {
-  const order = ['usdt', 'gold'];
-  final byId = {for (final q in state.commodityIndex) q.id: q};
-  final out = <CommodityQuote>[];
-  for (final id in order) {
-    final q = byId[id];
-    if (q?.price != null && q!.price! > 0) out.add(q);
-  }
-  return out;
-}
-
-class _MarketAnchors extends StatelessWidget {
-  const _MarketAnchors({
-    required this.quotes,
-    this.caption,
-    this.onOpenIndex,
-  });
-
-  final List<CommodityQuote> quotes;
-  final String? caption;
-  final VoidCallback? onOpenIndex;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        DashSection(
-          title: 'لنگرها',
-          subtitle: 'بازار مرجع',
-          icon: Icons.candlestick_chart_rounded,
-          actionLabel: onOpenIndex == null ? null : 'شاخص',
-          onAction: onOpenIndex,
-        ),
-        Row(
-          children: [
-            for (var i = 0; i < quotes.length; i++) ...[
-              if (i > 0) const SizedBox(width: 10),
-              Expanded(child: _AnchorTile(quote: quotes[i])),
-            ],
-          ],
-        ),
-        if (caption != null && caption!.trim().isNotEmpty) ...[
-          const SizedBox(height: 10),
-          Text(
-            fa(caption!),
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: AppTheme.muted,
-              fontSize: 11,
-              height: 1.4,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _AnchorTile extends StatelessWidget {
-  const _AnchorTile({required this.quote});
-  final CommodityQuote quote;
-
-  @override
-  Widget build(BuildContext context) {
-    final up = quote.isUp;
-    final down = quote.isDown;
-    final tone = up
-        ? AppTheme.positive
-        : down
-            ? AppTheme.negative
-            : AppTheme.muted;
-    return Material(
-      color: AppTheme.card.withValues(alpha: 0.86),
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: () => openQuoteDetail(context, quote),
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.border.withValues(alpha: 0.85)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(quote.icon, size: 16, color: tone),
-                  const Spacer(),
-                  Flexible(
-                    child: Text(
-                      quote.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppTheme.muted,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                fa(quote.formatPrice(compact: true)),
-                style: const TextStyle(
-                  color: AppTheme.title,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 15,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Row(mainAxisSize: MainAxisSize.min, children: [
-                if (quote.change24h != null)
-                  TrendArrow(quote.change24h!, size: 18),
-                Text(
-                  quote.change24h == null
-                      ? '—'
-                      : fa(formatPct(quote.change24h!.abs())
-                          .replaceAll('+', '')),
-                  style: TextStyle(
-                    color: tone,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ]),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _PnlLedger extends StatelessWidget {

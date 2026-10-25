@@ -53,7 +53,12 @@ class CompactSummaryCard extends StatelessWidget {
     required this.today,
     required this.month,
     this.onTap,
+    this.offline = false,
+    this.pricesAsOf,
   });
+
+  final bool offline;
+  final DateTime? pricesAsOf;
 
   final double nav;
   final PortfolioTrend trend30;
@@ -117,6 +122,21 @@ class CompactSummaryCard extends StatelessWidget {
               key: const ValueKey('cd-total'),
               style: const TextStyle(color: AppTheme.title, fontSize: 26, fontWeight: FontWeight.w800)),
         ),
+        if (offline || pricesAsOf != null)
+          Text(
+            [
+              if (offline) 'آفلاین · داده ذخیره‌شده',
+              if (pricesAsOf != null) 'قیمت‌ها: ${agoFa(pricesAsOf!)}',
+            ].join(' · '),
+            key: const ValueKey('cd-fresh'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: offline || DateTime.now().difference(pricesAsOf ?? DateTime.now()).inMinutes > 60 ? kAmber : AppTheme.muted,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(child: _pl('امروز', today, const ValueKey('cd-today'))),
@@ -439,41 +459,6 @@ class LastUpdatedLine extends StatelessWidget {
             style: mutedStyle(11),
           ),
         ),
-      ]),
-    );
-  }
-}
-
-/// Compact ↔ full switch for the dashboard header.
-class DashModeToggle extends StatelessWidget {
-  const DashModeToggle({super.key, required this.compact, required this.onChanged});
-  final bool compact;
-  final ValueChanged<bool> onChanged;
-
-  Widget _seg(String label, bool on, VoidCallback tap, Key key) => InkWell(
-        key: key,
-        onTap: tap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(color: on ? AppTheme.accent : null, borderRadius: BorderRadius.circular(16)),
-          child: Text(label,
-              style: TextStyle(color: on ? AppTheme.text : AppTheme.muted, fontSize: 12, fontWeight: on ? FontWeight.w700 : FontWeight.w600)),
-        ),
-      );
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: AppTheme.card,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        _seg('خلاصه', compact, () => onChanged(true), const ValueKey('dash-mode-compact')),
-        _seg('کامل', !compact, () => onChanged(false), const ValueKey('dash-mode-full')),
       ]),
     );
   }
