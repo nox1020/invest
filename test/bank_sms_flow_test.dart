@@ -1,5 +1,6 @@
 // Fake SMS only (invented banks/amounts); nothing real in this public repo.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/data/bank_sms_store.dart';
 import 'package:invest/data/pwo_store.dart';
@@ -17,12 +18,16 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final calls = <String>[];
   var granted = true;
+  var readGranted = true;
+  var statusFails = false;
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     BankSmsStore.debugReset();
     PwoStore.instance.debugReset();
     calls.clear();
     granted = true;
+    readGranted = true;
+    statusFails = false;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(BankSmsStore.channel, (c) async {
       calls.add(c.method);
@@ -33,8 +38,11 @@ void main() {
         case 'takeRejected':
           return <Object?>[];
         case 'status':
+          if (statusFails) {
+            throw PlatformException(code: 'status_failed');
+          }
           return {
-            'read': granted,
+            'read': granted && readGranted,
             'receive': granted,
             'notify': true,
             'fullScreen': false,
@@ -222,5 +230,42 @@ void main() {
     await tester.ensureVisible(btn);
     await tester.pump();
     expect(tester.getRect(btn).bottom, lessThanOrEqualTo(800 - 48));
+  });
+
+  test('RECEIVE_SMS alone is enough to enable (scan needs READ_SMS)', () async {
+    readGranted = false;
+    final s = BankSmsStore.instance;
+    expect(await s.tryEnable(), isTrue);
+    expect(s.enabled, isTrue);
+    expect(s.caps.read, isFalse);
+    expect(s.caps.denied, isFalse);
+  });
+
+  testWidgets(
+      'status read error: checklist shown as unknown, no guide, '
+      'switch still turns on and persists', (tester) async {
+    statusFails = true;
+    await pumpSettings(tester);
+    expect(find.byKey(const ValueKey('bank-sms-unknown')), findsOneWidget);
+    expect(find.text('دریافت پیامک (تشخیص لحظه‌ای)'), findsOneWidget);
+    expect(find.byKey(const ValueKey('bank-sms-guide')), findsNothing);
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('bank-sms-switch')));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+    expect(BankSmsStore.instance.enabled, isTrue);
+    final p = await SharedPreferences.getInstance();
+    expect(p.getBool(BankSmsStore.kEnabled), isTrue);
+  });
+
+  testWidgets('granted: checklist always visible with real status',
+      (tester) async {
+    readGranted = false;
+    await pumpSettings(tester);
+    expect(find.text('اعلان‌ها'), findsOneWidget);
+    expect(find.byIcon(Icons.cancel_rounded),
+        findsNWidgets(2)); // READ + full-screen
+    expect(find.byKey(const ValueKey('bank-sms-guide')), findsNothing);
   });
 }

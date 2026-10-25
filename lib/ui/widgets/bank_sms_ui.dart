@@ -495,16 +495,25 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
         Widget row(bool ok, String t) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Row(children: [
-                Icon(ok ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                Icon(
+                    c.unknown
+                        ? Icons.help_rounded
+                        : ok
+                            ? Icons.check_circle_rounded
+                            : Icons.cancel_rounded,
                     size: 18,
-                    color: ok ? AppTheme.positive : AppTheme.negative),
+                    color: c.unknown
+                        ? Colors.orange
+                        : ok
+                            ? AppTheme.positive
+                            : AppTheme.negative),
                 const SizedBox(width: 6),
                 Expanded(child: Text(t, style: const TextStyle(fontSize: 13))),
               ]),
             );
         final mq = MediaQuery.of(context);
         final bottom = 16 + mq.viewPadding.bottom + mq.viewInsets.bottom;
-        final needGuide = !c.supported || !c.granted;
+        final needGuide = c.denied;
         return Padding(
           padding: EdgeInsets.fromLTRB(16, 0, 16, bottom),
           child: SingleChildScrollView(
@@ -529,6 +538,13 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
                   row(c.read, 'خواندن پیامک‌ها (بررسی هنگام باز کردن برنامه)'),
                   row(c.notify, 'اعلان‌ها'),
                   row(c.fullScreen, 'نمایش پنجرهٔ تمام‌صفحه روی قفل صفحه'),
+                  if (c.unknown)
+                    Text(
+                      'وضعیت مجوزها از اندروید خوانده نشد (${c.error}). کلید را روشن کنید؛ اگر اجازه نباشد اندروید خودش می‌پرسد.',
+                      key: const ValueKey('bank-sms-unknown'),
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.orange),
+                    ),
                 ],
                 if (store.cardPerson.isNotEmpty) ...[
                   const Divider(),

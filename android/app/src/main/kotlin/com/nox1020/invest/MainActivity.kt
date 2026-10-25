@@ -29,7 +29,9 @@ class MainActivity : FlutterFragmentActivity() {
         channel = ch
         ch.setMethodCallHandler { call, result ->
             when (call.method) {
-                "status" -> result.success(status())
+                "status" -> try { result.success(status()) } catch (e: Throwable) {
+                    result.error("status_failed", e.javaClass.simpleName, null)
+                }
                 "request" -> requestSms(result)
                 "openAppSettings" -> {
                     openSettings(Settings.ACTION_APPLICATION_DETAILS_SETTINGS); result.success(null)
@@ -44,11 +46,11 @@ class MainActivity : FlutterFragmentActivity() {
                 }
                 "inbox" -> {
                     val since = (call.argument<Number>("since") ?: 0).toLong()
-                    try {
-                        result.success(SmsReceiver.readInbox(this, since))
-                    } catch (e: Exception) {
-                        result.success(emptyList<Map<String, Any>>())
-                    }
+                    val app = applicationContext
+                    Thread {
+                        val list = try { SmsReceiver.readInbox(app, since) } catch (e: Throwable) { emptyList() }
+                        runOnUiThread { result.success(list) }
+                    }.start()
                 }
                 "takePending" -> synchronized(pendingSms) {
                     val copy = ArrayList(pendingSms); pendingSms.clear(); result.success(copy)
@@ -91,13 +93,19 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun granted(p: String) =
-        ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+    private fun granted(p: String) = try {
+        ContextCompat.checkSelfPermission(applicationContext, p) == PackageManager.PERMISSION_GRANTED
+    } catch (e: Throwable) { false }
 
     private fun status(): Map<String, Any> {
         val nm = getSystemService(NotificationManager::class.java)
-        val fullScreen = if (Build.VERSION.SDK_INT >= 34) nm.canUseFullScreenIntent() else true
-        val notify = if (Build.VERSION.SDK_INT >= 33) granted(Manifest.permission.POST_NOTIFICATIONS) else nm.areNotificationsEnabled()
+        val fullScreen = try {
+            if (Build.VERSION.SDK_INT >= 34) nm?.canUseFullScreenIntent() ?: true else true
+        } catch (e: Throwable) { true }
+        val notify = try {
+            if (Build.VERSION.SDK_INT >= 33) granted(Manifest.permission.POST_NOTIFICATIONS)
+            else nm?.areNotificationsEnabled() ?: true
+        } catch (e: Throwable) { true }
         return mapOf(
             "read" to granted(Manifest.permission.READ_SMS),
             "receive" to granted(Manifest.permission.RECEIVE_SMS),
@@ -111,7 +119,9 @@ class MainActivity : FlutterFragmentActivity() {
         val perms = mutableListOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS)
         if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
         val missing = perms.filter { !granted(it) }
-        if (missing.isEmpty()) { result.success(true); return }
+        if (missing.isEmpty() || granted(Manifest.permission.RECEIVE_SMS) && missing.all { it != Manifest.permission.RECEIVE_SMS && it != Manifest.permission.READ_SMS }) {
+            result.success(true); return
+        }
         permReply?.success(false)
         permReply = result
         ActivityCompat.requestPermissions(this, missing.toTypedArray(), REQ_SMS)
@@ -120,7 +130,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, res: IntArray) {
         super.onRequestPermissionsResult(code, perms, res)
         if (code == REQ_SMS) {
-            permReply?.success(granted(Manifest.permission.READ_SMS) && granted(Manifest.permission.RECEIVE_SMS))
+            permReply?.success(granted(Manifest.permission.RECEIVE_SMS))
             permReply = null
         }
     }

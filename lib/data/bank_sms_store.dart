@@ -15,10 +15,20 @@ class BankSmsCaps {
     this.notify = true,
     this.fullScreen = true,
     this.sdk = 0,
+    this.error,
   });
   final bool supported, read, receive, notify, fullScreen;
   final int sdk;
-  bool get granted => read && receive;
+
+  /// Why the status could not be read (no SMS text; just the error kind).
+  final String? error;
+
+  /// Live detection needs RECEIVE_SMS; READ_SMS only adds the inbox scan.
+  bool get granted => receive;
+  bool get unknown => error != null;
+
+  /// A permission is really denied (not just "status unknown").
+  bool get denied => supported && !unknown && !receive;
 
   static BankSmsCaps fromMap(Object? m) {
     if (m is! Map) return const BankSmsCaps();
@@ -78,8 +88,10 @@ class BankSmsStore extends ChangeNotifier {
 
   bool get loaded => _loaded;
 
-  Future<void> load() async {
-    if (_loaded) return;
+  Future<void>? _loading;
+  Future<void> load() => _loaded ? Future.value() : (_loading ??= _load());
+
+  Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
     enabled = p.getBool(kEnabled) ?? false;
     lastScanMs = p.getInt(_kLastScan) ?? 0;
@@ -218,8 +230,8 @@ class BankSmsStore extends ChangeNotifier {
   Future<bool> tryEnable() async {
     await load();
     var c = await refreshCaps();
-    if (c.supported && !c.granted) c = await requestPermissions();
-    if (c.supported && !c.granted) {
+    if (c.denied) c = await requestPermissions();
+    if (c.denied) {
       await _setWant(true);
       notifyListeners();
       return false;
@@ -239,7 +251,7 @@ class BankSmsStore extends ChangeNotifier {
   Future<void> recheck() async {
     await load();
     final c = await refreshCaps();
-    if (wantEnabled && !enabled && c.supported && c.granted) {
+    if (wantEnabled && !enabled && c.supported && !c.denied) {
       await _setWant(false);
       await setEnabled(true);
       await syncOnOpen();
@@ -248,9 +260,20 @@ class BankSmsStore extends ChangeNotifier {
 
   Future<BankSmsCaps> refreshCaps() async {
     try {
-      caps = BankSmsCaps.fromMap(await channel.invokeMethod('status'));
-    } catch (_) {
-      caps = const BankSmsCaps();
+      final m = await channel
+          .invokeMethod<Object?>('status')
+          .timeout(const Duration(seconds: 4));
+      caps = m is Map
+          ? BankSmsCaps.fromMap(m)
+          : const BankSmsCaps(supported: true, error: 'empty');
+    } on MissingPluginException {
+      caps = const BankSmsCaps(); // not Android / no native side
+    } on TimeoutException {
+      caps = const BankSmsCaps(supported: true, error: 'timeout');
+    } on PlatformException catch (e) {
+      caps = BankSmsCaps(supported: true, error: e.code);
+    } catch (e) {
+      caps = BankSmsCaps(supported: true, error: e.runtimeType.toString());
     }
     notifyListeners();
     return caps;
