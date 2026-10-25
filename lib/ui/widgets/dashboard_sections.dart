@@ -119,11 +119,13 @@ class DashPwoCard extends StatelessWidget {
           ),
           if (s.target > 0) ...[
             const SizedBox(width: 6),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 3),
-              child: Text('از ${fa(formatCompactToman(s.target))}', style: mutedStyle(12)),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Text('از ${fa(formatCompactToman(s.target))}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: mutedStyle(12)),
+              ),
             ),
-            const Spacer(),
             Icon(Icons.check_circle_rounded,
                 key: const ValueKey('dash-pwo-check'), size: 16, color: pctTone),
             const SizedBox(width: 3),

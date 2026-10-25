@@ -28,7 +28,17 @@ import 'package:invest/ui/widgets/dash_speed_dial.dart';
 import 'package:invest/ui/widgets/dashboard_kit.dart';
 import 'package:invest/ui/widgets/dashboard_sections.dart';
 import 'package:invest/ui/widgets/portfolio_value_card.dart';
+import 'package:invest/data/bank_sms_store.dart';
+import 'package:invest/domain/models/asset.dart';
+import 'package:invest/domain/models/asset_kind.dart';
+import 'package:invest/domain/models/bank_check.dart';
+import 'package:invest/domain/services/holding_metrics.dart';
+import 'package:invest/domain/services/trade_service.dart';
+import 'package:invest/ui/pages/price_alerts_page.dart';
+import 'package:invest/ui/widgets/dashboard_compact.dart';
 import 'package:provider/provider.dart';
+import 'package:shamsi_date/shamsi_date.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Portfolio home — one calm composition, same ledger, clearer hierarchy.
 class DashboardPage extends StatelessWidget {
@@ -48,11 +58,41 @@ class _DashboardBody extends StatefulWidget {
 class _DashboardBodyState extends State<_DashboardBody>
     with SingleTickerProviderStateMixin {
   bool _usd = false;
+  bool _compact = true;
+  final Set<String> _open = {};
   late final AnimationController _enter;
+
+  static const _kCompact = 'dash_compact_v1';
+  static const _kOpen = 'dash_open_v1';
+
+  Future<void> _loadMode() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {
+        _compact = p.getBool(_kCompact) ?? true;
+        _open
+          ..clear()
+          ..addAll(p.getStringList(_kOpen) ?? const []);
+      });
+    } catch (_) {}
+  }
+
+  void _setCompact(bool v) {
+    setState(() => _compact = v);
+    SharedPreferences.getInstance().then((p) => p.setBool(_kCompact, v)).catchError((_) => false);
+  }
+
+  void _toggle(String id) {
+    setState(() => _open.contains(id) ? _open.remove(id) : _open.add(id));
+    final list = _open.toList();
+    SharedPreferences.getInstance().then((p) => p.setStringList(_kOpen, list)).catchError((_) => false);
+  }
 
   @override
   void initState() {
     super.initState();
+    _loadMode();
     _enter = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 780),
@@ -88,8 +128,12 @@ class _DashboardBodyState extends State<_DashboardBody>
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     return ListenableBuilder(
-      listenable: Listenable.merge(
-          [PwoStore.instance, BizStore.instance, ProjectsStore.instance]),
+      listenable: Listenable.merge([
+        PwoStore.instance,
+        BizStore.instance,
+        ProjectsStore.instance,
+        BankSmsStore.instance,
+      ]),
       builder: (context, _) => _buildPage(context, state),
     );
   }
@@ -242,13 +286,19 @@ class _DashboardBodyState extends State<_DashboardBody>
                 a: 0,
                 b: 0.35,
                 child: Row(children: [
-                  const Text('داشبورد',
-                      style: TextStyle(
-                          color: AppTheme.title,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800)),
+                  const Flexible(
+                    flex: 2,
+                    child: Text('داشبورد',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: AppTheme.title,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800)),
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
+                    flex: 2,
                     child: Text(
                         fa(formatDisplayDate(today, calendar)
                             .replaceFirst(RegExp(r'^0'), '')),
@@ -256,9 +306,37 @@ class _DashboardBodyState extends State<_DashboardBody>
                         overflow: TextOverflow.ellipsis,
                         style: mutedStyle(11.5)),
                   ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    flex: 3,
+                    child: Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: DashModeToggle(
+                            compact: _compact, onChanged: _setCompact),
+                      ),
+                    ),
+                  ),
                 ]),
               ),
               const SizedBox(height: 12),
+              if (_compact)
+                ..._compactChildren(
+                  context,
+                  state: state,
+                  snap: snap,
+                  trend: trend,
+                  usdt: usdt,
+                  today: today,
+                  pwo: pwo,
+                  projects: projects,
+                  alerts: alerts,
+                  upcoming: upcoming,
+                  openAlert: openAlert,
+                  openPwo: openPwo,
+                ),
+              if (!_compact) ...[
               stage(
                 a: 0.05,
                 b: 0.45,
@@ -398,12 +476,278 @@ class _DashboardBodyState extends State<_DashboardBody>
                     valuation: valuation,
                     onOpen: () => _openTradesTab(context)),
               ],
+              ],
               const SizedBox(height: 28),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+
+extension _CompactDash on _DashboardBodyState {
+  List<Widget> _compactChildren(
+    BuildContext context, {
+    required AppState state,
+    required DashboardSnapshot snap,
+    required PortfolioTrend trend,
+    required double? usdt,
+    required String today,
+    required PwoMonthSummary? pwo,
+    required ProjectTotals? projects,
+    required List<DashAlert> alerts,
+    required List<UpcomingCheque> upcoming,
+    required void Function(DashAlert) openAlert,
+    required VoidCallback openPwo,
+  }) {
+    PortfolioTrend win(int days) => PortfolioTrend.window(
+          series: state.metrics?.growthSeries ?? const [],
+          todayValue: snap.holdingsValue,
+          today: today,
+          days: days,
+          openTrades: state.openTrades,
+          closedTrades: state.closedTrades,
+        );
+    final jDay = Jalali.fromDateTime(DateTime.tryParse(today) ?? DateTime.now()).day;
+    final dayTrend = win(1);
+    final monthTrend = win(jDay < 1 ? 1 : jDay);
+
+    // «امروز» chips.
+    final week = upcomingCheques(state.checks, today: today, limit: 999)
+        .where((u) => u.daysLeft <= 7)
+        .toList();
+    final smsPending = BankSmsStore.instance.pending.length;
+    final prices = <String, double>{
+      for (final q in [...state.commodityIndex, ...state.wallexMarkets])
+        if (q.price != null) q.id: q.price!,
+    };
+    final hit = state.settings.priceAlerts.where((a) {
+      final v = prices[a.id];
+      if (!a.isArmed || v == null) return false;
+      return (a.above != null && a.above! > 0 && v >= a.above!) ||
+          (a.below != null && a.below! > 0 && v <= a.below!);
+    }).length;
+    final chips = [
+      if (week.isNotEmpty)
+        TodayChip(
+            id: 'cheques',
+            icon: Icons.receipt_long_rounded,
+            label: '${week.length} چک این هفته',
+            color: kAmber,
+            onTap: () => openChecksPage(context)),
+      if (smsPending > 0)
+        TodayChip(
+            id: 'sms',
+            icon: Icons.sms_rounded,
+            label: '$smsPending پیامک بانک',
+            color: AppTheme.negative,
+            onTap: () => openBankSmsPage(context)),
+      if (hit > 0)
+        TodayChip(
+            id: 'alerts',
+            icon: Icons.notifications_active_rounded,
+            label: '$hit هشدار قیمت',
+            color: const Color(0xFF5AC8FA),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const PriceAlertsPage()))),
+    ];
+
+    // Rates strip: dollar, tether, 18k gold, coin, ounce (whatever is live).
+    const order = ['usd', 'usdt', 'gold', 'coin', 'ounce', 'xau', 'gold_ounce'];
+    final byId = {for (final q in state.commodityIndex) q.id: q};
+    final rates = [
+      for (final id in order)
+        if (byId[id]?.price != null && byId[id]!.price! > 0) byId[id]!,
+    ];
+
+    // Holdings split by class (same kind rule as the valuation).
+    AssetKind kindOf(Asset a) => TradeService.isGoldAsset(a.name, a.symbol, a.notes)
+        ? AssetKind.gold
+        : detectAssetKind(name: a.name, symbol: a.symbol, notes: a.notes);
+    final gold = <({Asset asset, HoldingMetrics metrics})>[];
+    final fx = <({Asset asset, HoldingMetrics metrics})>[];
+    final other = <({Asset asset, HoldingMetrics metrics})>[];
+    for (final h in snap.holdings) {
+      switch (kindOf(h.asset)) {
+        case AssetKind.gold:
+          gold.add(h);
+        case AssetKind.cash:
+        case AssetKind.crypto:
+          fx.add(h);
+        default:
+          other.add(h);
+      }
+    }
+    double sumV(List<({Asset asset, HoldingMetrics metrics})> l) =>
+        l.fold(0.0, (s, h) => s + h.metrics.marketValue);
+    double? pctOf(List<({Asset asset, HoldingMetrics metrics})> l) {
+      final cost = l.fold(0.0, (s, h) => s + h.metrics.costBasis);
+      if (cost <= 0) return null;
+      return (sumV(l) - cost) / cost * 100;
+    }
+
+    Widget rows(List<({Asset asset, HoldingMetrics metrics})> l) => Column(
+          children: [
+            for (final h in [...l]..sort((a, b) => b.metrics.marketValue.compareTo(a.metrics.marketValue)))
+              CompactHoldingRow(
+                name: h.asset.name,
+                value: h.metrics.marketValue,
+                pct: h.metrics.unrealizedPnlPct,
+                onTap: () => _openTradesTab(context),
+              ),
+          ],
+        );
+
+    Widget section({
+      required String id,
+      required IconData icon,
+      required Color color,
+      required String title,
+      required String line,
+      String? value,
+      Color valueColor = AppTheme.muted,
+      required Widget child,
+    }) =>
+        CollapsibleSection(
+          id: id,
+          icon: icon,
+          color: color,
+          title: title,
+          line: line,
+          value: value,
+          valueColor: valueColor,
+          open: _open.contains(id),
+          onToggle: () => _toggle(id),
+          child: child,
+        );
+
+    final nav = snap.marketValue;
+    final goldV = sumV(gold);
+    final goldPct = pctOf(gold);
+    final fxPct = pctOf(fx);
+    final otherPct = pctOf(other);
+    final pendingCheques = state.checks.where((c) => c.status == checkStatusPending && !c.isArchived).length;
+
+    return [
+      CompactSummaryCard(
+        nav: nav,
+        trend30: trend,
+        today: dayTrend,
+        month: monthTrend,
+        onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const CapitalChartPage())),
+      ),
+      TodayStrip(chips: chips),
+      RatesStrip(quotes: rates),
+      if (pwo != null) PwoProgressCard(summary: pwo, monthLabel: pwoMonthLabel(pwo.month), onTap: openPwo),
+      if (alerts.isNotEmpty)
+        section(
+          id: 'alerts',
+          icon: Icons.notifications_active_rounded,
+          color: kAmber,
+          title: 'نیازمند توجه',
+          line: fa('${alerts.length} مورد · ${alerts.first.title}'),
+          child: DashAlertsList(alerts: alerts, onOpen: openAlert),
+        ),
+      if (gold.isNotEmpty)
+        section(
+          id: 'gold',
+          icon: Icons.diamond_rounded,
+          color: kGold,
+          title: 'طلا و سکه · پوشش تورم',
+          line: fa('${gold.length} دارایی · ${fa(formatCompactToman(goldV))}'
+              '${snap.goldHoldingG > 0 ? ' · ${formatGrams(snap.goldHoldingG)} ۱۸ عیار' : ''}'
+              '${nav > 0 ? ' · ${(goldV / nav * 100).round()}٪ سبد' : ''}'),
+          value: goldPct == null ? null : signedPct(goldPct),
+          valueColor: goldPct == null ? AppTheme.muted : toneOf(goldPct),
+          child: rows(gold),
+        ),
+      if (fx.isNotEmpty)
+        section(
+          id: 'fx',
+          icon: Icons.attach_money_rounded,
+          color: const Color(0xFF5AC8FA),
+          title: 'ارز',
+          line: fa('${fx.length} دارایی · ${formatCompactToman(sumV(fx))}'),
+          value: fxPct == null ? null : signedPct(fxPct),
+          valueColor: fxPct == null ? AppTheme.muted : toneOf(fxPct),
+          child: rows(fx),
+        ),
+      if (other.isNotEmpty)
+        section(
+          id: 'other',
+          icon: Icons.category_rounded,
+          color: AppTheme.muted,
+          title: 'سایر دارایی‌ها',
+          line: fa('${other.length} دارایی · ${formatCompactToman(sumV(other))}'),
+          value: otherPct == null ? null : signedPct(otherPct),
+          valueColor: otherPct == null ? AppTheme.muted : toneOf(otherPct),
+          child: rows(other),
+        ),
+      section(
+        id: 'cheques',
+        icon: Icons.receipt_long_rounded,
+        color: kAmber,
+        title: 'چک‌ها',
+        line: upcoming.isEmpty
+            ? fa('$pendingCheques چک باز')
+            : fa('$pendingCheques چک باز · نزدیک‌ترین ${upcoming.first.daysLeft < 0 ? 'سررسید گذشته' : '${upcoming.first.daysLeft} روز دیگر'}'),
+        value: snap.chequeNav.affectsNav ? signedToman(snap.chequeNav.net) : null,
+        valueColor: toneOf(snap.chequeNav.net),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const ChecksDashboardCard(digits: fa),
+          if (upcoming.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            DashUpcomingCheques(items: upcoming, calendar: state.settings.calendar, onTap: () => openChecksPage(context)),
+          ],
+        ]),
+      ),
+      section(
+        id: 'pwo',
+        icon: Icons.account_balance_wallet_rounded,
+        color: AppTheme.positive,
+        title: 'برداشت و PWO',
+        line: pwo == null ? 'سهمیه سالانه برداشت' : '${pwoMonthLabel(pwo.month)} · جدول و سهمیه',
+        child: DashPwoCard(
+          summary: pwo,
+          withdrawable: state.withdrawableAmount,
+          capBaseLabel: 'سهمیه سالانه',
+          onOpenPwo: openPwo,
+          onOpenWithdrawals: () => openHomeTab(context, HomeTabs.withdrawals),
+        ),
+      ),
+      if (projects != null)
+        section(
+          id: 'projects',
+          icon: Icons.engineering_rounded,
+          color: const Color(0xFFB38CFF),
+          title: 'پروژه‌ها',
+          line: fa('${projects.activeCount} فعال · ${projects.finishedCount} تمام‌شده'),
+          value: signedToman(projects.sheetProfit),
+          valueColor: toneOf(projects.sheetProfit),
+          child: const ProjectsDashboardCard(digits: fa),
+        ),
+      section(
+        id: 'biz',
+        icon: Icons.home_work_rounded,
+        color: AppTheme.muted,
+        title: 'ملک و دفتر',
+        line: 'خلاصهٔ معاملات و دفتر امسال',
+        child: const BizDashboardCard(digits: fa),
+      ),
+      if (snap.holdings.isNotEmpty)
+        section(
+          id: 'mix',
+          icon: Icons.donut_large_rounded,
+          color: AppTheme.muted,
+          title: 'ترکیب',
+          line: fa('${snap.holdingCount} دارایی · ${snap.openLotCount} لات باز'),
+          child: DashAssetMix(valuation: snap.valuation!, onOpen: () => _openTradesTab(context)),
+        ),
+      LastUpdatedLine(at: state.lastSyncedAt),
+    ];
   }
 }
 

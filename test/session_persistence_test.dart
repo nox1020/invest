@@ -162,6 +162,7 @@ void main() {
   testWidgets('cold start offline with a stored session opens the dashboard',
       (tester) async {
     SharedPreferences.setMockInitialValues({
+      'dash_compact_v1': false,
       AppConfig.prefSessionCookie: 'vinor_session=cold',
       AppConfig.prefUserPhone: '09121112222',
     });
