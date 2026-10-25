@@ -176,22 +176,24 @@ void main() {
       expect(dashboardAlerts(checks: const [], today: today), isEmpty);
     });
 
-    test('PWO summary: latest month, people, met count and streak', () {
+    test('PWO summary: latest month, people, within count and over streak', () {
       final l = PwoLedger(target: 100, months: {
         pwoMonthKey(1405, 5): PwoMonth(year: 1405, month: 5, amounts: {'p0': 120}),
         pwoMonthKey(1405, 6): PwoMonth(year: 1405, month: 6, amounts: {'p0': 50, 'p1': 10}),
-        pwoMonthKey(1405, 7): PwoMonth(year: 1405, month: 7, amounts: {'p0': 60, 'p2': 20}),
+        pwoMonthKey(1405, 7): PwoMonth(year: 1405, month: 7, amounts: {'p0': 110, 'p2': 20}),
       });
       final s = PwoMonthSummary.of(l)!;
       expect(s.month.month, 7);
-      expect(s.total, 80);
-      expect(s.monthsMet, 1);
+      expect(s.total, 130);
+      // Target is a ceiling: only the 60 month is within it.
+      expect(s.monthsWithin, 1);
       expect(s.monthsWithData, 3);
-      expect(s.belowStreak, 2);
-      expect(s.people.map((p) => p.amount), [60, 0, 20]);
+      expect(s.overStreak, 1);
+      expect(s.within, isFalse);
+      expect(s.people.map((p) => p.amount), [110, 0, 20]);
       final a = dashboardAlerts(checks: const [], today: today, pwo: s, pwoMonthLabel: 'مهر');
-      expect(a.single.kind, DashAlertKind.pwoBelowTarget);
-      expect(a.single.title, 'برداشت مهر 20٪ زیر هدف');
+      expect(a.single.kind, DashAlertKind.pwoOverTarget);
+      expect(a.single.title, 'برداشت مهر 30٪ بالای هدف');
       expect(PwoMonthSummary.of(PwoLedger()), isNull);
     });
   });

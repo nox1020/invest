@@ -3,7 +3,7 @@ import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/services/pwo_ledger.dart';
 import 'package:invest/domain/utils/money.dart';
 
-enum DashAlertKind { chequeOverdue, chequeBounced, chequeDueSoon, pwoBelowTarget, unpriced, bizMismatch }
+enum DashAlertKind { chequeOverdue, chequeBounced, chequeDueSoon, pwoOverTarget, unpriced, bizMismatch }
 
 /// One line in «نیازمند توجه». Severity 2 = act now, 1 = check, 0 = info.
 class DashAlert {
@@ -49,9 +49,9 @@ class PwoMonthSummary {
     required this.target,
     required this.people,
     required this.monthsWithData,
-    required this.monthsMet,
+    required this.monthsWithin,
     required this.average,
-    required this.belowStreak,
+    required this.overStreak,
   });
 
   final PwoMonth month;
@@ -60,15 +60,16 @@ class PwoMonthSummary {
   /// Active people (plus anyone with an amount this month) and their totals.
   final List<({String name, double amount})> people;
   final int monthsWithData;
-  final int monthsMet;
+  /// Months at or below the target (the target is a ceiling).
+  final int monthsWithin;
   final double average;
 
-  /// Consecutive latest months below target (0 when the latest met it).
-  final int belowStreak;
+  /// Consecutive latest months above target (0 when the latest is within).
+  final int overStreak;
 
   double get total => month.total;
   double get ratio => target <= 0 ? 0 : total / target;
-  bool get met => target > 0 && total >= target;
+  bool get within => target <= 0 || total <= target;
 
   static PwoMonthSummary? of(PwoLedger ledger) {
     final months = [
@@ -84,7 +85,7 @@ class PwoMonthSummary {
     ];
     var streak = 0;
     for (final m in months.reversed) {
-      if (target > 0 && m.total < target) {
+      if (target > 0 && m.total > target) {
         streak++;
       } else {
         break;
@@ -97,9 +98,9 @@ class PwoMonthSummary {
         for (final id in ids) (name: ledger.personById(id)?.name ?? id, amount: last.of(id)),
       ],
       monthsWithData: months.length,
-      monthsMet: target <= 0 ? 0 : months.where((m) => m.total >= target).length,
+      monthsWithin: target <= 0 ? 0 : months.where((m) => m.total <= target).length,
       average: months.fold<double>(0, (a, m) => a + m.total) / months.length,
-      belowStreak: streak,
+      overStreak: streak,
     );
   }
 }
@@ -165,14 +166,14 @@ List<DashAlert> dashboardAlerts({
           : (c.counterparty.trim().isEmpty ? 'وصول را پیگیری کنید' : 'از ${c.counterparty.trim()}'),
     ));
   }
-  if (pwo != null && pwo.target > 0 && !pwo.met) {
-    final gap = ((1 - pwo.ratio) * 100).round();
+  if (pwo != null && pwo.target > 0 && !pwo.within) {
+    final gap = ((pwo.ratio - 1) * 100).round();
     out.add(DashAlert(
-      kind: DashAlertKind.pwoBelowTarget,
+      kind: DashAlertKind.pwoOverTarget,
       severity: 1,
-      title: 'برداشت $pwoMonthLabel $gap٪ زیر هدف'.replaceAll('  ', ' '),
+      title: 'برداشت $pwoMonthLabel $gap٪ بالای هدف'.replaceAll('  ', ' '),
       sub: '${formatCompactToman(pwo.total)} از ${formatCompactToman(pwo.target)}'
-          '${pwo.belowStreak > 1 ? ' · ${pwo.belowStreak} ماه پیاپی زیر هدف' : ''}',
+          '${pwo.overStreak > 1 ? ' · ${pwo.overStreak} ماه پیاپی بالای هدف' : ''}',
     ));
   }
   if (unpriced.isNotEmpty) {

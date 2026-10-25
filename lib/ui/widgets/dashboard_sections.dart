@@ -18,14 +18,14 @@ class DashAlertsList extends StatelessWidget {
         DashAlertKind.chequeOverdue => Icons.event_busy_rounded,
         DashAlertKind.chequeBounced => Icons.report_rounded,
         DashAlertKind.chequeDueSoon => Icons.event_rounded,
-        DashAlertKind.pwoBelowTarget => Icons.flag_rounded,
+        DashAlertKind.pwoOverTarget => Icons.flag_rounded,
         DashAlertKind.unpriced => Icons.price_change_rounded,
         DashAlertKind.bizMismatch => Icons.error_outline_rounded,
       };
 
   static Color _color(DashAlert a) => switch (a.severity) {
         2 => kAmber,
-        1 => a.kind == DashAlertKind.pwoBelowTarget ? AppTheme.negative : kAmber,
+        1 => a.kind == DashAlertKind.pwoOverTarget ? AppTheme.negative : kAmber,
         _ => AppTheme.muted,
       };
 
@@ -103,7 +103,7 @@ class DashPwoCard extends StatelessWidget {
     if (s == null) {
       return DashCard(child: Row(children: [Expanded(child: withdraw)]));
     }
-    final pctTone = s.target <= 0 ? AppTheme.muted : (s.met ? AppTheme.positive : AppTheme.negative);
+    final pctTone = s.target <= 0 ? AppTheme.muted : (s.within ? AppTheme.positive : AppTheme.negative);
     return DashCard(
       onTap: onOpenPwo,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -124,14 +124,16 @@ class DashPwoCard extends StatelessWidget {
               child: Text('از ${fa(formatCompactToman(s.target))}', style: mutedStyle(12)),
             ),
             const Spacer(),
-            TrendArrow(s.met ? 1 : -1),
+            Icon(Icons.check_circle_rounded,
+                key: const ValueKey('dash-pwo-check'), size: 16, color: pctTone),
+            const SizedBox(width: 3),
             Text(fa('${(s.ratio * 100).round()}٪'),
                 style: TextStyle(color: pctTone, fontSize: 15, fontWeight: FontWeight.w800)),
           ],
         ]),
         if (s.target > 0) ...[
           const SizedBox(height: 8),
-          DashBar(s.ratio, color: s.met ? AppTheme.positive : kAmber, height: 10),
+          DashBar(s.ratio, color: s.within ? AppTheme.positive : AppTheme.negative, height: 10),
         ],
         const SizedBox(height: 10),
         for (final p in s.people)
@@ -166,8 +168,8 @@ class DashPwoCard extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: DashTile(
-              label: 'ماه‌های رسیده به هدف',
-              value: fa('${s.monthsMet} از ${s.monthsWithData}'),
+              label: 'ماه‌های در محدودهٔ هدف',
+              value: fa('${s.monthsWithin} از ${s.monthsWithData}'),
               valueKey: const ValueKey('dash-pwo-met'),
               sub: 'میانگین ${fa(formatCompactToman(s.average))}',
             ),

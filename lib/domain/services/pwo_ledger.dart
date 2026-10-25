@@ -92,7 +92,9 @@ class PwoMonth {
   /// Person's monthly amount = base + single withdrawals.
   double of(String id) => baseOf(id) + txOf(id);
   Set<String> get personIds => {...amounts.keys, ...txs.map((t) => t.personId)};
-  bool meets(double target) => total >= target;
+  /// The monthly target is a ceiling: at or below it is within target
+  /// (green), above it is over target (red). No target → always within.
+  bool withinTarget(double target) => target <= 0 || total <= target;
 
   Map<String, dynamic> toJson() =>
       {
@@ -251,8 +253,8 @@ class PwoLedger {
   double personTotal(int year, String id) =>
       monthsOf(year).fold(0.0, (a, b) => a + b.of(id));
 
-  int monthsMeeting(int year) =>
-      monthsOf(year).where((m) => m.meets(target)).length;
+  int monthsWithinTarget(int year) =>
+      monthsOf(year).where((m) => m.withinTarget(target)).length;
 
   PwoMonth? previousOf(PwoMonth m) {
     final py = m.month == 1 ? m.year - 1 : m.year;

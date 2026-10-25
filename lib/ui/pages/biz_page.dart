@@ -1226,13 +1226,13 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
                           'pwo',
                           'PWO ماه ${pwoMonths.last.month} از هدف ${_m(pwoT)}',
                           _m(pwoMonths.last.pwo),
-                          color: pwoMonths.last.pwo >= pwoT
+                          color: pwoMonths.last.pwo <= pwoT
                               ? AppTheme.positive
                               : AppTheme.negative),
                       stat(
                           'pwo-hit',
-                          'ماه‌های رسیده به هدف PWO',
-                          '${pwoMonths.where((m) => m.pwo >= pwoT).length} از ${pwoMonths.length}'),
+                          'ماه‌های در محدودهٔ هدف PWO',
+                          '${pwoMonths.where((m) => m.pwo <= pwoT).length} از ${pwoMonths.length}'),
                     ],
                     if (mism > 0)
                       stat('mismatch', 'ماه با مغایرت درآمد', '$mism',

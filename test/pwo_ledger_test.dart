@@ -18,7 +18,8 @@ void main() {
     expect([for (final p in l.people) l.personTotal(1405, p.id)],
         [1239630000, 412000000, 135000000]);
     expect(l.yearTotal(1405), 1786630000);
-    expect(l.monthsMeeting(1405), 6);
+    // Every seeded month is above the 100M ceiling.
+    expect(l.monthsWithinTarget(1405), 0);
   });
 
   test('seed is idempotent and never overwrites user edits', () {
@@ -107,7 +108,7 @@ void main() {
     testWidgets('page renders seeded data', (tester) async {
       await boot(tester);
       expect(find.byKey(const ValueKey('pwo-chart')), findsOneWidget);
-      expect(find.text('رسیده به هدف: 6 از 6 ماه'), findsOneWidget);
+      expect(find.text('در محدودهٔ هدف: 0 از 6 ماه'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -126,6 +127,12 @@ void main() {
           final prev = l.previousOf(m);
           final f = find.byKey(ValueKey('pwo-amount-${m.year}-${m.month}'));
           if (f.evaluate().isEmpty) continue;
+          // Target indicator: same check icon; green within, red above.
+          final icon = tester.widget<Icon>(
+              find.byKey(ValueKey('pwo-check-${m.year}-${m.month}')));
+          expect(icon.icon, Icons.check_circle_rounded);
+          expect(icon.color,
+              m.total <= l.target ? AppTheme.positive : AppTheme.negative);
           // The amount itself is a withdrawal: always red.
           expect(tester.widget<Text>(f).style!.color, AppTheme.negative);
           final d = find.byKey(ValueKey('pwo-delta-${m.year}-${m.month}'));
@@ -232,5 +239,19 @@ void main() {
     expect(pwoTrendColor(120, 100), AppTheme.negative);
     expect(pwoTrendColor(100, 100), isNull);
     expect(pwoTrendColor(100, null), isNull);
+  });
+
+  test('target is a ceiling: below/equal within (green), above over', () {
+    final below = PwoMonth(year: 1405, month: 1, amounts: {'p0': 90});
+    final equal = PwoMonth(year: 1405, month: 2, amounts: {'p0': 100});
+    final above = PwoMonth(year: 1405, month: 3, amounts: {'p0': 101});
+    expect(below.withinTarget(100), isTrue);
+    expect(equal.withinTarget(100), isTrue);
+    expect(above.withinTarget(100), isFalse);
+    expect(above.withinTarget(0), isTrue); // no target set
+    final l = PwoLedger(target: 100, months: {
+      for (final m in [below, equal, above]) m.key: m,
+    });
+    expect(l.monthsWithinTarget(1405), 2);
   });
 }

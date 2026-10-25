@@ -24,7 +24,8 @@ void main() {
     expect(m.of('p0'), 100000001);
     expect(m.baseOf('p0'), 50e6);
     expect(m.total, 100000006);
-    expect(m.meets(1e8), isTrue);
+    expect(m.withinTarget(1e8), isFalse); // 100,000,006 > target
+    expect(m.withinTarget(100000006), isTrue); // equal = within
     final l = PwoLedger(months: {m.key: m});
     final d = PwoLedger.decode(l.encode());
     expect(d.months[m.key]!.total, 100000006);

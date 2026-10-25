@@ -173,7 +173,7 @@ class _DashboardBodyState extends State<_DashboardBody>
         case DashAlertKind.chequeBounced:
         case DashAlertKind.chequeDueSoon:
           openChecksPage(context);
-        case DashAlertKind.pwoBelowTarget:
+        case DashAlertKind.pwoOverTarget:
           openPwo();
         case DashAlertKind.unpriced:
           _openTradesTab(context);

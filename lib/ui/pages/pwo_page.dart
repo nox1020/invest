@@ -153,7 +153,7 @@ class _PwoPageState extends State<PwoPage> {
                   year: year,
                   total: l.yearTotal(year),
                   target: l.target,
-                  met: l.monthsMeeting(year),
+                  met: l.monthsWithinTarget(year),
                   count: months.length,
                 ),
                 const SizedBox(height: 12),
@@ -320,7 +320,9 @@ class _SummaryCard extends StatelessWidget {
                   fontWeight: FontWeight.w800, color: pwoWithdrawalColor)),
           const SizedBox(height: 8),
           Text('هدف ماهانه: ${_mil(target)} · میانگین: ${_mil(avg)}'),
-          Text('رسیده به هدف: $met از $count ماه',
+          // Target is a ceiling: «در محدودهٔ هدف» = months at/below it.
+          Text('در محدودهٔ هدف: $met از $count ماه',
+              key: const ValueKey('pwo-within-count'),
               style: TextStyle(color: met == count ? _good : _bad)),
         ],
       ),
@@ -385,7 +387,7 @@ class _MonthTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ok = month.meets(target);
+    final ok = month.withinTarget(target);
     final c = ok ? _good : _bad;
     String? delta;
     // Month-over-month: withdrawing LESS than last month is good (green),
@@ -414,8 +416,11 @@ class _MonthTile extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(ok ? Icons.check_circle_rounded : Icons.cancel_rounded,
-                      color: c, size: 20),
+                  // Same check icon either way; colour says within/over.
+                  Icon(Icons.check_circle_rounded,
+                      key: ValueKey('pwo-check-${month.year}-${month.month}'),
+                      color: c,
+                      size: 20),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -474,7 +479,7 @@ class _PwoChartPainter extends CustomPainter {
         topRight: const Radius.circular(5),
       );
       canvas.drawRRect(
-          r, Paint()..color = (m.meets(target) ? _good : _bad).withValues(alpha: 0.85));
+          r, Paint()..color = (m.withinTarget(target) ? _good : _bad).withValues(alpha: 0.85));
       final tp = TextPainter(
         text: TextSpan(
             text: pwoChartLabel(m.month, slot),
@@ -959,7 +964,7 @@ class PwoEntryCard extends StatelessWidget {
           if (l.years.isNotEmpty) {
             final ms = l.monthsOf(l.years.first);
             final last = ms.last;
-            c = last.meets(l.target) ? _good : _bad;
+            c = last.withinTarget(l.target) ? _good : _bad;
             sub = '${pwoMonthNames[last.month - 1]} ${last.year}: '
                 '${_mil(last.total)} · هدف ${_mil(l.target)}';
           }
@@ -968,7 +973,8 @@ class PwoEntryCard extends StatelessWidget {
           margin: EdgeInsets.zero,
           child: ListTile(
             key: const ValueKey('pwo-entry'),
-            leading: Icon(Icons.stacked_bar_chart_rounded, color: c ?? _good),
+            leading: Icon(Icons.check_circle_rounded,
+                key: const ValueKey('pwo-entry-check'), color: c ?? _good),
             title: const Text('PWO · برداشت ماهانه',
                 style: TextStyle(fontWeight: FontWeight.w700)),
             subtitle: Text(sub,

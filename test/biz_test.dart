@@ -413,7 +413,7 @@ void main() {
     expect(tester.widget<Text>(find.byKey(const ValueKey('biz-dash-pwo'))).data,
         formatMoney(126700000));
     expect(tester.widget<Text>(find.byKey(const ValueKey('biz-dash-pwo-hit'))).data,
-        126700000 >= tgt ? '1 از 1' : '0 از 1');
+        126700000 <= tgt ? '1 از 1' : '0 از 1');
     expect(find.text(formatMoney(400000)), findsOneWidget);
     expect(tester.widget<Text>(find.byKey(const ValueKey('biz-dash-open'))).data, '1');
     expect(tester.widget<Text>(find.byKey(const ValueKey('biz-dash-mismatch'))).data, '1');
