@@ -185,7 +185,9 @@ class _BankSmsConfirmSheetState extends State<BankSmsConfirmSheet> {
             note: _note.text.trim(),
             createdAt: toIsoDate(it.at));
       }
-      await BankSmsStore.instance.markHandled(it.fp);
+      await BankSmsStore.instance.markHandled(it.fp,
+          status: 'saved',
+          target: _target == BankSmsTarget.personal ? 'personal' : 'system');
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)
           ?.showSnackBar(const SnackBar(content: Text('برداشت ثبت شد')));
@@ -362,6 +364,11 @@ class BankSmsCard extends StatelessWidget {
                   ),
                   Text(fa('${store.pending.length} مورد'),
                       style: mutedStyle(12)),
+                  TextButton(
+                    key: const ValueKey('bank-sms-open-page'),
+                    onPressed: () => openBankSmsPage(context),
+                    child: const Text('همه'),
+                  ),
                 ]),
                 const SizedBox(height: 6),
                 for (final it in store.pending.take(5))
@@ -620,6 +627,11 @@ class _BankSmsSettingsSheetState extends State<BankSmsSettingsSheet>
                   style: const TextStyle(fontSize: 10, color: AppTheme.muted),
                 ),
                 Wrap(spacing: 8, children: [
+                  FilledButton.tonal(
+                    key: const ValueKey('bank-sms-page-btn'),
+                    onPressed: () => openBankSmsPage(context),
+                    child: const Text('صفحهٔ برداشت‌های بانکی'),
+                  ),
                   if (needGuide)
                     OutlinedButton(
                       key: const ValueKey('bank-sms-app-settings'),
@@ -666,5 +678,180 @@ class _CardPersonRow extends StatelessWidget {
         onPressed: () => BankSmsStore.instance.setCardPerson(card, null),
       ),
     ]);
+  }
+}
+
+void openBankSmsPage(BuildContext context) => Navigator.of(context)
+    .push(MaterialPageRoute<void>(builder: (_) => const BankSmsPage()));
+
+/// «برداشت‌های بانکی»: pending (ثبت/رد), history, rescan and reset.
+class BankSmsPage extends StatelessWidget {
+  const BankSmsPage({super.key});
+
+  Future<void> _rescan(BuildContext context) async {
+    final store = BankSmsStore.instance;
+    if (!store.enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('اول «ثبت خودکار برداشت از پیامک بانک» را روشن کنید.')));
+      return;
+    }
+    final n = await store.rescan();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            n > 0 ? fa('$n برداشت جدید پیدا شد') : 'برداشت جدیدی پیدا نشد')));
+  }
+
+  Future<void> _reset(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('ریست برداشت‌های بانکی؟'),
+          content: const Text(
+              'فهرست در انتظار، تاریخچه، سابقهٔ پیامک‌های بررسی‌شده، کارت ← برداشت‌کننده و زمان آخرین بررسی از همین گوشی پاک می‌شود تا پیامک‌ها دوباره بررسی شوند.\n\n'
+              'برداشت‌هایی که قبلاً ثبت کرده‌اید پاک نمی‌شوند و روی سرور می‌مانند. ممکن است همان پیامک‌ها دوباره پیشنهاد شوند؛ مراقب ثبت تکراری باشید.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: const Text('انصراف')),
+            FilledButton(
+              key: const ValueKey('bank-sms-reset-confirm'),
+              style: FilledButton.styleFrom(backgroundColor: AppTheme.negative),
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('ریست'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    await BankSmsStore.instance.reset();
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('ریست شد؛ برداشت‌های ثبت‌شده دست‌نخورده ماندند.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = BankSmsStore.instance..load();
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('برداشت‌های بانکی')),
+        body: ListenableBuilder(
+          listenable: store,
+          builder: (context, _) {
+            final saved = store.history.where((d) => d.saved).length;
+            return ListView(
+              key: const ValueKey('bank-sms-page'),
+              padding: EdgeInsets.fromLTRB(
+                  16, 12, 16, 24 + MediaQuery.viewPaddingOf(context).bottom),
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.sms_rounded,
+                      color:
+                          store.enabled ? AppTheme.positive : AppTheme.muted),
+                  title: Text(store.enabled
+                      ? 'خواندن خودکار پیامک: فعال'
+                      : 'خواندن خودکار پیامک: خاموش'),
+                  trailing: const Icon(Icons.chevron_left_rounded),
+                  onTap: () => showBankSmsSettings(context),
+                ),
+                OutlinedButton.icon(
+                  key: const ValueKey('bank-sms-rescan'),
+                  onPressed: () => _rescan(context),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('بررسی دوباره پیامک‌ها'),
+                ),
+                const SizedBox(height: 16),
+                Text(fa('در انتظار تأیید (${store.pending.length})'),
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                if (store.pending.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text('موردی در انتظار نیست.', style: mutedStyle(12)),
+                  ),
+                for (final it in store.pending)
+                  Card(
+                    key: ValueKey('bank-sms-pending-${it.fp}'),
+                    color: AppTheme.card,
+                    child: ListTile(
+                      title: Text('−${formatMoney(it.toman)}',
+                          style: const TextStyle(
+                              color: AppTheme.negative,
+                              fontWeight: FontWeight.w800)),
+                      subtitle: Text('${it.bank} · ${_when(it.at)}',
+                          style: mutedStyle(11)),
+                      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                        TextButton(
+                          key: ValueKey('bank-sms-reject-${it.fp}'),
+                          onPressed: () => store.markHandled(it.fp),
+                          child: const Text('رد'),
+                        ),
+                        FilledButton(
+                          key: ValueKey('bank-sms-save-${it.fp}'),
+                          style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.negative),
+                          onPressed: () => showBankSmsConfirm(context, it),
+                          child: const Text('ثبت'),
+                        ),
+                      ]),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                Text(fa('تاریخچه (${store.history.length} · $saved ثبت‌شده)'),
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                if (store.history.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text('هنوز پیامکی ثبت یا رد نشده.',
+                        style: mutedStyle(12)),
+                  ),
+                for (final d in store.history)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('−${formatMoney(d.toman)}',
+                        style: TextStyle(
+                            color: AppTheme.negative,
+                            fontWeight: FontWeight.w700,
+                            decoration:
+                                d.saved ? null : TextDecoration.lineThrough)),
+                    subtitle: Text('${d.bank} · ${_when(d.at)}',
+                        style: mutedStyle(11)),
+                    trailing: Text(
+                      d.saved
+                          ? 'ثبت‌شده · ${d.target == 'system' ? 'سیستم' : 'شخصی'}'
+                          : 'رد شده',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: d.saved ? AppTheme.positive : AppTheme.muted),
+                    ),
+                  ),
+                const SizedBox(height: 24),
+                OutlinedButton.icon(
+                  key: const ValueKey('bank-sms-reset'),
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.negative,
+                      side: const BorderSide(color: AppTheme.negative)),
+                  onPressed: () => _reset(context),
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  label: const Text('ریست'),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                    'ریست فقط اطلاعات پیامک روی همین گوشی را پاک می‌کند؛ برداشت‌های ثبت‌شده حذف نمی‌شوند.',
+                    style: mutedStyle(11)),
+              ],
+            );
+          },
+        ),
+      ),
+    );
   }
 }

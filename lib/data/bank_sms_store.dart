@@ -69,6 +69,8 @@ class BankSmsStore extends ChangeNotifier {
   static const _kLastScan = 'bank_sms_last_scan_ms';
   static const _kHandled = 'bank_sms_handled_v1';
   static const _kPending = 'bank_sms_pending_v1';
+  static const _kHistory = 'bank_sms_history_v1';
+  static const _maxHistory = 300;
   static const _kWant = 'bank_sms_want_v1';
   static const _kCards = 'bank_sms_card_person_v1';
   static const _maxHandled = 600;
@@ -84,6 +86,9 @@ class BankSmsStore extends ChangeNotifier {
   /// from Android's app settings).
   bool wantEnabled = false;
   int lastScanMs = 0;
+
+  /// Decided SMS: date, bank, amount, status only (never the SMS text).
+  final List<BankSmsDecision> history = [];
   final List<String> _handled = [];
   final List<BankSmsItem> pending = [];
   BankSmsCaps caps = const BankSmsCaps();
@@ -209,6 +214,14 @@ class BankSmsStore extends ChangeNotifier {
         if (it != null) pending.add(it);
       } catch (_) {}
     }
+    history.clear();
+    for (final s
+        in safe(() => p.getStringList(_kHistory)) ?? const <String>[]) {
+      try {
+        final d = BankSmsDecision.fromJson(jsonDecode(s));
+        if (d != null) history.add(d);
+      } catch (_) {}
+    }
     _loaded = true;
     _bindChannel();
     notifyListeners();
@@ -236,6 +249,39 @@ class BankSmsStore extends ChangeNotifier {
     await p.setStringList(_kHandled, _handled);
     await p.setStringList(
         _kPending, [for (final it in pending) jsonEncode(it.toJson())]);
+    await p.setStringList(
+        _kHistory, [for (final d in history) jsonEncode(d.toJson())]);
+  }
+
+  /// «ریست»: clears only this phone's SMS state (pending, history,
+  /// fingerprints, card→person, last check) so SMS can be scanned again.
+  /// Withdrawals already recorded (server / PWO) are NOT touched.
+  Future<void> reset() async {
+    await load();
+    pending.clear();
+    history.clear();
+    _handled.clear();
+    cardPerson.clear();
+    lastScanMs = 0;
+    notifyListeners();
+    try {
+      await channel.invokeMethod('reset');
+    } catch (_) {}
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.remove(_kCards);
+      await _save();
+    } catch (e) {
+      _err('reset', e);
+    }
+  }
+
+  /// «بررسی دوباره پیامک‌ها»: scan the inbox now (last 30 days after reset).
+  Future<int> rescan() async {
+    await load();
+    final before = pending.length;
+    await syncOnOpen();
+    return pending.length - before;
   }
 
   /// Set by an explicit user tap in this run; loading never overrides it.
@@ -308,8 +354,25 @@ class BankSmsStore extends ChangeNotifier {
   /// parsed fields deleted; only the fingerprint is kept (also committed
   /// natively) so the same SMS is never offered again. The SMS itself stays
   /// in the phone's inbox — Android lets only the default SMS app delete it.
-  Future<void> markHandled(String fp, {bool fromNative = false}) async {
+  Future<void> markHandled(String fp,
+      {bool fromNative = false,
+      String status = 'rejected',
+      String? target}) async {
     await load();
+    for (final it in pending.where((x) => x.fp == fp)) {
+      history.insert(
+          0,
+          BankSmsDecision(
+              bank: it.bank,
+              toman: it.toman,
+              at: it.at,
+              status: status,
+              target: target,
+              decidedAt: DateTime.now()));
+    }
+    if (history.length > _maxHistory) {
+      history.removeRange(_maxHistory, history.length);
+    }
     pending.removeWhere((x) => x.fp == fp);
     _handled.remove(fp);
     _handled.add(fp);
@@ -440,7 +503,11 @@ class BankSmsStore extends ChangeNotifier {
       if (tapped != null && tapped.isNotEmpty) {
         popNow.addAll(await ingest(tapped));
       }
-      final since = lastScanMs;
+      final since = lastScanMs > 0
+          ? lastScanMs
+          : DateTime.now()
+              .subtract(const Duration(days: 30))
+              .millisecondsSinceEpoch;
       final now = DateTime.now().millisecondsSinceEpoch;
       final inbox =
           await channel.invokeMethod<List<Object?>>('inbox', {'since': since});
@@ -451,5 +518,53 @@ class BankSmsStore extends ChangeNotifier {
       // No permission / not Android: nothing to scan.
     }
     return popNow;
+  }
+}
+
+/// One decided bank SMS kept for the history list (no SMS text, no hash).
+class BankSmsDecision {
+  const BankSmsDecision({
+    required this.bank,
+    required this.toman,
+    required this.at,
+    required this.status,
+    this.target,
+    required this.decidedAt,
+  });
+  final String bank;
+  final double toman;
+  final DateTime at;
+
+  /// 'saved' | 'rejected'
+  final String status;
+
+  /// 'personal' | 'system' when saved.
+  final String? target;
+  final DateTime decidedAt;
+
+  bool get saved => status == 'saved';
+
+  Map<String, Object?> toJson() => {
+        'bank': bank,
+        'toman': toman,
+        'at': at.millisecondsSinceEpoch,
+        'st': status,
+        'tg': target,
+        'dt': decidedAt.millisecondsSinceEpoch,
+      };
+
+  static BankSmsDecision? fromJson(Object? o) {
+    if (o is! Map) return null;
+    final t = o['toman'], at = o['at'];
+    if (t is! num || at is! num) return null;
+    return BankSmsDecision(
+      bank: (o['bank'] as String?) ?? 'بانک',
+      toman: t.toDouble(),
+      at: DateTime.fromMillisecondsSinceEpoch(at.toInt()),
+      status: (o['st'] as String?) ?? 'rejected',
+      target: o['tg'] as String?,
+      decidedAt: DateTime.fromMillisecondsSinceEpoch(
+          (o['dt'] as num?)?.toInt() ?? at.toInt()),
+    );
   }
 }

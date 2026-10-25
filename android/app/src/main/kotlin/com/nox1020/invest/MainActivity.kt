@@ -60,6 +60,9 @@ class MainActivity : FlutterFragmentActivity() {
                     SmsReceiver.storeEnabled(this, call.argument<Boolean>("on") == true)
                     result.success(true)
                 }
+                "reset" -> {
+                    SmsReceiver.resetNative(this); result.success(null)
+                }
                 "takeRejected" -> result.success(SmsReceiver.takeRejected(this))
                 "cancel" -> {
                     val fp = call.argument<String>("fp")

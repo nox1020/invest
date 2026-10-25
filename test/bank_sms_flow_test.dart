@@ -433,4 +433,76 @@ void main() {
     expect(s.pending, isEmpty);
     expect(await s.ingest([sms('برداشت: 7,000,000')]), isEmpty);
   });
+
+  testWidgets(
+      'page: pending ثبت/رد, history, rescan, reset keeps recorded '
+      'withdrawals', (tester) async {
+    final s = BankSmsStore.instance;
+    await tester.runAsync(() async {
+      await PwoStore.instance.load();
+      await s.setEnabled(true);
+      await s.ingest([
+        sms('بانک ملت\nبرداشت: 1,500,000\nمانده: 9,000,000'),
+        sms('بانک سامان\nبرداشت: 2,200,000\nمانده: 8,000,000', addr: 'Saman'),
+      ]);
+    });
+    await tester.pumpWidget(const MaterialApp(home: BankSmsPage()));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('bank-sms-page')), findsOneWidget);
+    expect(find.textContaining('در انتظار تأیید'), findsOneWidget);
+    final first = s.pending.firstWhere((x) => x.toman == 150000);
+    final second = s.pending.firstWhere((x) => x.toman == 220000);
+    // رد → history (rejected), no SMS text kept.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(ValueKey('bank-sms-reject-${second.fp}')));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pump();
+    expect(s.pending, hasLength(1));
+    expect(s.history.single.status, 'rejected');
+    expect(find.text('رد شده'), findsOneWidget);
+    // ثبت → confirm sheet → saved in history.
+    await tester.tap(find.byKey(ValueKey('bank-sms-save-${first.fp}')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('sms-save')));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pumpAndSettle();
+    expect(s.pending, isEmpty);
+    expect(s.history.first.saved, isTrue);
+    expect(s.history.first.target, 'personal');
+    expect(find.text('ثبت‌شده · شخصی'), findsOneWidget);
+    final p = await tester.runAsync(SharedPreferences.getInstance);
+    final hist = p!.getStringList('bank_sms_history_v1')!.join();
+    expect(hist.contains('برداشت:'), isFalse);
+    final txBefore =
+        PwoStore.instance.ledger.months.values.expand((m) => m.txs).length;
+    expect(txBefore, 1);
+    // Reset (danger, with confirmation): local SMS state only.
+    await tester.ensureVisible(find.byKey(const ValueKey('bank-sms-reset')));
+    await tester.tap(find.byKey(const ValueKey('bank-sms-reset')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('روی سرور می‌مانند'), findsOneWidget);
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('bank-sms-reset-confirm')));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(s.history, isEmpty);
+    expect(s.pending, isEmpty);
+    expect(s.lastScanMs, 0);
+    expect(s.isHandled(first.fp), isFalse);
+    expect(calls, contains('reset'));
+    expect(PwoStore.instance.ledger.months.values.expand((m) => m.txs).length,
+        txBefore,
+        reason: 'recorded withdrawals untouched');
+    // Rescan offers SMS again.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('bank-sms-rescan')));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+    expect(s.pending, isNotEmpty);
+  });
 }

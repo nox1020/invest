@@ -87,6 +87,15 @@ class SmsReceiver : BroadcastReceiver() {
             p.edit().putStringSet("rejected", s).commit()
         }
 
+        /** «ریست»: forget handled fingerprints (the enabled flag is kept). */
+        fun resetNative(ctx: Context) {
+            ctx.getSharedPreferences(NATIVE, Context.MODE_PRIVATE).edit().remove("rejected").commit()
+            try {
+                val nm = ctx.getSystemService(NotificationManager::class.java)
+                if (Build.VERSION.SDK_INT >= 26) nm?.activeNotifications?.filter { it.notification.channelId == CHANNEL }?.forEach { nm.cancel(it.id) }
+            } catch (_: Throwable) {}
+        }
+
         fun cancel(ctx: Context, fp: String) = NotificationManagerCompat.from(ctx).cancel(fp.hashCode())
 
         private fun notify(ctx: Context, addr: String, body: String, date: Long) {
