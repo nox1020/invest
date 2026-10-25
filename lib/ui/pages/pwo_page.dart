@@ -7,7 +7,6 @@ import 'package:invest/ui/widgets/header_status.dart';
 import 'package:provider/provider.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 
-
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/domain/services/pwo_ledger.dart';
 import 'package:invest/domain/utils/money.dart';
@@ -52,7 +51,11 @@ Future<bool> _guard(BuildContext context, Future<void> Function() op) async {
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Invalid argument(s): ', '').replaceFirst('Bad state: ', ''))),
+        SnackBar(
+            content: Text(e
+                .toString()
+                .replaceFirst('Invalid argument(s): ', '')
+                .replaceFirst('Bad state: ', ''))),
       );
     }
     return false;
@@ -134,63 +137,69 @@ class _PwoPageState extends State<PwoPage> {
             return RefreshIndicator(
               onRefresh: () => _store.refresh(),
               child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-              children: [
-                if (years.length > 1)
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final y in years)
-                        ChoiceChip(
-                          label: Text('$y'),
-                          selected: y == year,
-                          onSelected: (_) => setState(() => _year = y),
-                        ),
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                children: [
+                  if (years.length > 1)
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final y in years)
+                          ChoiceChip(
+                            label: Text('$y'),
+                            selected: y == year,
+                            onSelected: (_) => setState(() => _year = y),
+                          ),
+                      ],
+                    ),
+                  _SummaryCard(
+                    year: year,
+                    total: l.yearTotal(year),
+                    target: l.target,
+                    met: l.monthsWithinTarget(year),
+                    count: months.length,
+                  ),
+                  const SizedBox(height: 12),
+                  _PersonsCard(
+                    names: [
+                      for (final p in l.peopleWithHistory)
+                        p.active ? p.name : '${p.name} (بایگانی)'
+                    ],
+                    totals: [
+                      for (final p in l.peopleWithHistory)
+                        l.personTotal(year, p.id)
                     ],
                   ),
-                _SummaryCard(
-                  year: year,
-                  total: l.yearTotal(year),
-                  target: l.target,
-                  met: l.monthsWithinTarget(year),
-                  count: months.length,
-                ),
-                const SizedBox(height: 12),
-                _PersonsCard(
-                  names: [for (final p in l.peopleWithHistory) p.active ? p.name : '${p.name} (بایگانی)'],
-                  totals: [for (final p in l.peopleWithHistory) l.personTotal(year, p.id)],
-                ),
-                const SizedBox(height: 12),
-                _Card(
-                  title: 'نمودار ماهانه',
-                  child: SizedBox(
-                    height: 200,
-                    child: months.isEmpty
-                        ? const Center(child: Text('هنوز ماهی ثبت نشده'))
-                        : CustomPaint(
-                            key: const ValueKey('pwo-chart'),
-                            painter: _PwoChartPainter(
-                              months: months,
-                              target: l.target,
-                              textColor:
-                                  Theme.of(context).colorScheme.onSurface,
+                  const SizedBox(height: 12),
+                  _Card(
+                    title: 'نمودار ماهانه',
+                    child: SizedBox(
+                      height: 200,
+                      child: months.isEmpty
+                          ? const Center(child: Text('هنوز ماهی ثبت نشده'))
+                          : CustomPaint(
+                              key: const ValueKey('pwo-chart'),
+                              painter: _PwoChartPainter(
+                                months: months,
+                                target: l.target,
+                                textColor:
+                                    Theme.of(context).colorScheme.onSurface,
+                              ),
+                              size: Size.infinite,
                             ),
-                            size: Size.infinite,
-                          ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                for (final m in months.reversed)
-                  _MonthTile(
-                    month: m,
-                    prev: l.previousOf(m),
-                    ledger: l,
-                    target: l.target,
-                    onTap: () => _edit(m),
-                  ),
-              ],
-            ),
+                  const SizedBox(height: 12),
+                  for (final m in months.reversed)
+                    _MonthTile(
+                      month: m,
+                      prev: l.previousOf(m),
+                      ledger: l,
+                      target: l.target,
+                      onTap: () => _edit(m),
+                    ),
+                ],
+              ),
             );
           },
         ),
@@ -250,8 +259,8 @@ class _PwoPageState extends State<PwoPage> {
     }
     if (!mounted) return;
     setState(() => _saving = true);
-    final ok = await _guard(
-        context, () => _store.saveMonth(res, replacing: existing));
+    final ok =
+        await _guard(context, () => _store.saveMonth(res, replacing: existing));
     if (!mounted) return;
     setState(() {
       _saving = false;
@@ -396,7 +405,11 @@ class _MonthTile extends StatelessWidget {
     if (prev != null) {
       final d = month.total - prev!.total;
       final pct = prev!.total > 0 ? d / prev!.total * 100 : null;
-      final arrow = d < 0 ? '▼ ' : d > 0 ? '▲ ' : '';
+      final arrow = d < 0
+          ? '▼ '
+          : d > 0
+              ? '▲ '
+              : '';
       delta = 'نسبت به ماه قبل: $arrow${formatCompactToman(d, showSign: true)}'
           '${pct == null ? '' : ' (${formatPct(pct)})'}';
     }
@@ -442,7 +455,8 @@ class _MonthTile extends StatelessWidget {
               if (delta != null)
                 Text(delta,
                     key: ValueKey('pwo-delta-${month.year}-${month.month}'),
-                    style: TextStyle(color: dc ?? AppTheme.muted, fontSize: 12)),
+                    style:
+                        TextStyle(color: dc ?? AppTheme.muted, fontSize: 12)),
             ],
           ),
         ),
@@ -479,7 +493,10 @@ class _PwoChartPainter extends CustomPainter {
         topRight: const Radius.circular(5),
       );
       canvas.drawRRect(
-          r, Paint()..color = (m.withinTarget(target) ? _good : _bad).withValues(alpha: 0.85));
+          r,
+          Paint()
+            ..color = (m.withinTarget(target) ? _good : _bad)
+                .withValues(alpha: 0.85));
       final tp = TextPainter(
         text: TextSpan(
             text: pwoChartLabel(m.month, slot),
@@ -493,7 +510,8 @@ class _PwoChartPainter extends CustomPainter {
       ..color = Colors.amber
       ..strokeWidth = 1.6;
     for (double x = 0; x < size.width; x += 10) {
-      canvas.drawLine(Offset(x, ty), Offset(math.min(x + 6, size.width), ty), dash);
+      canvas.drawLine(
+          Offset(x, ty), Offset(math.min(x + 6, size.width), ty), dash);
     }
     final lp = TextPainter(
       text: TextSpan(
@@ -564,7 +582,8 @@ class _MonthEditorState extends State<_MonthEditor> {
   late int _month = widget.existing?.month ?? _nextMonth();
   late final List<TextEditingController> _c = [
     for (final p in widget.people)
-      TextEditingController(text: _millionsText(widget.existing?.baseOf(p.id) ?? 0)),
+      TextEditingController(
+          text: _millionsText(widget.existing?.baseOf(p.id) ?? 0)),
   ];
   String? _error;
 
@@ -601,70 +620,67 @@ class _MonthEditorState extends State<_MonthEditor> {
         ],
       ),
       children: [
-            Text(widget.existing == null ? 'ثبت برداشت ماه' : 'ویرایش ماه',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    isExpanded: true,
-                    initialValue: _month,
-                    decoration: const InputDecoration(labelText: 'ماه'),
-                    items: [
-                      for (var m = 1; m <= 12; m++)
-                        DropdownMenuItem(
-                            value: m, child: Text(pwoMonthNames[m - 1])),
-                    ],
-                    onChanged: _locked
-                        ? null
-                        : (v) => setState(() => _month = v ?? _month),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    isExpanded: true,
-                    initialValue: _year,
-                    decoration: const InputDecoration(labelText: 'سال'),
-                    items: [
-                      for (final y in years)
-                        DropdownMenuItem(value: y, child: Text('$y')),
-                    ],
-                    onChanged: _locked
-                        ? null
-                        : (v) => setState(() => _year = v ?? _year),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            for (var i = 0; i < widget.people.length; i++) ...[
-              TextField(
-                key: ValueKey('pwo-amount-$i'),
-                controller: _c[i],
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.۰-۹٠-٩٫]'))
+        Text(widget.existing == null ? 'ثبت برداشت ماه' : 'ویرایش ماه',
+            style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<int>(
+                isExpanded: true,
+                initialValue: _month,
+                decoration: const InputDecoration(labelText: 'ماه'),
+                items: [
+                  for (var m = 1; m <= 12; m++)
+                    DropdownMenuItem(
+                        value: m, child: Text(pwoMonthNames[m - 1])),
                 ],
-                decoration: InputDecoration(
-                  labelText: 'برداشت ${widget.people[i].name} (میلیون تومان)',
-                  helperText: (widget.existing?.txOf(widget.people[i].id) ?? 0) > 0
-                      ? '+ برداشت‌های تکی: ${_mil(widget.existing!.txOf(widget.people[i].id))}'
-                      : null,
-                ),
+                onChanged: _locked
+                    ? null
+                    : (v) => setState(() => _month = v ?? _month),
               ),
-              const SizedBox(height: 8),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: DropdownButtonFormField<int>(
+                isExpanded: true,
+                initialValue: _year,
+                decoration: const InputDecoration(labelText: 'سال'),
+                items: [
+                  for (final y in years)
+                    DropdownMenuItem(value: y, child: Text('$y')),
+                ],
+                onChanged:
+                    _locked ? null : (v) => setState(() => _year = v ?? _year),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        for (var i = 0; i < widget.people.length; i++) ...[
+          TextField(
+            key: ValueKey('pwo-amount-$i'),
+            controller: _c[i],
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.۰-۹٠-٩٫]'))
             ],
-            if (_error != null)
-              Text(_error!, style: const TextStyle(color: _bad)),
-            if (widget.existing != null && widget.store != null)
-              _MonthTxSection(
-                store: widget.store!,
-                year: widget.existing!.year,
-                month: widget.existing!.month,
-              ),
+            decoration: InputDecoration(
+              labelText: 'برداشت ${widget.people[i].name} (میلیون تومان)',
+              helperText: (widget.existing?.txOf(widget.people[i].id) ?? 0) > 0
+                  ? '+ برداشت‌های تکی: ${_mil(widget.existing!.txOf(widget.people[i].id))}'
+                  : null,
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        if (_error != null) Text(_error!, style: const TextStyle(color: _bad)),
+        if (widget.existing != null && widget.store != null)
+          _MonthTxSection(
+            store: widget.store!,
+            year: widget.existing!.year,
+            month: widget.existing!.month,
+          ),
       ],
     );
   }
@@ -690,8 +706,7 @@ class _MonthEditorState extends State<_MonthEditor> {
         if (!widget.people.any((p) => p.id == k)) vals[k] = v;
       });
     }
-    Navigator.pop(
-        context, PwoMonth(year: _year, month: _month, amounts: vals));
+    Navigator.pop(context, PwoMonth(year: _year, month: _month, amounts: vals));
   }
 }
 
@@ -713,7 +728,9 @@ class _SheetFrame extends StatelessWidget {
           top: false,
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxHeight: (mq.size.height - mq.viewInsets.bottom - mq.padding.top) * 0.95,
+              maxHeight:
+                  (mq.size.height - mq.viewInsets.bottom - mq.padding.top) *
+                      0.95,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -794,8 +811,8 @@ class _PwoSettingsSheetState extends State<_PwoSettingsSheet> {
       return true;
     } catch (e) {
       if (mounted) {
-        setState(() => _err =
-            e.toString().replaceFirst('Invalid argument(s): ', ''));
+        setState(() =>
+            _err = e.toString().replaceFirst('Invalid argument(s): ', ''));
       }
       return false;
     } finally {
@@ -1069,6 +1086,33 @@ String pwoChartLabel(int month, double slot) {
 /// Largest accepted amount (toman), same cap as the server.
 const pwoMaxToman = 1e15;
 
+/// «ثبت برداشت شخصی» from the dashboard shortcut: a single PWO withdrawal
+/// for one person in the current Jalali month (same editor as the PWO page).
+Future<void> showPwoPersonalWithdrawal(BuildContext context,
+    {PwoStore? store}) async {
+  final st = store ?? PwoStore.instance;
+  await ensurePwoReady(context, st, refresh: false);
+  if (!context.mounted) return;
+  final people = st.ledger.activePeople;
+  if (people.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('اول در صفحهٔ PWO برداشت‌کننده‌ها را تعریف کنید.')));
+    return;
+  }
+  final now = Jalali.now();
+  final res = await showModalBottomSheet<_TxResult>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (_) => _TxEditor(
+        title: '${pwoMonthNames[now.month - 1]} ${now.year}', people: people),
+  );
+  if (res == null || !context.mounted) return;
+  await _guard(
+      context,
+      () => st.addTx(now.year, now.month, res.personId, res.toman,
+          note: res.note));
+}
 
 /// Single withdrawals of one month: list with edit/delete + «ثبت برداشت».
 class _MonthTxSection extends StatelessWidget {
@@ -1142,7 +1186,8 @@ class _MonthTxSection extends StatelessWidget {
                 dense: true,
                 title: Text.rich(TextSpan(children: [
                   TextSpan(
-                      text: '${l.personById(t.personId)?.name ?? t.personId}: '),
+                      text:
+                          '${l.personById(t.personId)?.name ?? t.personId}: '),
                   TextSpan(
                       text: _mil(t.amount),
                       style: const TextStyle(color: pwoWithdrawalColor)),
@@ -1160,21 +1205,24 @@ class _MonthTxSection extends StatelessWidget {
                     IconButton(
                       key: ValueKey('pwo-tx-del-${t.id}'),
                       tooltip: 'حذف',
-                      icon: const Icon(Icons.delete_outline_rounded, color: _bad),
+                      icon:
+                          const Icon(Icons.delete_outline_rounded, color: _bad),
                       onPressed: () async {
                         final ok = await showDialog<bool>(
                           context: context,
                           builder: (c) => Directionality(
                             textDirection: TextDirection.rtl,
                             child: AlertDialog(
-                              content: Text('این برداشت (${_mil(t.amount)}) حذف شود؟'),
+                              content: Text(
+                                  'این برداشت (${_mil(t.amount)}) حذف شود؟'),
                               actions: [
                                 TextButton(
                                     onPressed: () => Navigator.pop(c, false),
                                     child: const Text('انصراف')),
                                 FilledButton(
                                     key: const ValueKey('pwo-tx-del-confirm'),
-                                    style: FilledButton.styleFrom(backgroundColor: _bad),
+                                    style: FilledButton.styleFrom(
+                                        backgroundColor: _bad),
                                     onPressed: () => Navigator.pop(c, true),
                                     child: const Text('حذف')),
                               ],

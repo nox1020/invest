@@ -199,7 +199,7 @@ class _DashboardBodyState extends State<_DashboardBody>
           id: 'qa-withdraw',
           icon: Icons.payments_rounded,
           label: 'ثبت برداشت',
-          onTap: () => showRecordWithdrawalDialog(context)),
+          onTap: () => showWithdrawalChooser(context)),
       SpeedDialAction(
           id: 'qa-project',
           icon: Icons.engineering_rounded,
@@ -267,8 +267,8 @@ class _DashboardBodyState extends State<_DashboardBody>
                   usdIsLive: state.usdtIsLive,
                   pricesAsOf: state.pricesAsOf,
                   // Local workspace is live local data, not a stale cache.
-                  offline: !conn.isOnline &&
-                      conn != AppConnectionStatus.localOnly,
+                  offline:
+                      !conn.isOnline && conn != AppConnectionStatus.localOnly,
                   lastSyncedAt: syncAt,
                   projects: projects,
                   refreshing: state.refreshing,
@@ -929,4 +929,55 @@ class _EmptyDashboard extends StatelessWidget {
       ],
     );
   }
+}
+
+/// «ثبت برداشت» shortcut: choose personal (PWO, per person this month) or
+/// system (برداشت از سرمایه، against the annual allowance).
+Future<void> showWithdrawalChooser(BuildContext context) {
+  Widget option(BuildContext c, String key, IconData icon, String title,
+          String sub, VoidCallback go) =>
+      ListTile(
+        key: ValueKey(key),
+        leading: CircleAvatar(
+          backgroundColor: AppTheme.negative.withValues(alpha: 0.15),
+          child: Icon(icon, color: AppTheme.negative),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(sub, style: mutedStyle(12)),
+        onTap: () {
+          Navigator.of(c).pop();
+          go();
+        },
+      );
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    backgroundColor: AppTheme.card,
+    builder: (c) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: SafeArea(
+        child: Column(
+          key: const ValueKey('withdraw-chooser'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            option(
+                c,
+                'qa-withdraw-personal',
+                Icons.person_rounded,
+                'ثبت برداشت شخصی',
+                'PWO · برداشت یک نفر در این ماه',
+                () => showPwoPersonalWithdrawal(context)),
+            option(
+                c,
+                'qa-withdraw-system',
+                Icons.account_balance_rounded,
+                'ثبت برداشت سیستم',
+                'برداشت از سرمایه · سهمیهٔ سالانه',
+                () => showRecordWithdrawalDialog(context)),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    ),
+  );
 }

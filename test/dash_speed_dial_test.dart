@@ -7,6 +7,8 @@ import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
 import 'package:invest/ui/widgets/dash_speed_dial.dart';
 import 'package:provider/provider.dart';
+import 'package:invest/data/pwo_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _Obs extends NavigatorObserver {
   final pushed = <Route<dynamic>>[];
@@ -127,5 +129,68 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
     expect(obs.pushed.length, before + 1);
     expect(find.byKey(const ValueKey('qa-project')), findsNothing);
+  });
+
+  testWidgets('ثبت برداشت offers personal (PWO) and system withdrawal',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    PwoStore.instance.debugReset();
+    final state = AppState()
+      ..loading = false
+      ..authenticated = true
+      ..useRemote = false
+      ..settings = AppSettings(calendar: AppConfig.calendarJalali)
+      ..assets = [
+        Asset(
+            id: 1,
+            name: 'Gold',
+            symbol: 'GOLD',
+            quantity: 1,
+            avgBuyPrice: 1,
+            currentPrice: 2),
+      ];
+    tester.view.physicalSize = const Size(420, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: state,
+      child: _host(home: const Scaffold(body: DashboardPage())),
+    ));
+    Future<void> frames() async {
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+    }
+
+    Future<void> openChooser() async {
+      await frames();
+      await tester.tap(find.byKey(const ValueKey('fab-main')));
+      await frames();
+      await tester.tap(find.byKey(const ValueKey('qa-withdraw')));
+      await frames();
+    }
+
+    await openChooser();
+    expect(find.byKey(const ValueKey('withdraw-chooser')), findsOneWidget);
+    expect(find.text('ثبت برداشت شخصی'), findsOneWidget);
+    expect(find.text('ثبت برداشت سیستم'), findsOneWidget);
+
+    // System → the existing capital withdrawal dialog.
+    await tester.tap(find.byKey(const ValueKey('qa-withdraw-system')));
+    await frames();
+    expect(find.byKey(const ValueKey('withdraw-chooser')), findsNothing);
+    expect(find.text('ثبت برداشت'), findsWidgets);
+    await tester.binding.handlePopRoute();
+    await frames();
+
+    // Personal → the PWO single-withdrawal editor for this month.
+    await openChooser();
+    await tester.tap(find.byKey(const ValueKey('qa-withdraw-personal')));
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 200)));
+    await frames();
+    expect(find.byKey(const ValueKey('pwo-tx-person')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pwo-tx-save')), findsOneWidget);
   });
 }
