@@ -10,6 +10,8 @@ import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/biz_page.dart';
 import 'package:invest/ui/pages/capital_chart_page.dart';
 import 'package:invest/ui/pages/checks_page.dart';
+import 'package:invest/ui/pages/commodity_index_page.dart';
+import 'package:invest/ui/pages/quote_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/data/biz_store.dart';
 import 'package:invest/data/projects_store.dart';
@@ -228,7 +230,8 @@ class _DashboardBodyState extends State<_DashboardBody>
         case DashAlertKind.unpriced:
           _openTradesTab(context);
         case DashAlertKind.bizMismatch:
-          openBiz();
+          // The mismatch is in the office monthly table → «عملکرد».
+          openHomeTab(context, HomeTabs.performance);
       }
     }
 
@@ -523,6 +526,54 @@ extension _CompactDash on _DashboardBodyState {
               style: const TextStyle(color: AppTheme.muted, fontSize: 11, height: 1.4)),
         ),
       if (pwo != null) PwoProgressCard(summary: pwo, monthLabel: pwoMonthLabel(pwo.month), onTap: openPwo),
+      section(
+        id: 'index',
+        icon: Icons.candlestick_chart_rounded,
+        color: const Color(0xFF5AC8FA),
+        title: 'شاخص بازار',
+        line: fa('${state.commodityIndex.length} نرخ${state.wallexMarkets.isEmpty ? '' : ' · ${state.wallexMarkets.length} بازار کریپتو'} · تورم و نگاه اقتصاددان'),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          for (final q in state.commodityIndex.where((q) => q.price != null && q.price! > 0))
+            InkWell(
+              key: ValueKey('cd-index-${q.id}'),
+              onTap: () => openQuoteDetail(context, q),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+                child: Row(children: [
+                  Icon(q.icon, size: 16, color: AppTheme.muted),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(q.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: AppTheme.text, fontSize: 13, fontWeight: FontWeight.w600)),
+                  ),
+                  Flexible(
+                    child: Text(fa(q.formatPrice(compact: true)), maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: AppTheme.title, fontSize: 13, fontWeight: FontWeight.w700)),
+                  ),
+                  const SizedBox(width: 6),
+                  if (q.change24h != null && q.change24h != 0) TrendArrow(q.change24h!, size: 18),
+                  SizedBox(
+                    width: 52,
+                    child: Text(q.change24h == null ? '—' : fa(formatPct(q.change24h!.abs()).replaceAll('+', '')),
+                        textAlign: TextAlign.end,
+                        style: TextStyle(color: q.change24h == null ? AppTheme.muted : toneOf(q.change24h!), fontSize: 11.5, fontWeight: FontWeight.w700)),
+                  ),
+                ]),
+              ),
+            ),
+          const SizedBox(height: 6),
+          OutlinedButton.icon(
+            key: const ValueKey('cd-index-open'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.positive,
+              side: BorderSide(color: AppTheme.positive.withValues(alpha: 0.5)),
+            ),
+            onPressed: () => openCommodityIndexPage(context),
+            icon: const Icon(Icons.open_in_new_rounded, size: 18),
+            label: const Text('شاخص کامل · کریپتو، تورم ایران، نگاه اقتصاددان'),
+          ),
+        ]),
+      ),
       section(
         id: 'value',
         icon: Icons.account_balance_rounded,
@@ -1068,7 +1119,16 @@ class _EmptyDashboard extends StatelessWidget {
                   onPressed: () => openHomeTab(context, HomeTabs.trades),
                   child: const Text('رفتن به معاملات'),
                 ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 8),
+              // «شاخص» is no longer a tab: keep it reachable on an empty
+              // portfolio too.
+              TextButton.icon(
+                key: const ValueKey('empty-open-index'),
+                onPressed: () => openCommodityIndexPage(context),
+                icon: const Icon(Icons.candlestick_chart_rounded, size: 18),
+                label: const Text('شاخص بازار'),
+              ),
+              const SizedBox(height: 10),
               const ChecksDashboardCard(),
             ],
           ),

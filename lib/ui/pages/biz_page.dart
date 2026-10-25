@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/data/projects_store.dart';
 import 'package:invest/ui/pages/projects_page.dart' show ensureProjectsReady, importProjectsText;
 import 'package:invest/data/write_queue.dart';
@@ -74,23 +75,26 @@ Future<bool> _guard(BuildContext context, Future<void> Function() op) async {
   }
 }
 
-/// «سابقه خرید و فروش ملک» + «جدول ماهانه».
-class BizPage extends StatefulWidget {
-  const BizPage({super.key, this.store, this.initialTab = 0});
-  final BizStore? store;
-  final int initialTab;
-
-  @override
-  State<BizPage> createState() => _BizPageState();
+/// Loading / error / ready switch shared by the trades page and the
+/// monthly table in «عملکرد».
+Widget _bizBody(BuildContext context, BizStore store, Widget Function() ready) {
+  if (!store.loaded) {
+    // Never spin forever: details/retry are in the header status.
+    if (store.lastError != null && !store.syncing) {
+      return Center(
+        child: TextButton(
+            onPressed: () => ensureBizReady(context, store),
+            child: const Text('بارگیری نشد · تلاش دوباره')),
+      );
+    }
+    return const Center(child: CircularProgressIndicator());
+  }
+  return ready();
 }
 
-class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
-  late final BizStore _store = widget.store ?? BizStore.instance;
-  late final TabController _tabs =
-      TabController(length: 2, vsync: this, initialIndex: widget.initialTab)
-        ..addListener(() {
-          if (mounted) setState(() {});
-        });
+/// Keeps the PWO column of the monthly table in step with PWO edits.
+mixin _BizPwoSync<T extends StatefulWidget> on State<T> {
+  BizStore get bizStore;
   Object? _pwoLedger;
 
   @override
@@ -99,7 +103,7 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
     _pwoLedger = PwoStore.instance.ledger;
     PwoStore.instance.addListener(_onPwo);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ensureBizReady(context, _store);
+      if (mounted) ensureBizReady(context, bizStore);
     });
   }
 
@@ -109,16 +113,31 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
     final l = PwoStore.instance.ledger;
     if (!identical(l, _pwoLedger) && !PwoStore.instance.syncing) {
       _pwoLedger = l;
-      if (_store.isRemote) _store.refresh();
+      if (bizStore.isRemote) bizStore.refresh();
     }
   }
 
   @override
   void dispose() {
     PwoStore.instance.removeListener(_onPwo);
-    _tabs.dispose();
     super.dispose();
   }
+}
+
+/// «ملک و دفتر» — property buy/sell history. The office monthly table
+/// lives in the «عملکرد» tab ([BizMonthsPane]).
+class BizPage extends StatefulWidget {
+  const BizPage({super.key, this.store});
+  final BizStore? store;
+
+  @override
+  State<BizPage> createState() => _BizPageState();
+}
+
+class _BizPageState extends State<BizPage> with _BizPwoSync<BizPage> {
+  late final BizStore _store = widget.store ?? BizStore.instance;
+  @override
+  BizStore get bizStore => _store;
 
   @override
   Widget build(BuildContext context) {
@@ -129,6 +148,12 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
           title: HeaderStatusTitle(
               title: 'ملک و دفتر', source: StoreStatusSource.biz(_store)),
           actions: [
+            IconButton(
+              key: const ValueKey('biz-open-months'),
+              tooltip: 'جدول ماهانه (عملکرد)',
+              icon: const Icon(Icons.table_chart_outlined),
+              onPressed: () => openHomeTab(context, HomeTabs.performance, popToRoot: true),
+            ),
             ListenableBuilder(
               listenable: _store,
               builder: (context, _) => IconButton(
@@ -141,18 +166,11 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
               ),
             ),
           ],
-          bottom: TabBar(controller: _tabs, tabs: const [
-            Tab(text: 'معاملات ملک'),
-            Tab(text: 'جدول ماهانه'),
-          ]),
         ),
-        // Scaffold places the FAB above system insets / keyboard; only the
-        // trades tab has it, so it never covers the monthly table.
+        // Scaffold places the FAB above system insets / keyboard.
         floatingActionButton: ListenableBuilder(
           listenable: _store,
-          builder: (context, _) => _tabs.index == 0 &&
-                  _store.loaded &&
-                  !_store.readOnly
+          builder: (context, _) => _store.loaded && !_store.readOnly
               ? FloatingActionButton.extended(
                   key: const ValueKey('biz-add-trade'),
                   heroTag: 'biz-add-trade',
@@ -164,29 +182,64 @@ class _BizPageState extends State<BizPage> with SingleTickerProviderStateMixin {
         ),
         body: ListenableBuilder(
           listenable: _store,
-          builder: (context, _) {
-            if (!_store.loaded) {
-              // Never spin forever: a failed first load shows the error.
-              // Never spin forever: details/retry are in the header status.
-              if (_store.lastError != null && !_store.syncing) {
-                return Center(
-                  child: TextButton(
-                      onPressed: () => ensureBizReady(context, _store),
-                      child: const Text('بارگیری نشد · تلاش دوباره')),
-                );
-              }
-              return const Center(child: CircularProgressIndicator());
-            }
-            return Column(children: [
-              Expanded(
-                child: TabBarView(controller: _tabs, children: [
-                  _TradesTab(store: _store),
-                  _MonthsTab(store: _store),
-                ]),
-              ),
-            ]);
-          },
+          builder: (context, _) =>
+              _bizBody(context, _store, () => _TradesTab(store: _store)),
         ),
+      ),
+    );
+  }
+}
+
+/// «جدول ماهانه» of the office (income, staff, PWO, ads, net) — the body of
+/// the «عملکرد» tab. No Scaffold: the home shell provides the header.
+class BizMonthsPane extends StatefulWidget {
+  const BizMonthsPane({super.key, this.store});
+  final BizStore? store;
+
+  @override
+  State<BizMonthsPane> createState() => _BizMonthsPaneState();
+}
+
+class _BizMonthsPaneState extends State<BizMonthsPane> with _BizPwoSync<BizMonthsPane> {
+  late final BizStore _store = widget.store ?? BizStore.instance;
+  @override
+  BizStore get bizStore => _store;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _store,
+      builder: (context, _) => _bizBody(
+        context,
+        _store,
+        () => Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 4, 0),
+            child: Row(children: [
+              const Icon(Icons.table_chart_outlined, size: 18, color: AppTheme.positive),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Text('جدول ماهانه دفتر',
+                    style: TextStyle(color: AppTheme.title, fontWeight: FontWeight.w800, fontSize: 15)),
+              ),
+              TextButton.icon(
+                key: const ValueKey('perf-open-biz'),
+                style: TextButton.styleFrom(foregroundColor: AppTheme.positive),
+                onPressed: () => Navigator.of(context)
+                    .push(MaterialPageRoute<void>(builder: (_) => BizPage(store: widget.store))),
+                icon: const Icon(Icons.home_work_outlined, size: 18),
+                label: const Text('معاملات ملک'),
+              ),
+              IconButton(
+                key: const ValueKey('perf-export'),
+                tooltip: 'خروجی سالانه (Excel / PDF)',
+                icon: const Icon(Icons.ios_share_rounded),
+                onPressed: _store.snap.raw.isNotEmpty ? () => _exportAnnual(context, _store) : null,
+              ),
+            ]),
+          ),
+          Expanded(child: _MonthsTab(store: _store)),
+        ]),
       ),
     );
   }

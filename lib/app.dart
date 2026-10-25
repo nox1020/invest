@@ -8,7 +8,7 @@ import 'package:invest/ui/pages/dashboard_page.dart';
 import 'package:invest/ui/pages/app_lock_page.dart';
 import 'package:invest/ui/pages/login_page.dart';
 import 'package:invest/ui/pages/notifications_page.dart';
-import 'package:invest/ui/pages/commodity_index_page.dart';
+import 'package:invest/ui/pages/performance_page.dart';
 import 'package:invest/ui/pages/trades_hub_page.dart';
 import 'package:invest/ui/pages/withdrawals_page.dart';
 import 'package:invest/ui/pages/settings_page.dart';
@@ -69,19 +69,26 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     'داشبورد',
     'برداشت',
     'معاملات',
-    'شاخص',
+    'عملکرد',
     'تنظیمات',
   ];
+
+  void _goTab(int i) {
+    if (!mounted || i < 0 || i >= titles.length) return;
+    setState(() => index = i);
+  }
 
   @override
   void initState() {
     super.initState();
+    homeTabSwitcher = _goTab;
     WidgetsBinding.instance.addObserver(this);
     NotificationInboxStore.ensureHydrated();
   }
 
   @override
   void dispose() {
+    if (homeTabSwitcher == _goTab) homeTabSwitcher = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -132,13 +139,12 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       const DashboardPage(),
       const WithdrawalsPage(),
       const TradesHubPage(),
-      const CommodityIndexPage(),
+      const PerformancePage(),
       const SettingsPage(),
     ];
 
     final initialLoad = state.loading && state.metrics == null;
-    final updating =
-        state.refreshing || (index == HomeTabs.index && state.commodityIndexLoading);
+    final updating = state.refreshing;
 
     return Scaffold(
       appBar: AppBar(
@@ -147,10 +153,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         title: HeaderStatusTitle(
           title: titles[index],
           alwaysShow: true,
-          extraBusy: index == HomeTabs.index && state.commodityIndexLoading,
-          extraError: index == HomeTabs.index &&
-              (state.commodityIndexError != null ||
-                  state.iranInflationError != null),
         ),
         flexibleSpace: updating && !state.offline
             ? const Align(
@@ -179,10 +181,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           ? const Center(child: CircularProgressIndicator())
           : NotificationListener<OpenHomeTabNotification>(
               onNotification: (n) {
-                setState(() => index = n.index);
-                if (n.index == HomeTabs.index) {
-                  context.read<AppState>().refreshCommodityIndex(force: false);
-                }
+                _goTab(n.index);
                 return true;
               },
               child: Column(
@@ -202,12 +201,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: index,
-        onTap: (i) {
-          setState(() => index = i);
-          if (i == HomeTabs.index) {
-            context.read<AppState>().refreshCommodityIndex(force: false);
-          }
-        },
+        onTap: _goTab,
         type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(
@@ -223,8 +217,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             label: 'معاملات',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.insights_outlined),
-            label: 'شاخص',
+            icon: Icon(Icons.query_stats_rounded),
+            label: 'عملکرد',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),

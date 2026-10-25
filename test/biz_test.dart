@@ -186,7 +186,7 @@ void main() {
         () async => store.bindAccount(BizRemote(await _api(s)), '0912'));
     await tester.pumpWidget(MaterialApp(home: BizPage(store: store)));
     await tester.pumpAndSettle();
-    expect(find.text('معاملات ملک'), findsOneWidget);
+    expect(find.byKey(const ValueKey('biz-open-months')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('biz-add-trade')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('biz-f-buy-date')), '1405/02/01');
@@ -198,7 +198,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(s.trades.single['buy_amount'], 100000000);
     expect(store.snap.totalProfit, 50000000);
-    await tester.tap(find.text('جدول ماهانه'));
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: BizMonthsPane(store: store))));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('biz-total-net')), findsOneWidget);
     expect(find.text('برج 1 · فروردین'), findsOneWidget);
@@ -258,9 +258,11 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('انصراف'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('جدول ماهانه'));
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: BizMonthsPane(store: store))));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+    await tester.scrollUntilVisible(find.byKey(const ValueKey('biz-month-1')), 200,
+        scrollable: find.byType(Scrollable).last);
     await tester.tap(find.byKey(const ValueKey('biz-month-1')));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
@@ -323,7 +325,7 @@ void main() {
       expect(tester.widget<Text>(find.byKey(const ValueKey('biz-trade-count'))).data, '12');
 
       // monthly tab: no FAB, year navigation loads that year
-      await tester.tap(find.text('جدول ماهانه'));
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: BizMonthsPane(store: store))));
       await tester.pumpAndSettle();
       expect(fab, findsNothing);
       await tester.tap(find.byKey(const ValueKey('biz-year-prev')));
@@ -331,6 +333,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('سال 1404'), findsOneWidget);
       expect(store.snap.year, 1404);
+      await tester.scrollUntilVisible(find.text('برج 1 · فروردین'), 200,
+          scrollable: find.byType(Scrollable).last);
       expect(find.text('برج 1 · فروردین'), findsOneWidget);
       for (var k = 0; k < 6; k++) { await tester.drag(find.byType(RefreshIndicator).last, const Offset(0, -2000)); await tester.pump(); }
       await tester.pumpAndSettle();
@@ -358,7 +362,7 @@ void main() {
     expect(tradeProfitInMonth(store.snap.trades, 1405, 1), 1000000);
     expect(incomeMismatch(1000000, 1000000), isFalse);
     expect(incomeMismatch(1000500, 1000000), isFalse); // within 1,000
-    await tester.pumpWidget(MaterialApp(home: BizPage(store: store, initialTab: 1)));
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: BizMonthsPane(store: store))));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('biz-month-flag-1')), findsOneWidget);
     await tester.scrollUntilVisible(find.byKey(const ValueKey('biz-month-tp-2')), 200,

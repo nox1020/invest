@@ -10,6 +10,7 @@ import 'package:invest/ui/pages/economist_insights_pane.dart';
 import 'package:invest/ui/pages/iran_inflation_pane.dart';
 import 'package:invest/ui/pages/quote_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/header_status.dart';
 import 'package:invest/ui/widgets/index_quote_card.dart';
 import 'package:provider/provider.dart';
 
@@ -767,4 +768,31 @@ class _QuoteListPane extends StatelessWidget {
             ),
     );
   }
+}
+
+/// Full «شاخص» (market index, inflation, economist view) as its own page,
+/// opened from the dashboard's «شاخص بازار» section.
+void openCommodityIndexPage(BuildContext context) {
+  context.read<AppState>().refreshCommodityIndex(force: false);
+  Navigator.of(context).push(MaterialPageRoute<void>(
+    builder: (context) {
+      final state = context.watch<AppState>();
+      return Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          key: const ValueKey('index-page'),
+          appBar: AppBar(
+            title: HeaderStatusTitle(
+              title: 'شاخص',
+              alwaysShow: true,
+              extraBusy: state.commodityIndexLoading,
+              extraError: state.commodityIndexError != null ||
+                  state.iranInflationError != null,
+            ),
+          ),
+          body: SafeArea(top: false, child: const CommodityIndexPage()),
+        ),
+      );
+    },
+  ));
 }
