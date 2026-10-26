@@ -18,3 +18,10 @@ android/upload-keystore.jks
 android/app/vplus-ci.keystore
 android/app/*.keystore
 android/app/*.jks
+
+# Flutter local/build artifacts
+.dart_tool/
+build/
+.flutter-plugins-dependencies
+android/local.properties
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
