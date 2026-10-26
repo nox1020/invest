@@ -1365,8 +1365,15 @@ Future<Map<String, List<List<Object?>>>> _fullSheets(BuildContext context, BizSt
 Future<void> Function(Uint8List bytes, String name, String mime)? bizShareOverride;
 
 /// Annual Excel/PDF export of ملک و دفتر (also a dashboard quick action).
-Future<void> exportBizAnnual(BuildContext context, BizStore store) =>
-    _exportAnnual(context, store);
+Future<void> exportBizAnnual(BuildContext context, BizStore store) async {
+  // From Settings the office data may not be loaded yet.
+  if (!store.loaded) {
+    try {
+      await ensureBizReady(context, store);
+    } catch (_) {}
+  }
+  if (context.mounted) await _exportAnnual(context, store);
+}
 
 Future<void> _exportAnnual(BuildContext context, BizStore store) async {
   final year = store.snap.year;

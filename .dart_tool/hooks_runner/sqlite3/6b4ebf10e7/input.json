@@ -1,0 +1,21 @@
+{
+  "assets": {},
+  "config": {
+    "build_asset_types": [
+      "code_assets/code"
+    ],
+    "extensions": {
+      "code_assets": {
+        "link_mode_preference": "dynamic",
+        "target_architecture": "x64",
+        "target_os": "linux"
+      }
+    },
+    "linking_enabled": false
+  },
+  "out_dir_shared": "/workspace/invest/.dart_tool/hooks_runner/shared/sqlite3/build/",
+  "out_file": "/workspace/invest/.dart_tool/hooks_runner/sqlite3/6b4ebf10e7/output.json",
+  "package_name": "sqlite3",
+  "package_root": "/home/box/.pub-cache/hosted/pub.dev/sqlite3-3.7.1/",
+  "user_defines": {}
+}

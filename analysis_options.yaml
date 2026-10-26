@@ -1,4 +1,4 @@
-﻿# This file configures the analyzer to use the lint set provided by flutter_lints.
+# This file configures the analyzer to use the lint set provided by flutter_lints.
 
 include: package:flutter_lints/flutter.yaml
 
@@ -11,3 +11,7 @@ analyzer:
   errors:
     invalid_dependency: ignore
     deprecated_member_use: ignore
+  exclude:
+    - build/**
+    - android/**
+    - web/**

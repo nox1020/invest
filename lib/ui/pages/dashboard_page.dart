@@ -260,11 +260,6 @@ class _DashboardBodyState extends State<_DashboardBody>
           icon: Icons.engineering_rounded,
           label: 'پروژه‌ها',
           onTap: () => openProjectsPage(context)),
-      SpeedDialAction(
-          id: 'qa-export',
-          icon: Icons.ios_share_rounded,
-          label: 'خروجی سالانه',
-          onTap: () => exportBizAnnual(context, biz)),
     ];
     return DashSpeedDial(
       key: const ValueKey('dash-dial'),

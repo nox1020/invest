@@ -2,6 +2,8 @@ import 'package:invest/data/pwo_store.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:flutter/material.dart';
+import 'package:invest/data/biz_store.dart';
+import 'package:invest/ui/pages/biz_page.dart';
 import 'package:invest/data/bank_sms_store.dart';
 import 'package:invest/ui/widgets/bank_sms_ui.dart';
 import 'package:invest/ui/pages/permissions_page.dart';
@@ -153,6 +155,13 @@ class _SettingsPageState extends State<SettingsPage> {
           TgSettingsSection(
             title: 'پیامک بانک',
             children: [
+              TgSettingsTile(
+                key: const ValueKey('settings-export'),
+                icon: Icons.ios_share_rounded,
+                iconColor: const Color(0xFF5856D6),
+                title: 'خروجی سالانه جامع (Excel / PDF)',
+                onTap: () => exportBizAnnual(context, BizStore.instance),
+              ),
               TgSettingsTile(
                 key: const ValueKey('settings-permissions'),
                 icon: Icons.verified_user_rounded,

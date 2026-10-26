@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:invest/ui/pages/global_search_page.dart';
 import 'package:invest/ui/widgets/bank_sms_ui.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/notification_inbox_store.dart';
@@ -161,6 +162,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               )
             : null,
         actions: [
+          if (index == HomeTabs.dashboard)
+            IconButton(
+              key: const ValueKey('dash-search'),
+              tooltip: 'جستجو',
+              onPressed: () => openGlobalSearch(context),
+              icon: const Icon(Icons.search_rounded),
+            ),
           ValueListenableBuilder<int>(
             valueListenable: NotificationInboxStore.unreadCount,
             builder: (context, unread, _) {
