@@ -109,13 +109,24 @@ extension AppStateWithdrawals on AppState {
     if (amount <= 0) {
       throw ArgumentError('مبلغ برداشت باید بزرگ‌تر از صفر باشد.');
     }
+    if (useRemote && (!_serverWritable || !coreOutbox.isEmpty)) {
+      await _queueWithdrawal(amount: amount, note: note, createdAt: createdAt);
+      return;
+    }
     var saved = false;
     if (useRemote && !offline && remote != null) {
-      final created = await remote!.createWithdrawal(
+      final Withdrawal? created;
+      try {
+        created = await remote!.createWithdrawal(
         amount: amount,
         note: note,
         createdAt: createdAt,
       );
+      } catch (e) {
+        if (!isRetryableWriteError(e)) rethrow;
+        await _queueWithdrawal(amount: amount, note: note, createdAt: createdAt);
+        return;
+      }
       if (created != null) {
         withdrawals = [created, ...withdrawals];
         _withdrawalsFromRemote = true;
@@ -183,6 +194,16 @@ extension AppStateWithdrawals on AppState {
       status: item.status.trim().isEmpty ? 'completed' : item.status,
       createdAt: when,
     );
+    if (useRemote && (!_serverWritable || !coreOutbox.isEmpty || (item.id ?? 0) < 0)) {
+      await _queueable<void>(
+        kind: 'wd.update',
+        args: {'id': _mapId(item.id!), 'amount': amount, 'note': note.trim(), 'createdAt': when},
+        label: 'ویرایش برداشت ${formatMoney(amount)}',
+        direct: () async => throw InvestApiException('offline', errorCode: 'network_error'),
+        placeholder: () {},
+      );
+      return;
+    }
     var saved = false;
     if (_withdrawalsFromRemote && useRemote && !offline && remote != null) {
       final result = await remote!.updateWithdrawal(updated);
@@ -216,6 +237,22 @@ extension AppStateWithdrawals on AppState {
     _withdrawalsHydrated = true;
     await _persistWithdrawalCache();
     notifyListeners();
+  }
+
+  Future<void> _queueWithdrawal({required double amount, String note = '', String? createdAt}) async {
+    await _queueable<void>(
+      kind: 'wd.create',
+      args: {'tmp': newTempId(), 'amount': amount, 'note': note.trim(), 'createdAt': (createdAt ?? '').trim().isEmpty ? nowIso() : createdAt!.trim()},
+      label: 'برداشت ${formatMoney(amount)}',
+      direct: () async => throw InvestApiException('offline', errorCode: 'network_error'),
+      placeholder: () {},
+    );
+    _withdrawalsHydrated = true;
+    await emitLocalAlert(
+      kind: NotificationKind.withdrawals,
+      title: 'برداشت ثبت شد (در صف ارسال)',
+      body: formatMoney(amount),
+    );
   }
 
   void _replaceWithdrawal(Withdrawal updated) {

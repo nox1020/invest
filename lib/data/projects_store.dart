@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:invest/data/account_cache.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/projects_remote.dart';
+import 'package:invest/data/optimistic.dart';
 import 'package:invest/data/write_queue.dart';
 
 double _d(Object? v) => v is num ? v.toDouble() : double.tryParse('$v') ?? 0;
@@ -161,7 +162,9 @@ List<Map<String, dynamic>> parseProjectsSheet(String text) {
 /// Contracting projects. The server (`/projects`) is the source of truth; a
 /// per-account cache is shown offline and writes wait in the account queue.
 class ProjectsStore extends ChangeNotifier {
-  ProjectsStore._();
+  ProjectsStore._() {
+    queue.addListener(notifyListeners);
+  }
   static final ProjectsStore instance = ProjectsStore._();
 
   static String cacheKey(String account) => 'vplus_projects_cache_v1_$account';
@@ -179,7 +182,20 @@ class ProjectsStore extends ChangeNotifier {
 
   final WriteQueue queue = WriteQueue('projects');
 
-  ProjectsSnapshot get snap => _snap;
+  /// Server snapshot with queued (not yet sent) writes applied on top.
+  ProjectsSnapshot get snap {
+    if (queue.isEmpty || queue.account != _account) return _snap;
+    final memo = _view;
+    if (memo != null && memo.$1 == queue.revision && identical(memo.$2, _snap)) {
+      return memo.$3;
+    }
+    final v = ProjectsSnapshot(overlay(_snap.raw, queue.items, applyProjects));
+    _view = (queue.revision, _snap, v);
+    return v;
+  }
+
+  ProjectsSnapshot get serverSnap => _snap;
+  (int, ProjectsSnapshot, ProjectsSnapshot)? _view;
   bool get isRemote => _remote != null && _account != null;
   bool get readOnly => _account == null;
   String? get account => _account;
@@ -287,7 +303,8 @@ class ProjectsStore extends ChangeNotifier {
     notifyListeners();
     try {
       if (!queue.isEmpty && queue.account == acc) {
-        await queue.flush(acc, (w, key) => remote.run(w, idempotencyKey: key));
+        await queue.flush(acc, (w, key) => remote.run(w, idempotencyKey: key),
+            before: _snap.raw);
       }
       await _apply(acc, await remote.fetch());
     } catch (e) {
@@ -306,22 +323,25 @@ class ProjectsStore extends ChangeNotifier {
     final r = _remote, acc = _account;
     if (acc == null) throw const ProjectsReadOnlyException();
     if (queue.account != acc) await queue.bind(acc);
-    if (r != null && queue.isEmpty) {
+    final meta = createMeta(req);
+    if (r != null && queue.isEmpty && !syncOffline.value) {
       final key = newIdempotencyKey();
       try {
         await _apply(acc, await r.run(req, idempotencyKey: key));
         return;
       } catch (e) {
         if (!isRetryableWriteError(e) || _account != acc) rethrow;
-        await queue.add(acc, req, label, key: key);
+        await queue.add(acc, req, label,
+            key: key, tempId: meta.tempId, collection: meta.collection);
         lastError = e.toString();
         showingCache = loaded;
         notifyListeners();
         throw const WriteQueuedException();
       }
     }
-    final w = await queue.add(acc, req, label);
-    if (r != null) {
+    final w = await queue.add(acc, req, label,
+        tempId: meta.tempId, collection: meta.collection);
+    if (r != null && !syncOffline.value) {
       await refresh();
       final left = queue.items.where((x) => x.key == w.key).firstOrNull;
       if (left == null) return;

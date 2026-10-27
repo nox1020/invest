@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:invest/ui/widgets/pending_sync_mark.dart';
 import 'package:invest/data/bank_sms_store.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/full_export.dart';
@@ -397,7 +398,10 @@ class _TradeTile extends StatelessWidget {
   final PropertyTrade t;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PendingSyncMark(pending: t.raw['pending_sync'] == true, child: _inner(context));
+
+  Widget _inner(BuildContext context) {
     final p = t.profit;
     return Card(
       margin: EdgeInsets.zero,

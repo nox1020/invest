@@ -15,9 +15,9 @@ String readOnlyMessage(AppState state) {
   }
   return switch (state.connectionStatus) {
     AppConnectionStatus.serverDown =>
-      'سرور در دسترس نیست؛ فعلاً فقط مشاهده ممکن است.',
+      'سرور در دسترس نیست؛ تغییرها روی گوشی ذخیره و بعد از اتصال ارسال می‌شوند.',
     _ =>
-      'آفلاین هستید؛ فعلاً فقط مشاهده ممکن است. پس از اتصال دوباره امتحان کنید.',
+      'آفلاین هستید؛ تغییرها روی گوشی ذخیره و بعد از اتصال خودکار ارسال می‌شوند.',
   };
 }
 
@@ -45,11 +45,11 @@ class OfflineReadOnlyNotice extends StatelessWidget {
       AppConnectionStatus.localOnly =>
         'حالت محلی: داده‌ها فقط روی همین گوشی است و با سرور همگام نمی‌شود.',
       AppConnectionStatus.serverDown =>
-        'سرور پاسخ نمی‌دهد. داده‌های ذخیره‌شده فقط برای مشاهده است.$sync',
+        'سرور پاسخ نمی‌دهد. می‌توانید ثبت و ویرایش کنید؛ تغییرها در صف می‌مانند و بعد از اتصال ارسال می‌شوند.$sync',
       AppConnectionStatus.connecting =>
         'در حال اتصال به سرور… داده‌های ذخیره‌شده نمایش داده می‌شود.$sync',
       _ =>
-        'اینترنت در دسترس نیست. داده‌های ذخیره‌شده فقط برای مشاهده است و با برگشتن اتصال خودکار همگام می‌شود.$sync',
+        'اینترنت در دسترس نیست. می‌توانید ثبت و ویرایش کنید؛ با برگشتن اتصال همه‌چیز خودکار ارسال می‌شود.$sync',
     };
     final busy = state.refreshing;
     return Container(
@@ -129,11 +129,11 @@ PreferredSizeWidget _strip(
         const SizedBox(width: 6),
         Expanded(
           child: Text(
-            queuesWrites && st != AppConnectionStatus.localOnly
+            (queuesWrites || state.readOnlyOffline) &&
+                    st != AppConnectionStatus.localOnly &&
+                    st != AppConnectionStatus.reauth
                 ? '${st.label} · تغییرات در صف می‌ماند'
-                : state.readOnlyOffline && st != AppConnectionStatus.reauth
-                    ? '${st.label} · فقط مشاهده'
-                    : st.label,
+                : st.label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.right,

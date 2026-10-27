@@ -55,7 +55,9 @@ void main() {
           for (final p in [0, 3]) {
             final h =
                 HeaderStatus.of(conn: c, error: e, syncing: sy, pending: p);
-            expect(allowed, contains(h.text), reason: '$c $e $sy $p');
+            final base = h.text.split(' (').first;
+            expect(allowed, contains(base), reason: '$c $e $sy $p');
+            expect(h.text.contains('در صف'), p > 0, reason: '$c $e $sy $p');
           }
         }
       }

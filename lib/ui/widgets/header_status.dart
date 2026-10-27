@@ -92,9 +92,11 @@ class HeaderStatus {
     };
     // Queued writes add no text (one-word header); the line stays visible
     // on pushed pages and the sheet lists them.
-    if (pending <= 0 || base.tone != HeaderTone.ok) return base;
-    return HeaderStatus(
-        base.text, Icons.cloud_upload_outlined, HeaderTone.warn);
+    if (pending <= 0) return base;
+    // Pending count joins the one-line summary: «آفلاین (۳ در صف)».
+    final text = '${base.text} (${fa('$pending')} در صف)';
+    if (base.tone != HeaderTone.ok) return HeaderStatus(text, base.icon, base.tone);
+    return HeaderStatus(text, Icons.cloud_upload_outlined, HeaderTone.warn);
   }
 }
 
@@ -147,7 +149,7 @@ class HeaderStatusTitle extends StatelessWidget {
     final s = state;
     return ListenableBuilder(
       listenable: Listenable.merge(
-          [..._queues, if (source != null) source!.listenable]),
+          [..._queues, s.coreOutbox, if (source != null) source!.listenable]),
       builder: (context, _) {
         var conn = s.connectionStatus;
         if (conn == AppConnectionStatus.connected && extraBusy) {
@@ -224,9 +226,9 @@ String _detailFor(AppConnectionStatus c, bool error) => switch (c) {
       AppConnectionStatus.connecting =>
         'در حال تلاش برای اتصال به سرور. تا آن موقع داده‌های ذخیره‌شده نمایش داده می‌شود.',
       AppConnectionStatus.waitingNetwork =>
-        'گوشی به سرور نمی‌رسد (اینترنت یا فیلترشکن را بررسی کنید). داده‌های ذخیره‌شده فقط برای مشاهده است و با برگشتن اتصال خودکار همگام می‌شود.',
+        'گوشی به سرور نمی‌رسد (اینترنت را بررسی کنید؛ سرور فقط از داخل ایران در دسترس است، فیلترشکن را خاموش کنید). ثبت و ویرایش ممکن است؛ تغییرها در صف می‌مانند و با برگشتن اتصال خودکار ارسال می‌شوند.',
       AppConnectionStatus.serverDown =>
-        'سرور موقتاً پاسخ درست نمی‌دهد. داده‌های ذخیره‌شده فقط برای مشاهده است.',
+        'سرور موقتاً پاسخ درست نمی‌دهد. تغییرها روی گوشی در صف می‌مانند و خودکار دوباره ارسال می‌شوند.',
       AppConnectionStatus.localOnly =>
         'داده‌ها فقط روی همین گوشی است و با سرور همگام نمی‌شود.',
       _ when error =>
@@ -257,7 +259,7 @@ class _StatusSheet extends StatelessWidget {
     final s = context.watch<AppState>();
     return ListenableBuilder(
       listenable: Listenable.merge(
-          [..._queues, if (source != null) source!.listenable]),
+          [..._queues, s.coreOutbox, if (source != null) source!.listenable]),
       builder: (context, _) {
         final conn = s.connectionStatus;
         final error =
@@ -265,26 +267,31 @@ class _StatusSheet extends StatelessWidget {
         final st = HeaderStatus.of(
             conn: conn,
             error: error || s.checksAwaitingServer,
-            syncing: source?.syncing() ?? false);
-        final items = [
+            syncing: source?.syncing() ?? false,
+            pending: s.pendingWrites);
+        final items = <_Pending>[
+          for (final o in s.coreOutbox.ops)
+            _Pending(o.key, o.label, o.error,
+                () => s.coreOutbox.discard(o.key).then((_) => s.notifyListeners()),
+                () => s.coreOutbox.retry(o.key)),
           for (final q in _queues)
-            for (final w in q.items) (q, w)
+            for (final w in q.items)
+              _Pending(w.key, w.label, w.error, () => q.discard(w.key), () => q.retry(w.key)),
+          if (s.checksAwaitingServer || (s.pendingWrites > 0 && s.dirtyCheckIds.isNotEmpty))
+            _Pending('checks', 'دفتر چک‌ها (${fa('${s.dirtyCheckIds.length}')} چک ویرایش‌شده)', null, null, null),
         ];
         final busy = s.refreshing || (source?.syncing() ?? false);
         Future<void> retry() async {
+          for (final i in items) {
+            await i.retry?.call(); // refused items are tried once more
+          }
           if (s.offline) {
             await s.tryGoOnline();
           } else {
             await s.refreshAll(includeQuotes: true);
           }
           await source?.retry();
-          if (items.isNotEmpty) {
-            await Future.wait([
-              PwoStore.instance.refresh(),
-              BizStore.instance.refresh(),
-              ProjectsStore.instance.refresh(),
-            ]);
-          }
+          await s.syncNow();
         }
 
         return Directionality(
@@ -334,13 +341,13 @@ class _StatusSheet extends StatelessWidget {
                             color: AppTheme.title,
                             fontWeight: FontWeight.w700,
                             fontSize: 13)),
-                    for (final (q, w) in items.take(6))
+                    for (final w in items.take(8))
                       Row(children: [
                         Expanded(
                           child: Text(
                               w.error == null
                                   ? w.label
-                                  : '${w.label} · سرور نپذیرفت',
+                                  : '${w.label} · سرور نپذیرفت: ${w.error}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -349,16 +356,17 @@ class _StatusSheet extends StatelessWidget {
                                       ? AppTheme.text
                                       : const Color(0xFFFF8A80))),
                         ),
-                        IconButton(
-                          key: ValueKey('sheet-discard-${w.key}'),
-                          tooltip: 'دور انداختن',
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.close_rounded, size: 18),
-                          onPressed: () => q.discard(w.key),
-                        ),
+                        if (w.discard != null)
+                          IconButton(
+                            key: ValueKey('sheet-discard-${w.key}'),
+                            tooltip: 'دور انداختن',
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            onPressed: () => _confirmDiscard(context, w),
+                          ),
                       ]),
-                    if (items.length > 6)
-                      Text('و ${fa('${items.length - 6}')} مورد دیگر',
+                    if (items.length > 8)
+                      Text('و ${fa('${items.length - 8}')} مورد دیگر',
                           style: const TextStyle(
                               color: AppTheme.muted, fontSize: 12)),
                   ],
@@ -393,4 +401,36 @@ class _StatusSheet extends StatelessWidget {
       },
     );
   }
+}
+
+
+class _Pending {
+  const _Pending(this.key, this.label, this.error, this.discard, this.retry);
+  final String key;
+  final String label;
+  final String? error;
+  final Future<void> Function()? discard;
+  final Future<void> Function()? retry;
+}
+
+/// Discarding loses an unsent edit, so it is confirmed first.
+Future<void> _confirmDiscard(BuildContext context, _Pending w) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: const Text('دور انداختن تغییر؟'),
+        content: Text('«${w.label}» هنوز به سرور نرسیده و با دور انداختن از گوشی هم پاک می‌شود.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('انصراف')),
+          TextButton(
+              key: const ValueKey('discard-confirm'),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('دور انداختن', style: TextStyle(color: Color(0xFFFF8A80)))),
+        ],
+      ),
+    ),
+  );
+  if (ok == true) await w.discard?.call();
 }

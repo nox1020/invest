@@ -24,6 +24,9 @@ class QueuedWrite {
     required this.label,
     required this.createdAt,
     this.error,
+    this.tempId,
+    this.collection,
+    this.attempts = 0,
   });
 
   final String key;
@@ -35,6 +38,16 @@ class QueuedWrite {
   /// Server refused it (e.g. validation). Kept until the user discards it.
   String? error;
 
+  /// For a create: the temporary (negative) id the optimistic view gives
+  /// the new row, and the snapshot list ([collection]) it lands in. After the
+  /// create is sent, the real id is found by diffing that list and every
+  /// later queued write that used [tempId] is rewritten to it.
+  final int? tempId;
+  final String? collection;
+
+  /// Failed send attempts (network); drives the retry backoff.
+  int attempts;
+
   Map<String, dynamic> toJson() => {
         'key': key,
         'account': account,
@@ -44,6 +57,9 @@ class QueuedWrite {
         'label': label,
         'created_at': createdAt,
         if (error != null) 'error': error,
+        if (tempId != null) 'temp_id': tempId,
+        if (collection != null) 'collection': collection,
+        if (attempts > 0) 'attempts': attempts,
       };
 
   static QueuedWrite? fromJson(Object? j) {
@@ -60,6 +76,9 @@ class QueuedWrite {
       label: '${j['label'] ?? ''}',
       createdAt: '${j['created_at'] ?? ''}',
       error: j['error'] is String ? j['error'] as String : null,
+      tempId: (j['temp_id'] as num?)?.toInt(),
+      collection: j['collection'] is String ? j['collection'] as String : null,
+      attempts: (j['attempts'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -88,6 +107,15 @@ class WriteQueue extends ChangeNotifier {
   String? _account;
   List<QueuedWrite> _items = [];
   bool flushing = false;
+
+  /// Bumped on every change (memo key for optimistic views).
+  int revision = 0;
+
+  @override
+  void notifyListeners() {
+    revision++;
+    super.notifyListeners();
+  }
 
   String? get account => _account;
   List<QueuedWrite> get items => List.unmodifiable(_items);
@@ -119,7 +147,7 @@ class WriteQueue extends ChangeNotifier {
       _cache.write(acc, jsonEncode([for (final w in _items) w.toJson()]));
 
   Future<QueuedWrite> add(String account, WriteRequest req, String label,
-      {String? key}) async {
+      {String? key, int? tempId, String? collection}) async {
     final acc = AccountCache.norm(account);
     if (acc.isEmpty || acc != _account) {
       throw StateError('write queue is bound to another account');
@@ -129,7 +157,9 @@ class WriteQueue extends ChangeNotifier {
         account: acc,
         request: req,
         label: label,
-        createdAt: DateTime.now().toUtc().toIso8601String());
+        createdAt: DateTime.now().toUtc().toIso8601String(),
+        tempId: tempId,
+        collection: collection);
     _items.add(w);
     notifyListeners();
     await _persist(acc);
@@ -150,8 +180,9 @@ class WriteQueue extends ChangeNotifier {
   /// Returns the last snapshot the server sent, if any.
   Future<Map<String, dynamic>?> flush(
     String account,
-    Future<Map<String, dynamic>> Function(WriteRequest r, String key) send,
-  ) async {
+    Future<Map<String, dynamic>> Function(WriteRequest r, String key) send, {
+    Map<String, dynamic>? before,
+  }) async {
     final acc = AccountCache.norm(account);
     if (flushing || acc.isEmpty || acc != _account) return null;
     flushing = true;
@@ -171,11 +202,19 @@ class WriteQueue extends ChangeNotifier {
           if (_account != acc) break;
           if (!isRetryableWriteError(e)) {
             w.error = e.toString();
-            await _persist(acc);
+          } else {
+            w.attempts++;
           }
+          await _persist(acc);
           break;
         }
         if (_account != acc) break;
+        final tmp = w.tempId, col = w.collection;
+        if (tmp != null && col != null) {
+          final real = newIdIn(before, last, col);
+          if (real != null) _rewriteId(tmp, real);
+        }
+        before = last;
         _items.remove(w);
         await _persist(acc);
       }
@@ -185,6 +224,56 @@ class WriteQueue extends ChangeNotifier {
     }
     return last;
   }
+
+  /// Later queued writes that point at [tmp] now point at the server [real].
+  void _rewriteId(int tmp, int real) {
+    final seg = RegExp('/${RegExp.escape('$tmp')}(?=/|\\?|\$)');
+    for (var i = 0; i < _items.length; i++) {
+      final w = _items[i];
+      final r = w.request;
+      final body = r.body == null ? null : _swap(r.body!, tmp, real);
+      final path = r.path.replaceAll(seg, '/$real');
+      if (path == r.path && identical(body, r.body)) continue;
+      _items[i] = QueuedWrite(
+        key: w.key,
+        account: w.account,
+        request: WriteRequest(r.method, path, body),
+        label: w.label,
+        createdAt: w.createdAt,
+        error: w.error,
+        tempId: w.tempId,
+        collection: w.collection,
+        attempts: w.attempts,
+      );
+    }
+  }
+
+  static Map<String, dynamic> _swap(Map<String, dynamic> b, int tmp, int real) {
+    var changed = false;
+    final out = <String, dynamic>{};
+    b.forEach((k, v) {
+      if (v is num && v == tmp) {
+        out[k] = real;
+        changed = true;
+      } else if (v is String && v == '$tmp') {
+        out[k] = '$real';
+        changed = true;
+      } else if (v is Map) {
+        final m = Map<String, dynamic>.from(v);
+        final keys = {
+          for (final e in m.entries) e.key == '$tmp' ? '$real' : e.key: e.value
+        };
+        if (keys.length != m.length || m.containsKey('$tmp')) changed = true;
+        out[k] = keys;
+      } else {
+        out[k] = v;
+      }
+    });
+    return changed ? out : b;
+  }
+
+  /// Total pending (including refused) for the bound account.
+  int get length => _items.length;
 
   /// Clears a refused item's error so the next flush tries it again.
   Future<void> retry(String key) async {
@@ -198,14 +287,49 @@ class WriteQueue extends ChangeNotifier {
   }
 }
 
+/// The one id in [after]`[collection]` that [before] did not have.
+int? newIdIn(Map<String, dynamic>? before, Map<String, dynamic>? after, String collection) {
+  Set<int> ids(Map<String, dynamic>? s) {
+    final l = s?[collection];
+    return {
+      if (l is List)
+        for (final e in l)
+          if (e is Map && e['id'] is num) (e['id'] as num).toInt()
+    };
+  }
+
+  final added = ids(after).difference(ids(before));
+  return added.length == 1 ? added.first : null;
+}
+
+/// Temporary id for a row created offline (negative, never sent as-is).
+int newTempId() => -(1 + Random.secure().nextInt(1 << 30));
+
 /// Thrown after a write was queued instead of sent (not a failure).
 class WriteQueuedException implements Exception {
   const WriteQueuedException();
   @override
   String toString() =>
-      'اتصال برقرار نیست؛ این تغییر در صف ارسال ماند و بعد از اتصال خودکار فرستاده می‌شود.';
+      'ذخیره شد (آفلاین)؛ به محض اتصال خودکار ارسال می‌شود.';
 }
 
 /// Banner text while a bound account's cache is shown offline.
 const offlineQueueNote =
     'اتصال به حساب وینور برقرار نیست؛ دادهٔ ذخیره‌شده نمایش داده می‌شود و تغییرهای تازه در صف ارسال می‌مانند.';
+
+/// App-wide connectivity hint set by AppState. While true, stores queue a
+/// write at once (optimistic) instead of waiting for a request to time out.
+final ValueNotifier<bool> syncOffline = ValueNotifier<bool>(false);
+
+/// Create requests get a temp id (for the optimistic row) and the snapshot
+/// list the new row lands in (to learn its real id after sending).
+({int? tempId, String? collection}) createMeta(WriteRequest r) {
+  if (r.method != 'POST') return (tempId: null, collection: null);
+  final p = r.path.split('?').first;
+  String? col;
+  if (p.endsWith('/biz/trades')) col = 'trades';
+  if (p.endsWith('/projects')) col = 'items';
+  if (p.endsWith('/pwo/withdrawers')) col = 'withdrawers';
+  if (p.endsWith('/pwo/transactions')) col = 'transactions';
+  return col == null ? (tempId: null, collection: null) : (tempId: newTempId(), collection: col);
+}

@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import 'package:invest/data/account_cache.dart';
 import 'package:invest/data/local_platform.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/pwo_remote.dart';
+import 'package:invest/data/optimistic.dart';
 import 'package:invest/data/write_queue.dart';
 import 'package:invest/domain/services/pwo_ledger.dart';
 
@@ -23,7 +26,9 @@ class PwoReadOnlyException implements Exception {
 ///   account runs `POST /pwo/import` once; the device's pre-server data
 ///   (incl. the 1405 seed) goes only to the first account that claims it.
 class PwoStore extends ChangeNotifier {
-  PwoStore._();
+  PwoStore._() {
+    queue.addListener(notifyListeners);
+  }
   static final PwoStore instance = PwoStore._();
 
   static const prefsKey = 'vplus_pwo_ledger_v1';
@@ -60,7 +65,37 @@ class PwoStore extends ChangeNotifier {
   /// True when showing cached data because the server could not be reached.
   bool showingCache = false;
 
-  PwoLedger get ledger => _ledger;
+  /// Last server snapshot (account mode); the base of the optimistic view.
+  Map<String, dynamic>? _server;
+  static String serverKey(String account) => 'vplus_pwo_server_v1_$account';
+  (int, Map<String, dynamic>, PwoLedger)? _view;
+
+  /// Server data with queued (unsent) writes applied on top, so offline
+  /// edits show at once. Device-only mode: the local ledger itself.
+  PwoLedger get ledger {
+    final base = _server;
+    if (!_accountMode || base == null || queue.isEmpty || queue.account != _account) {
+      return _ledger;
+    }
+    final memo = _view;
+    if (memo != null && memo.$1 == queue.revision && identical(memo.$2, base)) {
+      return memo.$3;
+    }
+    final v = PwoLedger.fromServer(overlay(base, queue.items, applyPwo));
+    _view = (queue.revision, base, v);
+    return v;
+  }
+
+  Future<void> _loadServer(String acc) async {
+    final prefs = await LocalPrefs.open();
+    final raw = prefs?.getString(serverKey(acc));
+    if (_account != acc) return;
+    try {
+      _server = raw == null ? null : Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      _server = null;
+    }
+  }
   bool get loaded => _loaded;
   bool get isRemote => _remote != null && _account != null;
   bool get syncing => _syncing;
@@ -92,6 +127,8 @@ class PwoStore extends ChangeNotifier {
         _ledger = PwoLedger.decode(raw);
         _loaded = true;
       }
+      _server = null;
+      await _loadServer(acc);
       notifyListeners();
     }
     await refresh();
@@ -120,6 +157,7 @@ class PwoStore extends ChangeNotifier {
     lastError = null;
     showingCache = false;
     _ledger = PwoLedger();
+    _server = null;
     notifyListeners();
   }
 
@@ -136,6 +174,7 @@ class PwoStore extends ChangeNotifier {
       _account = last;
       await queue.bind(last);
       _ledger = PwoLedger.decode(prefs?.getString(cacheKey(last)));
+      await _loadServer(last);
       _loaded = true;
       showingCache = true;
       lastError = offlineQueueNote;
@@ -201,7 +240,8 @@ class PwoStore extends ChangeNotifier {
         if (prefs != null) await prefs.setBool(migratedKey(acc), true);
       } else {
         if (!queue.isEmpty && queue.account == acc) {
-          await queue.flush(acc, (w, key) => remote.run(w, idempotencyKey: key));
+          await queue.flush(acc, (w, key) => remote.run(w, idempotencyKey: key),
+              before: _server);
         }
         snap = await remote.fetch();
       }
@@ -223,8 +263,14 @@ class PwoStore extends ChangeNotifier {
 
   Future<void> _apply(Map<String, dynamic> snap) async {
     _ledger = PwoLedger.fromServer(snap);
+    _server = snap;
     _loaded = true;
     await _save();
+    final acc = _account;
+    if (acc != null) {
+      final prefs = await LocalPrefs.open();
+      if (prefs != null) await LocalPrefs.setString(prefs, serverKey(acc), jsonEncode(snap));
+    }
   }
 
   /// Owner and data are captured before any await, so an account switch
@@ -247,7 +293,8 @@ class PwoStore extends ChangeNotifier {
     if (queue.account != acc) await queue.bind(acc);
     final r = _remote;
     final key = idemKey ?? newIdempotencyKey();
-    if (r != null && queue.isEmpty) {
+    final meta = createMeta(req);
+    if (r != null && queue.isEmpty && !syncOffline.value) {
       try {
         final snap = await r.run(req, idempotencyKey: key);
         if (_account != acc) return;
@@ -258,15 +305,17 @@ class PwoStore extends ChangeNotifier {
         return;
       } catch (e) {
         if (!isRetryableWriteError(e) || _account != acc) rethrow;
-        await queue.add(acc, req, label, key: key);
+        await queue.add(acc, req, label,
+            key: key, tempId: meta.tempId, collection: meta.collection);
         lastError = e.toString();
         showingCache = _loaded;
         notifyListeners();
         throw const WriteQueuedException();
       }
     }
-    final w = await queue.add(acc, req, label, key: key);
-    if (r != null) {
+    final w = await queue.add(acc, req, label,
+        key: key, tempId: meta.tempId, collection: meta.collection);
+    if (r != null && !syncOffline.value) {
       await refresh();
       final left = queue.items.where((x) => x.key == w.key).firstOrNull;
       if (left == null) return;
@@ -277,7 +326,7 @@ class PwoStore extends ChangeNotifier {
 
   void _ensureWritable() {}
 
-  String _who(String id) => _ledger.personById(id)?.name ?? id;
+  String _who(String id) => ledger.personById(id)?.name ?? id;
 
   Future<void> _local(void Function() change) async {
     _ensureWritable();
@@ -317,7 +366,7 @@ class PwoStore extends ChangeNotifier {
   Future<void> deleteMonth(int year, int month) async {
     _ensureWritable();
     if (!_accountMode) return _local(() => _ledger.remove(year, month));
-    final m = _ledger.months[pwoMonthKey(year, month)];
+    final m = ledger.months[pwoMonthKey(year, month)];
     final ids = m?.entryIds.values.toList() ?? const <int>[];
     final txIds = [for (final t in m?.txs ?? const <PwoTx>[]) if (t.id != null) t.id!];
     if (ids.isEmpty && txIds.isEmpty) return isRemote ? refresh() : Future.value();
@@ -333,12 +382,12 @@ class PwoStore extends ChangeNotifier {
     _ensureWritable();
     if (!v.isFinite || v <= 0) return;
     if (!_accountMode) return _local(() => _ledger.target = v);
-    if (v == _ledger.target) return;
+    if (v == ledger.target) return;
     await _write('هدف ماهانهٔ PWO', PwoRemote.setTargetReq(v));
   }
 
   void _checkUnique(String name, {String? except}) {
-    if (_ledger.activePeople.any((p) => p.id != except && p.name == name)) {
+    if (ledger.activePeople.any((p) => p.id != except && p.name == name)) {
       throw ArgumentError('این نام تکراری است.');
     }
   }
@@ -346,7 +395,7 @@ class PwoStore extends ChangeNotifier {
   Future<void> setName(String id, String name) async {
     _ensureWritable();
     final s = name.trim().split(RegExp(r'\s+')).join(' ');
-    final p = _ledger.personById(id);
+    final p = ledger.personById(id);
     if (p == null || s.isEmpty || s == p.name) return;
     if (p.active) _checkUnique(s, except: id);
     if (!_accountMode) return _local(() => p.name = s);
@@ -364,8 +413,8 @@ class PwoStore extends ChangeNotifier {
       return p;
     }
     await _write('افزودن $s', PwoRemote.addWithdrawerReq(s));
-    return _ledger.people.lastWhere((p) => p.name == s,
-        orElse: () => _ledger.people.last);
+    return ledger.people.lastWhere((p) => p.name == s,
+        orElse: () => ledger.people.last);
   }
 
   Future<bool> removePerson(String id) async {
@@ -375,14 +424,14 @@ class PwoStore extends ChangeNotifier {
       if (ok) await _local(() {});
       return ok;
     }
-    if (_ledger.activePeople.length <= 1) return false;
+    if (ledger.activePeople.length <= 1) return false;
     await _write('بایگانی ${_who(id)}', PwoRemote.deleteWithdrawerReq(id));
     return true;
   }
 
   Future<void> restorePerson(String id) async {
     _ensureWritable();
-    final p = _ledger.personById(id);
+    final p = ledger.personById(id);
     if (p == null) return;
     _checkUnique(p.name, except: id);
     if (!_accountMode) return _local(() => p.active = true);
@@ -405,7 +454,7 @@ class PwoStore extends ChangeNotifier {
   }
 
   PwoMonth? _monthOfTx(int id) {
-    for (final m in _ledger.months.values) {
+    for (final m in ledger.months.values) {
       if (m.txs.any((t) => t.id == id)) return m;
     }
     return null;
@@ -418,7 +467,7 @@ class PwoStore extends ChangeNotifier {
     if (!toman.isFinite || toman <= 0) {
       throw ArgumentError('مبلغ برداشت باید بیشتر از صفر باشد.');
     }
-    if (_ledger.personById(personId) == null) {
+    if (ledger.personById(personId) == null) {
       throw ArgumentError('برداشت‌کننده پیدا نشد.');
     }
     final n = note.trim();

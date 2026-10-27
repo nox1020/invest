@@ -333,6 +333,8 @@ extension AppStateChecks on AppState {
       createdAt: prepared.createdAt.trim().isEmpty ? now : prepared.createdAt,
       updatedAt: now,
     );
+    dirtyCheckIds.add(id);
+    unawaited(_persistCheckSyncState());
 
     if (_checksApiReady) {
       try {
@@ -562,6 +564,7 @@ extension AppStateChecks on AppState {
   Future<void> _loadPendingDeletedChecks() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await _loadCheckSyncState();
       final raw = prefs.getString(_checkDeleteKey);
       _pendingDeletedCheckIds.clear();
       if (raw == null || raw.isEmpty) return;

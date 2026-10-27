@@ -204,7 +204,7 @@ void main() {
     testWidgets('pushed pages: strip only while offline, honest wording',
         (t) async {
       await t.pumpWidget(_host(_state(), const _Page()));
-      expect(find.text('آفلاین · در انتظار شبکه · فقط مشاهده'), findsOneWidget);
+      expect(find.text('آفلاین · در انتظار شبکه · تغییرات در صف می‌ماند'), findsOneWidget);
 
       await t.pumpWidget(_host(_state(), const _Page(queues: true)));
       expect(find.text('آفلاین · در انتظار شبکه · تغییرات در صف می‌ماند'),
@@ -259,17 +259,17 @@ void main() {
       expect(find.textContaining('InvestApiException'), findsNothing);
     }
 
-    testWidgets('read-only offline: no body notices, FAB hidden', (t) async {
+    testWidgets('read-only offline: no body notices, FAB shown (offline-first)', (t) async {
       final s = _state()..error = 'assets: InvestApiException(/network_error)';
       await pumpDash(t, s);
       noBodyStatus();
-      expect(find.byKey(const ValueKey('fab-main')), findsNothing);
+      expect(find.byKey(const ValueKey('fab-main')), findsOneWidget);
     });
 
-    testWidgets('session expired: no body notices, FAB hidden', (t) async {
+    testWidgets('session expired: no body notices, FAB shown (offline-first)', (t) async {
       await pumpDash(t, _state(reauth: true));
       noBodyStatus();
-      expect(find.byKey(const ValueKey('fab-main')), findsNothing);
+      expect(find.byKey(const ValueKey('fab-main')), findsOneWidget);
     });
 
     testWidgets('local workspace is writable: FAB shown', (t) async {

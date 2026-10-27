@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:invest/ui/widgets/pending_sync_mark.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/models/trade.dart';
@@ -878,7 +879,10 @@ class _ClosedTradeCard extends StatelessWidget {
   final VoidCallback? onDelete;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PendingSyncMark(pending: (trade.id ?? 0) < 0, child: _inner(context));
+
+  Widget _inner(BuildContext context) {
     final state = context.watch<AppState>();
     final calendar = state.settings.calendar;
     final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
@@ -1370,7 +1374,10 @@ class _OpenTradeCard extends StatelessWidget {
   final VoidCallback? onEdit;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PendingSyncMark(pending: (trade.id ?? 0) < 0, child: _inner(context));
+
+  Widget _inner(BuildContext context) {
     final state = context.watch<AppState>();
     final qtyDecimals =
         (trade.quantity - trade.quantity.roundToDouble()).abs() < 1e-9 ? 0 : 4;

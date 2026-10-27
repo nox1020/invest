@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -143,6 +144,8 @@ class InvestApiClient {
       if (sendCookie && _sessionCookie != null && _sessionCookie!.isNotEmpty)
         'Cookie': _sessionCookie!,
       if (_bearerToken != null) 'Authorization': 'Bearer $_bearerToken',
+      if (method != 'GET' && !extraHeaders.containsKey('Idempotency-Key'))
+        if (IdempotencyScope.nextKey() case final k?) 'Idempotency-Key': k,
       ...extraHeaders,
     };
     final wait = timeout ?? this.timeout;
@@ -328,5 +331,25 @@ class InvestApiClient {
     final data = await get('/invest/api/v1/health');
     final v = data['api_version'];
     return v?.toString();
+  }
+}
+
+
+/// Runs [body] so every write request inside it carries an Idempotency-Key
+/// derived from [key] (`key-1`, `key-2`, … in call order). Replaying the same
+/// outbox op therefore reuses the same keys and the server never writes twice.
+class IdempotencyScope {
+  IdempotencyScope._(this.key);
+  final String key;
+  int _n = 0;
+
+  static Future<T> run<T>(String key, Future<T> Function() body) =>
+      runZoned(body, zoneValues: {#investIdem: IdempotencyScope._(key)});
+
+  static String? nextKey() {
+    final s = Zone.current[#investIdem];
+    if (s is! IdempotencyScope) return null;
+    s._n++;
+    return '${s.key}-${s._n}';
   }
 }

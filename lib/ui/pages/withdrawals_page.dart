@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:invest/ui/widgets/pending_sync_mark.dart';
 import 'package:flutter/services.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/models/app_settings.dart';
@@ -1023,7 +1024,10 @@ class _WithdrawalTile extends StatelessWidget {
       };
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PendingSyncMark(pending: (item.id ?? 0) < 0, child: _inner(context));
+
+  Widget _inner(BuildContext context) {
     final calendar = context.read<AppState>().settings.calendar;
     return Container(
       clipBehavior: Clip.antiAlias,

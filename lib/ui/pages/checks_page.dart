@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:invest/ui/widgets/pending_sync_mark.dart';
 import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/services/check_ledger.dart';
 import 'package:invest/domain/utils/dates.dart';
@@ -553,7 +554,10 @@ class _CheckCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PendingSyncMark(pending: _checkPending(context, item.id), child: _inner(context));
+
+  Widget _inner(BuildContext context) {
     final overdue = item.isActiveOpen && item.daysUntilDue() < 0;
     final tone = item.isPayable ? AppTheme.negative : AppTheme.positive;
     final who = item.counterparty.trim().isEmpty
@@ -1535,5 +1539,15 @@ class _ArchiveSwipe extends StatelessWidget {
       },
       child: child,
     );
+  }
+}
+
+
+bool _checkPending(BuildContext context, int? id) {
+  try {
+    final s = Provider.of<AppState>(context);
+    return id != null && s.dirtyCheckIds.contains(id) && s.pendingWrites > 0;
+  } on ProviderNotFoundException {
+    return false;
   }
 }

@@ -11,6 +11,8 @@ import 'package:invest/data/app_lock_store.dart';
 import 'package:invest/data/account_cache.dart';
 import 'package:invest/data/app_database.dart';
 import 'package:invest/data/check_repository.dart';
+import 'package:invest/data/core_outbox.dart';
+import 'package:invest/data/write_queue.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/local_platform.dart';
 import 'package:invest/data/notification_inbox_store.dart';
@@ -65,6 +67,7 @@ part 'app_state_index.dart';
 part 'app_state_portfolio.dart';
 part 'app_state_withdrawals.dart';
 part 'app_state_checks.dart';
+part 'app_state_sync.dart';
 part 'app_state_quotes.dart';
 part 'app_state_backup.dart';
 
@@ -153,7 +156,46 @@ class AppState extends ChangeNotifier {
 
   /// Local cheque book differs from the server and must be pushed before a
   /// fetch is allowed to replace it.
-  bool _checksPendingSync = false;
+  bool _checksPendingSyncV = false;
+
+  /// Cheque book differs from the server. Persisted per account (with the
+  /// edited ids) so an app kill while offline never lets the server copy
+  /// overwrite unsent edits on the next pull.
+  bool get _checksPendingSync => _checksPendingSyncV;
+  set _checksPendingSync(bool v) {
+    if (v == _checksPendingSyncV && (v || dirtyCheckIds.isEmpty)) return;
+    _checksPendingSyncV = v;
+    if (!v) dirtyCheckIds.clear();
+    unawaited(_persistCheckSyncState());
+  }
+
+  String get _checkSyncKey =>
+      'check_sync_v1_${AccountCache.norm(userPhone ?? _session?.phone)}';
+
+  Future<void> _persistCheckSyncState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!_checksPendingSyncV && dirtyCheckIds.isEmpty) {
+        await prefs.remove(_checkSyncKey);
+      } else {
+        await prefs.setString(_checkSyncKey,
+            jsonEncode({'pending': _checksPendingSyncV, 'dirty': dirtyCheckIds.toList()}));
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadCheckSyncState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_checkSyncKey);
+      if (raw == null) return;
+      final j = jsonDecode(raw) as Map;
+      if (j['pending'] == true) _checksPendingSyncV = true;
+      for (final e in (j['dirty'] as List? ?? const [])) {
+        if (e is num) dirtyCheckIds.add(e.toInt());
+      }
+    } catch (_) {}
+  }
 
   /// `GET /checks` answered, so that resource — not the settings blob — owns
   /// the book.
@@ -240,11 +282,28 @@ class AppState extends ChangeNotifier {
   static final checkDeleteCache =
       AccountCache(keyOf: (a, _) => 'check_deleted_v1_$a');
 
-  bool get canMutate => authenticated && !readOnlyOffline;
+  /// Offline-first: a signed-in book is always editable; offline changes
+  /// wait in the outbox / store queues and sync on reconnect.
+  bool get canMutate => authenticated;
+
+  /// Core-book writes waiting for the server (assets, trades, withdrawals,
+  /// settings). Persisted per account.
+  final CoreOutbox coreOutbox = CoreOutbox();
+  Timer? _syncTimer;
+  int _syncBackoff = 0;
+
+  /// Cheques edited on this phone the server has not confirmed yet.
+  final Set<int> dirtyCheckIds = {};
 
   @override
   void notifyListeners() {
     if (_holdUiNotifications) return;
+    try {
+      _overlayCore();
+    } catch (e, st) {
+      debugPrint('overlay failed: $e\n$st');
+    }
+    syncOffline.value = useRemote && (offline || readOnlyOffline);
     super.notifyListeners();
   }
 
@@ -624,11 +683,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Unsent writes across the PWO, ملک و دفتر and projects queues.
-  int get pendingWrites =>
-      PwoStore.instance.queue.items.length +
-      BizStore.instance.queue.items.length +
-      ProjectsStore.instance.queue.items.length;
+  /// Unsent changes across the whole app (core outbox, PWO, ملک و دفتر,
+  /// projects, cheques).
+  int get pendingWrites => pendingSyncCount;
 
   /// Status the AppBar subtitle, dashboard tag and banners all read.
   AppConnectionStatus get connectionStatus => AppConnectionStatus.resolve(
@@ -863,11 +920,8 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> saveSettings(AppSettings s) async {
-    if (readOnlyOffline) {
-      throw StateError(
-        'در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.',
-      );
-    }
+    // Offline: saved on the phone now, pushed (last write wins) on reconnect.
+    final queueOnly = useRemote && !_serverWritable;
     final prevUsdt = s.usdtTmnRate ?? settings.usdtTmnRate;
     final prevGold = s.goldTmnPerGram ?? settings.goldTmnPerGram;
     final prevWallex =
@@ -889,7 +943,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     Object? remoteError;
-    if (useRemote && !offline && remote != null) {
+    if (!queueOnly && useRemote && !offline && remote != null) {
       try {
         final bundle = await _putRemoteSettings(
           includeChecks: !_checksFromRemote,
@@ -923,6 +977,14 @@ class AppState extends ChangeNotifier {
     await BackgroundPriceWorker.sync(settings);
     notifyListeners();
     _startAutoRefreshTimer(immediate: false);
+    if (queueOnly ||
+        (remoteError != null && isRetryableWriteError(remoteError))) {
+      await _bindOutbox();
+      await coreOutbox.add('settings.push', const {}, 'تنظیمات');
+      notifyListeners();
+      scheduleSync(soon: !queueOnly);
+      return;
+    }
     if (remoteError != null) {
       throw remoteError;
     }
@@ -1067,8 +1129,11 @@ class AppState extends ChangeNotifier {
           : (clientChecks ?? (_checksHydrated ? checks : null));
       final bundle = await _putRemoteSettings(
         includeChecks: sentChecks != null,
-        clientWithdrawals: clientWithdrawals ??
-            (_withdrawalsHydrated ? withdrawals : null),
+        // Rows still waiting in the outbox (temp ids) are never mirrored.
+        clientWithdrawals: (clientWithdrawals ??
+                (_withdrawalsHydrated ? withdrawals : null))
+            ?.where((w) => (w.id ?? 0) >= 0)
+            .toList(),
         clientChecks: sentChecks,
       );
       settings = bundle.settings;
@@ -1402,12 +1467,11 @@ class AppState extends ChangeNotifier {
 
   /// Used by UI for buy/sell/asset mutations.
   InvestMutations get tradeService {
-    if (useRemote && !offline) {
-      final svc = remote;
-      if (svc == null) {
+    if (useRemote) {
+      if (remote == null) {
         throw StateError('اتصال به سرور آماده نیست.');
       }
-      return svc;
+      return QueueingMutations(this);
     }
     final local = trades;
     if (local == null) {

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:invest/data/biz_remote.dart';
 import 'package:invest/data/invest_api_client.dart';
+import 'package:invest/data/optimistic.dart';
 import 'package:invest/data/write_queue.dart';
 import 'package:invest/data/account_cache.dart';
 
@@ -81,7 +82,9 @@ class BizReadOnlyException implements Exception {
 /// Property trades + monthly business table. Server (`/biz`) is the only
 /// source of truth; a per-account cache is shown read-only when offline.
 class BizStore extends ChangeNotifier {
-  BizStore._();
+  BizStore._() {
+    queue.addListener(notifyListeners);
+  }
   static final BizStore instance = BizStore._();
 
   static String cacheKey(String account, int? year) =>
@@ -102,7 +105,20 @@ class BizStore extends ChangeNotifier {
   /// Writes waiting to be sent for the bound account (offline queue).
   final WriteQueue queue = WriteQueue('biz');
 
-  BizSnapshot get snap => _snap;
+  /// Server snapshot with queued (not yet sent) writes applied on top.
+  BizSnapshot get snap {
+    if (queue.isEmpty || queue.account != _account) return _snap;
+    final memo = _view;
+    if (memo != null && memo.$1 == queue.revision && identical(memo.$2, _snap)) {
+      return memo.$3;
+    }
+    final v = BizSnapshot(overlay(_snap.raw, queue.items, applyBiz));
+    _view = (queue.revision, _snap, v);
+    return v;
+  }
+
+  BizSnapshot get serverSnap => _snap;
+  (int, BizSnapshot, BizSnapshot)? _view;
   bool get isRemote => _remote != null && _account != null;
 
   /// Offline writes are queued, so only "no account at all" is read-only.
@@ -255,7 +271,8 @@ class BizStore extends ChangeNotifier {
   /// Sends queued writes of [acc] (in order, each with its idempotency key).
   Future<void> _flush(BizRemote r, String acc) async {
     if (queue.isEmpty || queue.account != acc) return;
-    await queue.flush(acc, (w, key) => r.run(w, idempotencyKey: key));
+    await queue.flush(acc, (w, key) => r.run(w, idempotencyKey: key),
+        before: _snap.raw);
   }
 
   /// Online: sent at once. Offline, or the answer never arrived: kept in the
@@ -264,22 +281,25 @@ class BizStore extends ChangeNotifier {
     final r = _remote, acc = _account;
     if (acc == null) throw const BizReadOnlyException();
     if (queue.account != acc) await queue.bind(acc);
-    if (r != null && queue.isEmpty) {
+    final meta = createMeta(req);
+    if (r != null && queue.isEmpty && !syncOffline.value) {
       final key = newIdempotencyKey();
       try {
         await _apply(acc, await r.run(req, idempotencyKey: key));
         return;
       } catch (e) {
         if (!isRetryableWriteError(e) || _account != acc) rethrow;
-        await queue.add(acc, req, label, key: key);
+        await queue.add(acc, req, label,
+            key: key, tempId: meta.tempId, collection: meta.collection);
         lastError = e.toString();
         showingCache = loaded;
         notifyListeners();
         throw const WriteQueuedException();
       }
     }
-    final w = await queue.add(acc, req, label);
-    if (r != null) {
+    final w = await queue.add(acc, req, label,
+        tempId: meta.tempId, collection: meta.collection);
+    if (r != null && !syncOffline.value) {
       await refresh();
       final left = queue.items.where((x) => x.key == w.key).firstOrNull;
       if (left == null) return;

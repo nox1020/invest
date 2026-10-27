@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:invest/ui/widgets/pending_sync_mark.dart';
 import 'package:flutter/services.dart';
 import 'package:invest/ui/widgets/header_status.dart';
 import 'package:provider/provider.dart';
@@ -406,7 +407,10 @@ class ProjectTile extends StatelessWidget {
   final Project p;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PendingSyncMark(pending: p.raw['pending_sync'] == true, child: _inner(context));
+
+  Widget _inner(BuildContext context) {
     final profit = p.profit;
     final c = projectStatusColor(p.status);
     Widget kv(String k, String v) => Text('$k: $v',

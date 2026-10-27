@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:invest/ui/widgets/pending_sync_mark.dart';
 import 'package:invest/data/write_queue.dart';
 import 'package:flutter/services.dart';
 import 'package:invest/ui/widgets/header_status.dart';
@@ -395,7 +396,10 @@ class _MonthTile extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PendingSyncMark(pending: month.txs.any((x) => (x.id ?? 0) < 0), child: _inner(context));
+
+  Widget _inner(BuildContext context) {
     final ok = month.withinTarget(target);
     final c = ok ? _good : _bad;
     String? delta;

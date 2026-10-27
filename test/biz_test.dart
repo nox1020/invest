@@ -140,7 +140,7 @@ void main() {
     BizStore.instance.debugReset();
   });
 
-  test('CRUD in toman; PWO and net come from server; offline cache read-only',
+  test('CRUD in toman; PWO and net come from server; offline edits show at once and sync',
       () async {
     final s = FakeBizServer();
     final store = BizStore.instance;
@@ -171,7 +171,8 @@ void main() {
     await expectLater(store.deleteTrade(id), throwsA(isA<WriteQueuedException>()));
     expect(s.calls.length, before); // nothing sent offline
     expect(store.queue.items.single.account, '0912');
-    expect(store.snap.trades, isNotEmpty); // not applied until the server says so
+    expect(store.snap.trades, isEmpty); // optimistic: shown deleted at once
+    expect(store.serverSnap.trades, isNotEmpty); // server copy untouched
 
     // reconnect: queued delete is sent, then the fresh snapshot shown
     await store.bindAccount(BizRemote(await _api(s)), '0912');
