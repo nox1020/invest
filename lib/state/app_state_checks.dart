@@ -387,6 +387,8 @@ extension AppStateChecks on AppState {
     BankCheck item,
     String status, {
     String? settledDate,
+    String? endorsedTo,
+    String? endorsedFor,
   }) async {
     if (item.id == null) {
       throw ArgumentError('شناسه چک نامعتبر است.');
@@ -395,6 +397,8 @@ extension AppStateChecks on AppState {
       item.copyWith(
         status: status,
         settledDate: settledDate,
+        endorsedTo: endorsedTo,
+        endorsedFor: endorsedFor,
         clearSettledDate: status == checkStatusPending,
       ),
     );

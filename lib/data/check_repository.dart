@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS checks (
   counterparty TEXT NOT NULL DEFAULT '',
   purpose TEXT NOT NULL DEFAULT '',
   note TEXT NOT NULL DEFAULT '',
+  endorsed_to TEXT NOT NULL DEFAULT '',
+  endorsed_for TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'pending',
   settled_date TEXT,
   archived_at TEXT,

@@ -35,8 +35,9 @@ List<SearchItem> buildSearchItems(AppState s) {
       kind: SearchKind.cheque,
       title: '${c.directionLabel} · ${c.counterparty.isEmpty ? 'بدون نام' : c.counterparty}',
       subtitle: '${formatMoney(c.amount)} · سررسید ${jDate(c.dueDate)} · ${c.statusLabel}'
-          '${c.checkNumber.isEmpty ? '' : ' · ش ${c.checkNumber}'}',
-      fields: [c.checkNumber, c.sayadId, c.counterparty, c.purpose, c.note, c.bankName, c.branch,
+          '${c.checkNumber.isEmpty ? '' : ' · ش ${c.checkNumber}'}'
+          '${c.endorseSummary.isEmpty ? '' : ' · ${c.endorseSummary}'}',
+      fields: [c.checkNumber, c.sayadId, c.counterparty, c.purpose, c.endorsedTo, c.endorsedFor, c.note, c.bankName, c.branch,
         c.directionLabel, c.statusLabel, _amt(c.amount), jDate(c.dueDate), jDate(c.issueDate)],
       ref: c,
     ));

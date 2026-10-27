@@ -45,6 +45,9 @@ class BankCheck {
     this.counterparty = '',
     this.purpose = '',
     this.note = '',
+    this.endorsedTo = '',
+    this.endorsedFor = '',
+    this.endorseFromServer = false,
     this.status = checkStatusPending,
     this.settledDate,
     this.archivedAt,
@@ -74,6 +77,15 @@ class BankCheck {
   String counterparty;
   String purpose;
   String note;
+
+  /// «خرج شده» receivable: who it was given to (به چه کسی).
+  String endorsedTo;
+
+  /// «خرج شده» receivable: what it paid for (بابت چه چیزی).
+  String endorsedFor;
+
+  /// True when the row came from a server that stores the two fields above.
+  bool endorseFromServer;
   String status;
   String? settledDate;
 
@@ -127,6 +139,18 @@ class BankCheck {
         _ => 'نامشخص',
       };
 
+  bool get isEndorsed => status == checkStatusEndorsed;
+
+  /// «به فلانی · بابت فلان» for a spent cheque; empty when nothing was entered.
+  String get endorseSummary {
+    final to = endorsedTo.trim();
+    final what = endorsedFor.trim();
+    return [
+      if (to.isNotEmpty) 'به $to',
+      if (what.isNotEmpty) 'بابت $what',
+    ].join(' · ');
+  }
+
   String get counterpartyLabel => isReceivable ? 'صادرکننده' : 'در وجه';
 
   String get statusLabel {
@@ -179,6 +203,9 @@ class BankCheck {
     String? counterparty,
     String? purpose,
     String? note,
+    String? endorsedTo,
+    String? endorsedFor,
+    bool? endorseFromServer,
     String? status,
     String? settledDate,
     bool clearSettledDate = false,
@@ -206,6 +233,9 @@ class BankCheck {
       counterparty: counterparty ?? this.counterparty,
       purpose: purpose ?? this.purpose,
       note: note ?? this.note,
+      endorsedTo: endorsedTo ?? this.endorsedTo,
+      endorsedFor: endorsedFor ?? this.endorsedFor,
+      endorseFromServer: endorseFromServer ?? this.endorseFromServer,
       status: status ?? this.status,
       settledDate:
           clearSettledDate ? null : (settledDate ?? this.settledDate),
@@ -245,6 +275,9 @@ class BankCheck {
       counterparty: jsonText(m['counterparty']),
       purpose: jsonText(m['purpose']),
       note: jsonText(m['note']),
+      endorsedTo: text(m['endorsed_to'], m['endorsedTo']),
+      endorsedFor: text(m['endorsed_for'], m['endorsedFor']),
+      endorseFromServer: m.containsKey('endorsed_to'),
       status: _statusOf(m['status']),
       settledDate: _optionalDateOf(m['settled_date'] ?? m['settledDate']),
       archivedAt: _optionalText(m['archived_at'] ?? m['archivedAt']),
@@ -270,6 +303,8 @@ class BankCheck {
         'counterparty': counterparty,
         'purpose': purpose,
         'note': note,
+        'endorsed_to': endorsedTo,
+        'endorsed_for': endorsedFor,
         'status': status,
         'settled_date': settledDate,
         'archived_at': archivedAt,
@@ -473,6 +508,8 @@ BankCheck prepareBankCheck(
   final party = _clip(_foldLabel(draft.counterparty), 80, 'طرف حساب');
   final purpose = _clip(_foldLabel(draft.purpose), 120, 'بابت');
   final note = _clip(draft.note.trim(), 300, 'یادداشت');
+  final endorsedTo = _clip(_foldLabel(draft.endorsedTo), 80, 'خرج شده به');
+  final endorsedFor = _clip(_foldLabel(draft.endorsedFor), 120, 'بابت خرج');
 
   var status = draft.status.trim();
   if (!checkStatuses.contains(status)) status = checkStatusPending;
@@ -513,6 +550,9 @@ BankCheck prepareBankCheck(
     counterparty: party,
     purpose: purpose,
     note: note,
+    endorsedTo: endorsedTo,
+    endorsedFor: endorsedFor,
+    endorseFromServer: draft.endorseFromServer,
     status: status,
     settledDate: settled,
     archivedAt: draft.archivedAt,

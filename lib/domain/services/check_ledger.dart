@@ -271,6 +271,9 @@ bool sameCheckContent(BankCheck a, BankCheck b) {
       a.note == b.note &&
       a.status == b.status &&
       (a.settledDate ?? '') == (b.settledDate ?? '') &&
+      // Same rule for the «خرج شده» fields on a server that predates them.
+      (!(a.endorseFromServer || b.endorseFromServer) ||
+          (a.endorsedTo == b.endorsedTo && a.endorsedFor == b.endorsedFor)) &&
       // An older server never stores the flag; do not resend forever.
       (!(a.archiveFromServer || b.archiveFromServer) || a.isArchived == b.isArchived);
 }
@@ -330,10 +333,18 @@ List<BankCheck> checksNeedingReminder(
 /// A server that does not know `archived_at` returns rows without it; keep
 /// the flag from the device copy so archiving is never silently undone.
 BankCheck keepLocalArchive(BankCheck remote, Iterable<BankCheck> local) {
-  if (remote.archiveFromServer) return remote;
+  if (remote.archiveFromServer && remote.endorseFromServer) return remote;
   for (final row in local) {
     if (row.id == remote.id) {
-      return row.isArchived ? remote.copyWith(archivedAt: row.archivedAt) : remote;
+      var out = remote;
+      if (!remote.archiveFromServer && row.isArchived) {
+        out = out.copyWith(archivedAt: row.archivedAt);
+      }
+      // A server without the «خرج شده» fields must not erase them.
+      if (!remote.endorseFromServer) {
+        out = out.copyWith(endorsedTo: row.endorsedTo, endorsedFor: row.endorsedFor);
+      }
+      return out;
     }
   }
   return remote;

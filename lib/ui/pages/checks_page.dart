@@ -633,6 +633,21 @@ class _CheckCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: AppTheme.muted, fontSize: 12),
               ),
+              if (item.isEndorsed && item.endorseSummary.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'خرج شده ${item.endorseSummary}',
+                  key: const ValueKey('check-endorse-line'),
+                  textAlign: TextAlign.right,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppTheme.text,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
               const SizedBox(height: 4),
               Text(
                 [
@@ -780,6 +795,20 @@ class _CheckDetailSheet extends StatelessWidget {
                             _Fact(check.counterpartyLabel, check.counterparty),
                           if (check.purpose.isNotEmpty)
                             _Fact('بابت', check.purpose),
+                          if (check.isEndorsed) ...[
+                            _Fact(
+                              'خرج شده به',
+                              check.endorsedTo.trim().isEmpty
+                                  ? 'ثبت نشده'
+                                  : check.endorsedTo,
+                            ),
+                            _Fact(
+                              'بابت خرج',
+                              check.endorsedFor.trim().isEmpty
+                                  ? 'ثبت نشده'
+                                  : check.endorsedFor,
+                            ),
+                          ],
                           if (check.note.isNotEmpty) _Fact('یادداشت', check.note),
                           if (check.isArchived)
                             _Fact(
@@ -844,8 +873,21 @@ class _CheckDetailSheet extends StatelessWidget {
     _StatusAction action,
   ) async {
     final state = context.read<AppState>();
+    String? to;
+    String? what;
+    if (action.status == checkStatusEndorsed) {
+      final picked = await askEndorseDetails(context, check);
+      if (picked == null || !context.mounted) return;
+      to = picked.to;
+      what = picked.what;
+    }
     try {
-      final synced = await state.setCheckStatus(check, action.status);
+      final synced = await state.setCheckStatus(
+        check,
+        action.status,
+        endorsedTo: to,
+        endorsedFor: what,
+      );
       if (!context.mounted) return;
       if (!synced) {
         final detail = state.checkSyncError;
@@ -1115,6 +1157,8 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
   late final TextEditingController _party;
   late final TextEditingController _purpose;
   late final TextEditingController _note;
+  late final TextEditingController _endorsedTo;
+  late final TextEditingController _endorsedFor;
   bool _saving = false;
 
   @override
@@ -1135,6 +1179,8 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
     _party = TextEditingController(text: e?.counterparty ?? '');
     _purpose = TextEditingController(text: e?.purpose ?? '');
     _note = TextEditingController(text: e?.note ?? '');
+    _endorsedTo = TextEditingController(text: e?.endorsedTo ?? '');
+    _endorsedFor = TextEditingController(text: e?.endorsedFor ?? '');
   }
 
   double? get _parsedAmount => parseCheckAmount(_amount.text);
@@ -1157,6 +1203,8 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
     _party.dispose();
     _purpose.dispose();
     _note.dispose();
+    _endorsedTo.dispose();
+    _endorsedFor.dispose();
     super.dispose();
   }
 
@@ -1254,6 +1302,25 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
                   ),
               ],
             ),
+            if (_status == checkStatusEndorsed) ...[
+              const SizedBox(height: 8),
+              TextField(
+                key: const ValueKey('check-endorsed-to'),
+                controller: _endorsedTo,
+                textAlign: TextAlign.right,
+                decoration: const InputDecoration(
+                  labelText: 'خرج شده به (به چه کسی)',
+                ),
+              ),
+              TextField(
+                key: const ValueKey('check-endorsed-for'),
+                controller: _endorsedFor,
+                textAlign: TextAlign.right,
+                decoration: const InputDecoration(
+                  labelText: 'بابت (برای چه چیزی)',
+                ),
+              ),
+            ],
             AppDateTile(
               label: 'تاریخ صدور',
               isoDate: _issue,
@@ -1336,6 +1403,18 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
 
   Future<void> _save() async {
     if (_saving) return;
+    // A cheque newly marked «خرج شده» must say to whom and for what. Older
+    // spent cheques saved before these fields existed still open and save.
+    final newlyEndorsed = _status == checkStatusEndorsed &&
+        widget.existing?.status != checkStatusEndorsed;
+    if (newlyEndorsed &&
+        (_endorsedTo.text.trim().isEmpty || _endorsedFor.text.trim().isEmpty)) {
+      showUserError(
+        context,
+        ArgumentError('برای چک خرج‌شده بنویسید به چه کسی و بابت چه چیزی.'),
+      );
+      return;
+    }
     final amount = parseCheckAmount(_amount.text);
     final draft = BankCheck(
       id: widget.existing?.id,
@@ -1350,6 +1429,9 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
       counterparty: _party.text,
       purpose: _purpose.text,
       note: _note.text,
+      endorsedTo: _endorsedTo.text,
+      endorsedFor: _endorsedFor.text,
+      endorseFromServer: widget.existing?.endorseFromServer ?? false,
       status: _status,
       settledDate: widget.existing?.settledDate,
       archivedAt: widget.existing?.archivedAt,
@@ -1549,5 +1631,105 @@ bool _checkPending(BuildContext context, int? id) {
     return id != null && s.dirtyCheckIds.contains(id) && s.pendingWrites > 0;
   } on ProviderNotFoundException {
     return false;
+  }
+}
+
+
+/// Ask who a receivable was spent to and what for. Both are required.
+/// Returns null when the user cancels.
+Future<({String to, String what})?> askEndorseDetails(
+  BuildContext context,
+  BankCheck check,
+) {
+  return showDialog<({String to, String what})>(
+    context: context,
+    builder: (_) => _EndorseDialog(check: check),
+  );
+}
+
+class _EndorseDialog extends StatefulWidget {
+  const _EndorseDialog({required this.check});
+  final BankCheck check;
+
+  @override
+  State<_EndorseDialog> createState() => _EndorseDialogState();
+}
+
+class _EndorseDialogState extends State<_EndorseDialog> {
+  late final TextEditingController _to =
+      TextEditingController(text: widget.check.endorsedTo);
+  late final TextEditingController _what =
+      TextEditingController(text: widget.check.endorsedFor);
+  bool _tried = false;
+
+  @override
+  void dispose() {
+    _to.dispose();
+    _what.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    String? err(TextEditingController c) =>
+        _tried && c.text.trim().isEmpty ? 'الزامی است' : null;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: const Text('خرج چک'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '${formatMoney(widget.check.amount)} · ${widget.check.identityLabel}',
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const ValueKey('endorse-to'),
+              controller: _to,
+              autofocus: true,
+              textAlign: TextAlign.right,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'به چه کسی خرج شد؟',
+                errorText: err(_to),
+              ),
+            ),
+            TextField(
+              key: const ValueKey('endorse-for'),
+              controller: _what,
+              textAlign: TextAlign.right,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'بابت چه چیزی؟',
+                errorText: err(_what),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('انصراف'),
+          ),
+          ElevatedButton(
+            key: const ValueKey('endorse-save'),
+            onPressed: () {
+              final to = _to.text.trim();
+              final what = _what.text.trim();
+              if (to.isEmpty || what.isEmpty) {
+                setState(() => _tried = true);
+                return;
+              }
+              Navigator.pop(context, (to: to, what: what));
+            },
+            child: const Text('ثبت خرج'),
+          ),
+        ],
+      ),
+    );
   }
 }

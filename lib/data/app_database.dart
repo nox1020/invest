@@ -99,7 +99,7 @@ class AppDatabase {
     final path = p.join(dir.path, 'invest.db');
     return openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: (db, version) async {
         await db.execute('PRAGMA foreign_keys = ON');
         await _createSchema(db);
@@ -117,6 +117,9 @@ class AppDatabase {
         }
         if (oldVersion < 5) {
           await addCheckArchiveColumn(db);
+        }
+        if (oldVersion < 6) {
+          await addCheckEndorseColumns(db);
         }
       },
       onOpen: (db) async {
@@ -193,6 +196,19 @@ CREATE TABLE IF NOT EXISTS capital_snapshots (
       await db.execute('ALTER TABLE checks ADD COLUMN archived_at TEXT');
     } catch (_) {
       // Column already present (fresh v4 table created with it).
+    }
+  }
+
+  /// Additive: «خرج شده به / بابت» with empty defaults; no row changes.
+  static Future<void> addCheckEndorseColumns(DatabaseExecutor db) async {
+    for (final col in const ['endorsed_to', 'endorsed_for']) {
+      try {
+        await db.execute(
+          "ALTER TABLE checks ADD COLUMN $col TEXT NOT NULL DEFAULT ''",
+        );
+      } catch (_) {
+        // Column already present.
+      }
     }
   }
 

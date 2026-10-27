@@ -179,10 +179,10 @@ Map<String, Sheet> buildFullExport({
   ];
 
   final cheq = <List<Object?>>[
-    ['نوع', 'مبلغ', 'تاریخ صدور', 'سررسید', 'وضعیت', 'طرف حساب', 'بانک', 'شماره', 'صیادی', 'بابت', 'تاریخ تسویه', 'بایگانی', 'یادداشت'],
+    ['نوع', 'مبلغ', 'تاریخ صدور', 'سررسید', 'وضعیت', 'طرف حساب', 'بانک', 'شماره', 'صیادی', 'بابت', 'خرج شده به', 'بابت خرج', 'تاریخ تسویه', 'بایگانی', 'یادداشت'],
     for (final c in checks)
       [c.directionLabel, c.amount, jDate(c.issueDate), jDate(c.dueDate), c.statusLabel, c.counterparty,
-        c.bankName, c.checkNumber, c.sayadId, c.purpose, jDate(c.settledDate), c.isArchived ? 'بله' : '', c.note],
+        c.bankName, c.checkNumber, c.sayadId, c.purpose, c.endorsedTo, c.endorsedFor, jDate(c.settledDate), c.isArchived ? 'بله' : '', c.note],
   ];
 
   final prop = <List<Object?>>[
