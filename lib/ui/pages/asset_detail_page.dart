@@ -8,6 +8,7 @@ import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/widgets/asset_delete.dart';
 import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/asset_editor_sheet.dart';
@@ -114,6 +115,16 @@ class AssetDetailPage extends StatelessWidget {
               tooltip: 'ویرایش',
               onPressed: () => showAssetEditor(context, edit: asset),
               icon: const Icon(Icons.edit_outlined),
+            ),
+          if (state.canMutate)
+            IconButton(
+              key: const ValueKey('asset-detail-delete'),
+              tooltip: 'حذف دارایی',
+              onPressed: () async {
+                final navigator = Navigator.of(context);
+                if (await confirmDeleteAsset(context, asset)) navigator.maybePop();
+              },
+              icon: const Icon(Icons.delete_outline),
             ),
         ],
       ),

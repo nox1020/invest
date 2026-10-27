@@ -271,6 +271,31 @@ class QueueingMutations implements InvestMutations {
     );
   }
 
+  /// Offline-first asset delete. A temp (never-sent) asset just has its
+  /// queued ops dropped; a real one queues `asset.delete` (the overlay hides
+  /// it and its trades at once).
+  @override
+  Future<void> deleteAsset(int assetId) async {
+    final id = s._mapId(assetId);
+    final name = s.assets.where((a) => a.id == assetId || a.id == id).firstOrNull?.name ?? '';
+    if (id < 0) {
+      await s._bindOutbox();
+      final tradeIds = {
+        for (final t in [...s.openTrades, ...s.closedTrades])
+          if (t.assetId == id && t.id != null) t.id!,
+      };
+      await s.coreOutbox.dropPendingAsset(id, tradeIds);
+      s.assets = [for (final a in s.assets) if (a.id != id) a];
+      s.openTrades = [for (final t in s.openTrades) if (t.assetId != id) t];
+      s.closedTrades = [for (final t in s.closedTrades) if (t.assetId != id) t];
+      s.notifyListeners();
+      return;
+    }
+    return s._queueable(
+      kind: 'asset.delete', args: {'assetId': id}, label: 'حذف دارایی «$name»',
+      direct: () => _r.deleteAsset(id), placeholder: () {});
+  }
+
   @override
   Future<void> deleteClosedTrade(int tradeId) {
     final id = s._mapId(tradeId);

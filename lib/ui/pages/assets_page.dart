@@ -9,6 +9,7 @@ import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/asset_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/allocation_donut.dart';
+import 'package:invest/ui/widgets/asset_delete.dart';
 import 'package:invest/ui/widgets/asset_editor_sheet.dart';
 import 'package:invest/ui/widgets/profit_alert_sheet.dart';
 import 'package:provider/provider.dart';
@@ -708,12 +709,22 @@ class _HoldingLedgerRow extends StatelessWidget {
                       onSelected: (value) {
                         if (value == 'edit') {
                           showAssetEditor(context, edit: asset);
+                        } else if (value == 'delete') {
+                          confirmDeleteAsset(context, asset);
                         }
                       },
                       itemBuilder: (_) => const [
                         PopupMenuItem(
                           value: 'edit',
                           child: Text('ویرایش'),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          key: ValueKey('asset-menu-delete'),
+                          child: Text(
+                            'حذف دارایی',
+                            style: TextStyle(color: AppTheme.negative),
+                          ),
                         ),
                       ],
                     ),

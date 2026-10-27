@@ -196,6 +196,11 @@ void applyCoreOp(CoreBook b, CoreOp op) {
         b.open = [for (final x in b.open) if (x.id != id) x];
       }
       b.closed = [closed, ...b.closed];
+    case 'asset.delete':
+      final id = (a['assetId'] as num).toInt();
+      b.assets = [for (final x in b.assets) if (x.id != id) x];
+      b.open = [for (final t in b.open) if (t.assetId != id) t];
+      b.closed = [for (final t in b.closed) if (t.assetId != id) t];
     case 'trade.delete':
       final id = (a['tradeId'] as num).toInt();
       b.closed = [for (final x in b.closed) if (x.id != id) x];
@@ -317,6 +322,29 @@ class CoreOutbox extends ChangeNotifier {
     }
     notifyListeners();
     await _persist();
+  }
+
+  /// Drops queued ops for an asset that never reached the server (temp
+  /// [assetId]): its create, buys on it, and ops on its [tradeIds].
+  /// Returns how many ops were removed.
+  Future<int> dropPendingAsset(int assetId, Set<int> tradeIds) async {
+    bool hits(CoreOp o) {
+      final a = o.args;
+      int? n(String k) => a[k] is num ? (a[k] as num).toInt() : null;
+      if (o.kind == 'asset.create' && n('tmp') == assetId) return true;
+      if (o.kind == 'trade.buy' && (n('assetId') == assetId || n('asset_tmp') == assetId)) return true;
+      if (o.kind == 'asset.update' && a['asset'] is Map && (a['asset'] as Map)['id'] == assetId) return true;
+      if (n('tradeId') != null && tradeIds.contains(n('tradeId'))) return true;
+      return false;
+    }
+    final before = _ops.length;
+    _ops.removeWhere(hits);
+    final removed = before - _ops.length;
+    if (removed > 0) {
+      notifyListeners();
+      await _persist();
+    }
+    return removed;
   }
 
   /// Every temp id still waiting for the server.
@@ -441,6 +469,9 @@ Future<int?> sendCoreOp(InvestMutations svc, CoreOp op,
         quantity: _d(a['quantity']),
         sellUsdTmn: _d(a['sellUsdTmn']),
       );
+      return null;
+    case 'asset.delete':
+      await svc.deleteAsset((a['assetId'] as num).toInt());
       return null;
     case 'trade.delete':
       try {

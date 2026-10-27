@@ -79,6 +79,8 @@ class FakeCore implements InvestMutations {
       _go('close $tradeId', () => Trade(id: tradeId, assetId: 0, status: AppConfig.tradeClosed, quantity: 1, buyPrice: 1));
   @override
   Future<void> deleteClosedTrade(int tradeId) => _go('delete $tradeId', () {});
+  @override
+  Future<void> deleteAsset(int assetId) => _go('asset.delete $assetId', () {});
 }
 
 void main() {
@@ -249,6 +251,44 @@ void main() {
       final svc = FakeCore()..refuse = 'delete 5';
       expect(await ob.flush((op) => sendCoreOp(svc, op)), isFalse);
       expect(ob.ops.single.error, 'نامعتبر');
+    });
+
+    test('asset.delete hides the asset and all its trades, then sends on the real id', () async {
+      final ob = CoreOutbox();
+      await ob.bind('0915');
+      await ob.add('trade.buy', {'tmp': -40, 'assetId': 7, 'quantity': 1.0, 'buyPrice': 10.0}, 'b');
+      await ob.add('asset.delete', {'assetId': 7}, 'd');
+      final book = CoreBook(
+        assets: [Asset(id: 7, name: 'طلا'), Asset(id: 8, name: 'دلار')],
+        open: [Trade(id: 1, assetId: 7, status: AppConfig.tradeOpen, quantity: 2, buyPrice: 5), Trade(id: 2, assetId: 8, status: AppConfig.tradeOpen, quantity: 1, buyPrice: 3)],
+        closed: [Trade(id: 3, assetId: 7, status: AppConfig.tradeClosed, quantity: 1, buyPrice: 1, sellPrice: 2)],
+        withdrawals: [],
+      );
+      for (var i = 0; i < 2; i++) {
+        for (final op in ob.ops) {
+          applyCoreOp(book, op);
+        }
+      }
+      expect(book.assets.map((a) => a.id), [8]);
+      expect(book.open.map((t) => t.id), [2]);
+      expect(book.closed, isEmpty);
+      final svc = FakeCore();
+      expect(await ob.flush((op) => sendCoreOp(svc, op)), isTrue);
+      expect(svc.calls, ['buy 7', 'asset.delete 7']);
+    });
+
+    test('deleting a never-sent asset drops its queued ops and sends nothing', () async {
+      final ob = CoreOutbox();
+      await ob.bind('0916');
+      await ob.add('asset.create', {'tmp': -10, 'lot_tmp': -11, 'name': 'نقره', 'quantity': 1.0, 'avgBuyPrice': 5.0}, 'a');
+      await ob.add('trade.buy', {'tmp': -20, 'assetId': -10, 'quantity': 1.0, 'buyPrice': 6.0}, 'b');
+      await ob.add('trade.close', {'tradeId': -20, 'closed_tmp': -21, 'sellPrice': 7.0}, 'c');
+      await ob.add('wd.create', {'tmp': -30, 'amount': 50.0, 'note': ''}, 'w');
+      expect(await ob.dropPendingAsset(-10, {-11, -20, -21}), 3);
+      expect(ob.ops.map((o) => o.kind), ['wd.create']);
+      final again = CoreOutbox();
+      await again.bind('0916');
+      expect(again.length, 1, reason: 'drop is persisted');
     });
 
     test('settings pushes coalesce into one pending op', () async {

@@ -54,4 +54,7 @@ abstract class InvestMutations {
   });
 
   Future<void> deleteClosedTrade(int tradeId);
+
+  /// Removes the asset and every trade on it (open and closed). User-initiated.
+  Future<void> deleteAsset(int assetId);
 }

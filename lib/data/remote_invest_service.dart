@@ -484,6 +484,30 @@ class RemoteInvestService implements InvestMutations {
     return Trade.fromMap(Map<String, Object?>.from(data['item'] as Map));
   }
 
+  /// Asset + all its trades. Uses `POST /assets/{id}/purge` (idempotent);
+  /// an older server without that route falls back to `DELETE /assets/{id}`,
+  /// which only works when no open lot is left.
+  @override
+  Future<void> deleteAsset(int assetId) async {
+    try {
+      await _api.post('/invest/api/v1/assets/$assetId/purge', body: {'confirm': true});
+    } on InvestApiException catch (e) {
+      final code = e.statusCode;
+      if (code != 404 && code != 405) rethrow;
+      try {
+        await _api.delete('/invest/api/v1/assets/$assetId');
+      } on InvestApiException catch (old) {
+        if (old.statusCode == 404) return;
+        throw InvestApiException(
+          'سرور هنوز حذف دارایی دارای موجودی باز را پشتیبانی نمی‌کند. '
+          'پس از به‌روزرسانی سرور دوباره امتحان کنید.',
+          statusCode: old.statusCode,
+          errorCode: old.errorCode,
+        );
+      }
+    }
+  }
+
   Future<void> deleteClosedTrade(int tradeId) async {
     try {
       await _api.delete('/invest/api/v1/trades/$tradeId');

@@ -394,6 +394,14 @@ class TradeService implements InvestMutations {
     return asset;
   }
 
+  @override
+  Future<void> deleteAsset(int assetId) async {
+    for (final t in [...await trades.listOpen(), ...await trades.listClosed()]) {
+      if (t.assetId == assetId && t.id != null) await trades.delete(t.id!);
+    }
+    await assets.delete(assetId);
+  }
+
   Future<void> deleteClosedTrade(int tradeId) async {
     final trade = await trades.get(tradeId);
     if (trade == null) throw ArgumentError('معامله یافت نشد.');
