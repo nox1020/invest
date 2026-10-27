@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/data/bank_sms_store.dart';
+import 'package:invest/data/biz_store.dart';
+import 'package:invest/domain/services/bank_sms_parser.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/bank_sms_ui.dart';
@@ -141,6 +143,57 @@ void main() {
     expect(txs.where((t) => t.amount == 250000), hasLength(1));
     expect(s.cardPerson['4321'], isNotNull);
     expect(find.byKey(const ValueKey('bank-sms-card')), findsNothing);
+  });
+
+  testWidgets('system → تبلیغات: recorded as an ads cost only (offline-first)',
+      (tester) async {
+    final s = BankSmsStore.instance;
+    late BankSmsItem it;
+    await tester.runAsync(() async {
+      await PwoStore.instance.load();
+      await s.setEnabled(true);
+      await s.ingest([sms('بانک ملت\nبرداشت: 3,000,000')]);
+      it = s.pending.single;
+    });
+    final y = it.jalali.year, m = it.jalali.month;
+    BizStore.instance.debugReset();
+    BizStore.instance.debugSet(
+        BizSnapshot({
+          'year': y,
+          'years': [y],
+          'trades': [],
+          'months': [
+            for (var i = 1; i <= 12; i++)
+              {'year': y, 'month': i, 'staff': 0.0, 'pwo': 0.0, 'ads': i == m ? 50000.0 : 0.0, 'income': 0.0, 'note': '', 'has_ops': i == m}
+          ],
+        }),
+        account: '0912');
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: Directionality(
+                textDirection: TextDirection.rtl,
+                child: BankSmsConfirmSheet(item: it)))));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('sms-system-kind')), findsNothing);
+    await tester.tap(find.text('سیستم'));
+    await tester.pump();
+    await tester.tap(find.text('تبلیغات'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('sms-ads-hint')), findsOneWidget);
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('sms-save')));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pump();
+    final q = BizStore.instance.queue.items;
+    expect(q, hasLength(1)); // one ads write, no system withdrawal
+    expect(q.single.request.path, endsWith('/months/$y/$m'));
+    expect(q.single.request.body!['ads'], 350000); // added to existing 50,000
+    expect(BizStore.instance.snap.months[m - 1].ads, 350000); // shown at once
+    expect(s.pending, isEmpty);
+    expect(s.history.first.target, 'ads');
+    expect(bankSmsIsRecorded(it.tag, null, PwoStore.instance), isTrue);
+    BizStore.instance.debugReset();
   });
 
   testWidgets('duplicate warning and reject', (tester) async {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:invest/data/bank_sms_store.dart';
+import 'package:invest/data/biz_store.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/data/write_queue.dart';
 import 'package:invest/domain/services/bank_sms_parser.dart';
@@ -10,6 +11,7 @@ import 'package:invest/domain/services/pwo_ledger.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/pages/biz_page.dart' show ensureBizReady;
 import 'package:invest/ui/pages/permissions_page.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -79,6 +81,9 @@ bool bankSmsIsRecorded(String tag, AppState? app, PwoStore pwo) {
   for (final w in app?.withdrawals ?? const []) {
     if (w.note.contains(tag)) return true;
   }
+  for (final m in BizStore.instance.snap.months) {
+    if (m.note.contains(tag)) return true; // recorded as advertising
+  }
   return false;
 }
 
@@ -108,6 +113,10 @@ class BankSmsConfirmSheet extends StatefulWidget {
 class _BankSmsConfirmSheetState extends State<BankSmsConfirmSheet> {
   late final PwoStore _pwo = widget.pwo ?? PwoStore.instance;
   var _target = BankSmsTarget.personal;
+
+  /// Under «سیستم»: record as an advertising cost (monthly table) instead
+  /// of a system withdrawal. Never both.
+  bool _ads = false;
   String? _person;
   late final _amount =
       TextEditingController(text: widget.item.toman.toStringAsFixed(0));
@@ -198,20 +207,38 @@ class _BankSmsConfirmSheetState extends State<BankSmsConfirmSheet> {
         if (it.card != null) {
           await BankSmsStore.instance.setCardPerson(it.card!, _person);
         }
+      } else if (_ads) {
+        // Same path as the dashboard «ثبت مبلغ تبلیغات» shortcut.
+        final biz = BizStore.instance;
+        if (!biz.loaded || biz.account == null) {
+          await ensureBizReady(context, biz);
+        }
+        final j = it.jalali;
+        String two(int v) => v.toString().padLeft(2, '0');
+        try {
+          await biz.addAds(j.year, j.month, v.roundToDouble(),
+              date: '${j.year}/${two(j.month)}/${two(j.day)}', note: note);
+        } on WriteQueuedException {
+          // Saved offline; sent once when online.
+        }
       } else {
         final app = _app;
         if (app == null || !app.canMutate) {
-          throw StateError('در حالت آفلاین ثبت برداشت سیستم ممکن نیست.');
+          throw StateError('برای ثبت برداشت سیستم وارد حساب شوید.');
         }
         await app.recordWithdrawal(
             amount: v.roundToDouble(), note: note, createdAt: toIsoDate(it.at));
       }
       await BankSmsStore.instance.markHandled(it.fp,
           status: 'saved',
-          target: _target == BankSmsTarget.personal ? 'personal' : 'system');
+          target: _target == BankSmsTarget.personal
+              ? 'personal'
+              : (_ads ? 'ads' : 'system'));
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(const SnackBar(content: Text('برداشت ثبت شد')));
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          content: Text(_target == BankSmsTarget.system && _ads
+              ? 'در مبلغ تبلیغات ثبت شد'
+              : 'برداشت ثبت شد')));
       Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
@@ -227,7 +254,9 @@ class _BankSmsConfirmSheetState extends State<BankSmsConfirmSheet> {
   Widget build(BuildContext context) {
     final it = widget.item;
     final people = _pwo.ledger.activePeople;
-    final dup = bankSmsDuplicateHint(it, _target, _app, _pwo);
+    final dup = _target == BankSmsTarget.system && _ads
+        ? null
+        : bankSmsDuplicateHint(it, _target, _app, _pwo);
     final mq = MediaQuery.of(context);
     // Buttons sit in a fixed bar above the navigation bar and the keyboard;
     // only the fields above them scroll.
@@ -290,6 +319,32 @@ class _BankSmsConfirmSheetState extends State<BankSmsConfirmSheet> {
                     onSelectionChanged: (s) =>
                         setState(() => _target = s.first),
                   ),
+                  if (_target == BankSmsTarget.system) ...[
+                    const SizedBox(height: 8),
+                    SegmentedButton<bool>(
+                      key: const ValueKey('sms-system-kind'),
+                      segments: const [
+                        ButtonSegment(
+                            value: false,
+                            label: Text('برداشت سیستم'),
+                            icon: Icon(Icons.payments_rounded)),
+                        ButtonSegment(
+                            value: true,
+                            label: Text('تبلیغات'),
+                            icon: Icon(Icons.campaign_rounded)),
+                      ],
+                      selected: {_ads},
+                      onSelectionChanged: (s) => setState(() => _ads = s.first),
+                    ),
+                    if (_ads)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                            'در «ثبت مبلغ تبلیغات» ماه ${pwoMonthNames[it.jalali.month - 1]} ${fa('${it.jalali.year}')} جدول ماهانه ثبت می‌شود (نه برداشت).',
+                            key: const ValueKey('sms-ads-hint'),
+                            style: mutedStyle(12)),
+                      ),
+                  ],
                   const SizedBox(height: 8),
                   if (_target == BankSmsTarget.personal)
                     DropdownButtonFormField<String>(
@@ -937,7 +992,7 @@ class BankSmsPage extends StatelessWidget {
                       d.status == 'recorded'
                           ? 'قبلاً ثبت شده'
                           : d.saved
-                              ? 'ثبت‌شده · ${d.target == 'system' ? 'سیستم' : 'شخصی'}'
+                              ? 'ثبت‌شده · ${switch (d.target) { 'system' => 'سیستم', 'ads' => 'تبلیغات', _ => 'شخصی' }}'
                               : 'رد شده',
                       style: TextStyle(
                           fontSize: 12,

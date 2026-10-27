@@ -381,7 +381,8 @@ class BizStore extends ChangeNotifier {
     if (_snap.year != y) {
       throw StateError('جدول ماهانهٔ سال $y بارگیری نشد؛ دوباره تلاش کنید.');
     }
-    final cur = _snap.months.where((x) => x.year == y && x.month == m).firstOrNull;
+    // Overlaid view: an earlier ads entry still queued offline is kept.
+    final cur = snap.months.where((x) => x.year == y && x.month == m).firstOrNull;
     final ads = (cur?.ads ?? 0) + amount;
     final n = note.trim().replaceAll('\n', ' ');
     final line = 'تبلیغات $date: ${amount.round().toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',')}${n.isEmpty ? '' : ' — $n'}';
