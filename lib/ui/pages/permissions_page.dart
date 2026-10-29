@@ -150,9 +150,9 @@ class _PermissionsPageState extends State<PermissionsPage>
                     icon: Icons.battery_charging_full_rounded,
                     title: 'بهینه‌سازی باتری',
                     sub:
-                        'تا اندروید پیامک و هشدارها را در پس‌زمینه متوقف نکند.',
+                        'تا اندروید پیامک و هشدارها را در پس‌زمینه متوقف نکند. در فهرست، Invest را پیدا کنید و «بهینه‌سازی نشود» را بزنید.',
                     state: !checked ? null : c.battery,
-                    action: c.battery ? null : 'درخواست',
+                    action: c.battery ? null : 'تنظیمات',
                     onAction: () => store.requestBattery(),
                   ),
                   if (fsNeeded)

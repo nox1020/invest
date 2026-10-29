@@ -36,10 +36,10 @@ class MainActivity : FlutterFragmentActivity() {
                 }
                 "request" -> requestSms(result)
                 "requestBattery" -> {
-                    try {
-                        startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
-                    } catch (e: Throwable) {
-                        try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Throwable) {}
+                    // System list (no REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission,
+                    // a Play-policy-restricted one); falls back to app details.
+                    try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Throwable) {
+                        openSettings(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                     }
                     result.success(null)
                 }
