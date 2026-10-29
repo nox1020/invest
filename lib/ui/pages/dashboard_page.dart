@@ -289,28 +289,17 @@ class _DashboardBodyState extends State<_DashboardBody>
               stage(
                 a: 0,
                 b: 0.35,
-                child: Row(children: [
-                  const Flexible(
-                    flex: 2,
-                    child: Text('داشبورد',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: AppTheme.title,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800)),
+                child: Center(
+                  key: const ValueKey('dash-date-header'),
+                  child: Text(
+                    fa(formatDisplayDate(today, calendar)
+                        .replaceFirst(RegExp(r'^0'), '')),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: mutedStyle(12),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                        fa(formatDisplayDate(today, calendar)
-                            .replaceFirst(RegExp(r'^0'), '')),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: mutedStyle(11.5)),
-                  ),
-                ]),
+                ),
               ),
               const SizedBox(height: 12),
               ..._compactChildren(
