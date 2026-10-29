@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/data/projects_store.dart';
 import 'package:invest/domain/services/backup_payload.dart';
 import 'package:invest/ui/pages/projects_page.dart';
+import 'package:invest/ui/pages/project_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 
 Map<String, dynamic> row(int id, String title, String status,
@@ -119,6 +120,77 @@ void main() {
     expect(find.byKey(const ValueKey('proj-tile-1')), findsOneWidget);
     expect(find.byKey(const ValueKey('proj-tile-2')), findsNothing);
     expect(find.byKey(const ValueKey('proj-m-1404/01')), findsOneWidget);
+  });
+
+  testWidgets('project cards open their own detail pages, including offline and archived projects',
+      (tester) async {
+    final store = ProjectsStore.instance..debugSet(sample());
+    addTearDown(store.debugReset);
+    tester.view.physicalSize = const Size(390, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+        MaterialApp(theme: AppTheme.dark(), home: ProjectsPage(store: store)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('proj-tile-3')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('proj-detail-identity')), findsOneWidget);
+    expect(find.text('ج'), findsOneWidget);
+    expect(find.text('در جریان'), findsOneWidget);
+    expect(find.text('سود پیش‌بینی‌شده'), findsOneWidget);
+    expect(find.text('100 تومان'), findsOneWidget);
+    expect(find.text('40 تومان'), findsOneWidget);
+    expect(find.byKey(const ValueKey('proj-detail-edit')), findsNothing);
+    expect(find.text('الف'), findsNothing);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('proj-f-archived')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('proj-tile-5')));
+    await tester.pumpAndSettle();
+    expect(find.text('ه'), findsOneWidget);
+    expect(find.byKey(const ValueKey('proj-detail-archived')), findsOneWidget);
+    expect(find.textContaining('در جمع سود و زیان'), findsOneWidget);
+  });
+
+  testWidgets('project detail listens for edits and handles deleted records',
+      (tester) async {
+    final store = ProjectsStore.instance..debugSet(sample(), account: 'tester');
+    addTearDown(store.debugReset);
+    var edits = 0;
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.dark(),
+      home: ProjectDetailPage(
+        store: store,
+        projectId: 3,
+        onEdit: (context, project) async {
+          edits++;
+          expect(project.id, 3);
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('proj-detail-edit')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('proj-detail-edit')));
+    await tester.pumpAndSettle();
+    expect(edits, 1);
+
+    store.debugSet(ProjectsSnapshot({'items': [
+      row(3, 'عنوان جدید', 'finished', c: 150, cost: 70,
+          start: '1405/07/01', end: '1405/08/02'),
+    ]}), account: 'tester');
+    await tester.pumpAndSettle();
+    expect(find.text('عنوان جدید'), findsOneWidget);
+    expect(find.text('سود تحقق‌یافته'), findsOneWidget);
+    expect(find.text('80 تومان'), findsOneWidget);
+
+    store.debugSet(ProjectsSnapshot({'items': []}), account: 'tester');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('proj-detail-missing')), findsOneWidget);
+    expect(find.byKey(const ValueKey('proj-detail-edit')), findsNothing);
   });
 
   testWidgets('project dialog validates and previews profit', (tester) async {
