@@ -100,6 +100,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('ارزش پورتفو'), findsOneWidget);
+    expect(find.byKey(const ValueKey('cd-value-hero')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pv-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cd-summary')), findsNothing);
+    expect(find.text('ارزش کل سبد'), findsNothing);
+    expect(find.byKey(const ValueKey('cd-sec-value-head')), findsNothing);
     expect(find.text('سود و زیان'), findsOneWidget);
     expect(find.text('جزئیات تخصیص در تب معاملات'), findsOneWidget);
     expect(find.text('ترکیب دارایی'), findsNothing);
@@ -210,7 +215,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('نیازمند توجه'), findsOneWidget);
     expect(find.byKey(const ValueKey('fab-main')), findsOneWidget);
-    expect(find.byKey(const ValueKey('cd-summary')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cd-value-hero')), findsOneWidget);
     expect(find.byKey(const ValueKey('cd-today-strip')), findsOneWidget);
     expect(find.byKey(const ValueKey('cd-chip-cheques')), findsOneWidget);
     expect(find.byKey(const ValueKey('cd-sec-gold-body')), findsOneWidget);
@@ -235,7 +240,7 @@ void main() {
         value: state, child: const MaterialApp(home: Scaffold(body: DashboardPage()))));
     await tester.pump();
     expect(find.byKey(const ValueKey('cd-sec-gold-body')), findsNothing);
-    expect(find.byKey(const ValueKey('cd-sec-value-body')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pv-card')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
