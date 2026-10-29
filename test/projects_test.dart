@@ -187,6 +187,14 @@ void main() {
     expect(find.text('سود تحقق‌یافته'), findsOneWidget);
     expect(find.text('80 تومان'), findsOneWidget);
 
+    // The page must not show a different account's project with the same ID.
+    store.debugSet(ProjectsSnapshot({'items': [
+      row(3, 'پروژه حساب دیگر', 'active', c: 900, cost: 100),
+    ]}), account: 'other');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('proj-detail-missing')), findsOneWidget);
+    expect(find.text('پروژه حساب دیگر'), findsNothing);
+
     store.debugSet(ProjectsSnapshot({'items': []}), account: 'tester');
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('proj-detail-missing')), findsOneWidget);
