@@ -83,7 +83,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                     minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
                     child: FilledButton.icon(
                       key: const ValueKey('proj-detail-edit'),
-                      onPressed: () => _edit(project!),
+                      onPressed: () => _edit(project),
                       icon: const Icon(Icons.edit_outlined, size: 19),
                       label: const Text('ویرایش و مدیریت پروژه'),
                     ),
