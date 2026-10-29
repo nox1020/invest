@@ -23,7 +23,18 @@ class ProjectDetailPage extends StatefulWidget {
 }
 
 class _ProjectDetailPageState extends State<ProjectDetailPage> {
+  late final String? _openedAccount;
+
+  @override
+  void initState() {
+    super.initState();
+    _openedAccount = widget.store.account;
+  }
+
   Project? _currentProject() {
+    // Never resolve an ID into a different user's projects after sign-out
+    // or an account switch while this route is still open.
+    if (widget.store.account != _openedAccount) return null;
     for (final project in widget.store.snap.items) {
       if (project.id == widget.projectId) return project;
     }
