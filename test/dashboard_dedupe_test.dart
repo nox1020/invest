@@ -99,6 +99,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('داشبورد'), findsNothing);
+    final dateHeader = find.byKey(const ValueKey('dash-date-header'));
+    expect(dateHeader, findsOneWidget);
+    expect(tester.widget<Center>(dateHeader).alignment, Alignment.center);
+    expect(tester.getCenter(dateHeader).dx, closeTo(210, 0.5));
     expect(find.text('ارزش پورتفو'), findsOneWidget);
     expect(find.byKey(const ValueKey('cd-value-hero')), findsOneWidget);
     expect(find.byKey(const ValueKey('pv-card')), findsOneWidget);
