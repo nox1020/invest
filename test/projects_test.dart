@@ -147,7 +147,11 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.byKey(const ValueKey('proj-f-archived')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('proj-f-archived')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('proj-tile-5')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('proj-tile-5')));
     await tester.pumpAndSettle();
