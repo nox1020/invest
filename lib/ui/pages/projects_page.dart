@@ -13,6 +13,7 @@ import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/biz_page.dart' show parseBizDate, bizDateText;
+import 'package:invest/ui/pages/project_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
 
@@ -420,7 +421,16 @@ class ProjectTile extends StatelessWidget {
       margin: EdgeInsets.zero,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: store.readOnly ? null : () => editProject(context, store, p),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => ProjectDetailPage(
+              store: store,
+              projectId: p.id,
+              onEdit: (detailContext, current) =>
+                  editProject(detailContext, store, current),
+            ),
+          ),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -437,6 +447,8 @@ class ProjectTile extends StatelessWidget {
                 const SizedBox(width: 4),
                 const _Tag('بایگانی', AppTheme.muted, key: ValueKey('proj-archived-tag')),
               ],
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_left_rounded, color: AppTheme.muted, size: 20),
             ]),
             const SizedBox(height: 6),
             if (profit != null)
@@ -470,10 +482,7 @@ class ProjectTile extends StatelessWidget {
               if (p.endDate.isNotEmpty) kv('پایان', p.endDate),
               if (p.days != null) kv('مدت', '${p.days} روز'),
             ]),
-            if (p.note.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(p.note, style: const TextStyle(color: AppTheme.muted, fontSize: 12)),
-            ],
+
           ]),
         ),
       ),
