@@ -37,7 +37,6 @@ import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/ui/pages/price_alerts_page.dart';
 import 'package:invest/ui/widgets/dashboard_compact.dart';
 import 'package:provider/provider.dart';
-import 'package:shamsi_date/shamsi_date.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Portfolio home — one calm composition, same ledger, clearer hierarchy.
@@ -360,26 +359,6 @@ extension _CompactDash on _DashboardBodyState {
     required String? anchorsCaption,
     required bool offline,
   }) {
-    PortfolioTrend win(int days) => PortfolioTrend.window(
-          series: state.metrics?.growthSeries ?? const [],
-          todayValue: snap.holdingsValue,
-          today: today,
-          days: days,
-          openTrades: state.openTrades,
-          closedTrades: state.closedTrades,
-        );
-    final jDay = Jalali.fromDateTime(DateTime.tryParse(today) ?? DateTime.now()).day;
-    // «امروز» is only meaningful against a recent close: if the latest stored
-    // day is older than 3 days (app not opened, no server series), show «—»
-    // instead of calling a multi-day move "today".
-    var dayTrend = win(1);
-    final dBase = DateTime.tryParse(dayTrend.baseDate ?? '');
-    final tDay = DateTime.tryParse(today.length >= 10 ? today.substring(0, 10) : today);
-    if (dBase != null && tDay != null && tDay.difference(dBase).inDays > 3) {
-      dayTrend = PortfolioTrend(days: 1, endValue: snap.holdingsValue);
-    }
-    final monthTrend = win(jDay < 1 ? 1 : jDay);
-
     // «امروز» chips.
     final week = upcomingCheques(state.checks, today: today, limit: 999)
         .where((u) => u.daysLeft <= 7)
@@ -504,15 +483,23 @@ extension _CompactDash on _DashboardBodyState {
     final pendingCheques = state.checks.where((c) => c.status == checkStatusPending && !c.isArchived).length;
 
     return [
-      CompactSummaryCard(
-        nav: nav,
-        offline: offline,
-        pricesAsOf: state.pricesAsOf,
-        trend30: trend,
-        today: dayTrend,
-        month: monthTrend,
-        onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const CapitalChartPage())),
+      // Use the existing detailed valuation as the dashboard hero instead of
+      // showing a second, redundant total-value summary card.
+      Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: PortfolioValueCard(
+          key: const ValueKey('cd-value-hero'),
+          snap: snap,
+          trend: trend,
+          usdIsLive: state.usdtIsLive,
+          pricesAsOf: state.pricesAsOf,
+          offline: offline,
+          lastSyncedAt: state.lastSyncedAt,
+          projects: projects,
+          refreshing: state.refreshing,
+          onOpenCharts: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const CapitalChartPage())),
+        ),
       ),
       TodayStrip(chips: chips),
       RatesStrip(quotes: rates),
@@ -571,25 +558,6 @@ extension _CompactDash on _DashboardBodyState {
             label: const Text('شاخص کامل · کریپتو، تورم ایران، نگاه اقتصاددان'),
           ),
         ]),
-      ),
-      section(
-        id: 'value',
-        icon: Icons.account_balance_rounded,
-        color: AppTheme.positive,
-        title: 'جزئیات ارزش',
-        line: fa('معادل دلاری، نرخ زنده، چک‌ها، تخصیص و نمودار'),
-        child: PortfolioValueCard(
-          snap: snap,
-          trend: trend,
-          usdIsLive: state.usdtIsLive,
-          pricesAsOf: state.pricesAsOf,
-          offline: offline,
-          lastSyncedAt: state.lastSyncedAt,
-          projects: projects,
-          refreshing: state.refreshing,
-          onOpenCharts: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const CapitalChartPage())),
-        ),
       ),
       section(
         id: 'pnl',
