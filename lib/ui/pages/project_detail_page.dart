@@ -72,7 +72,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                     minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
                     child: FilledButton.icon(
                       key: const ValueKey('proj-detail-edit'),
-                      onPressed: () => _edit(project),
+                      onPressed: () => _edit(project!),
                       icon: const Icon(Icons.edit_outlined, size: 19),
                       label: const Text('ویرایش و مدیریت پروژه'),
                     ),
@@ -258,7 +258,7 @@ class _ProjectFinance extends StatelessWidget {
               borderRadius: BorderRadius.circular(7),
               child: LinearProgressIndicator(
                 key: const ValueKey('proj-detail-cost-ratio'),
-                value: ratio.clamp(0.0, 1.0),
+                value: ratio.clamp(0.0, 1.0).toDouble(),
                 minHeight: 7,
                 backgroundColor: AppTheme.bg,
                 color: ratio > 1 ? AppTheme.negative : AppTheme.positive,
