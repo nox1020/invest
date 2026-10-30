@@ -220,7 +220,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.runAsync(() => Future.delayed(const Duration(milliseconds: 50)));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('فروردین 1405'), 200);
+    await tester.scrollUntilVisible(find.text('فروردین 1405'), 200, alignment: 0.35);
     await tester.ensureVisible(find.text('فروردین 1405'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('فروردین 1405'));
@@ -239,17 +239,16 @@ void main() {
     expect(PwoStore.instance.ledger.months['1405-01']!.of(mId), 12500000);
 
     server.failWith = 'مبلغ نامعتبر است.';
-    await tester.tap(find.text('ثبت ماه'));
+    // Errors are still shown when editing a dated month; no manual
+    // new-month entry or duplicate-replacement dialog exists anymore.
+    await tester.ensureVisible(find.text('فروردین 1405'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('فروردین 1405'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('pwo-amount-0')), '15');
     await tester.tap(find.byKey(const ValueKey('pwo-save-month')));
     await tester.runAsync(() => Future.delayed(const Duration(milliseconds: 50)));
     await tester.pumpAndSettle();
-    // Month may already exist -> confirm replace dialog first.
-    if (find.text('جایگزین').evaluate().isNotEmpty) {
-      await tester.tap(find.text('جایگزین'));
-      await tester.runAsync(() => Future.delayed(const Duration(milliseconds: 50)));
-      await tester.pumpAndSettle();
-    }
     expect(find.text('مبلغ نامعتبر است.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
