@@ -82,8 +82,11 @@ List<PwoMonth> pwoVisibleMonths(PwoLedger ledger, int year, Jalali today) {
 
 /// PWO — monthly personal withdrawals vs. monthly target.
 class PwoPage extends StatefulWidget {
-  const PwoPage({super.key, this.store});
+  const PwoPage({super.key, this.store, this.today});
   final PwoStore? store;
+
+  /// Optional clock for deterministic tests; defaults to the device's date.
+  final DateTime? today;
 
   @override
   State<PwoPage> createState() => _PwoPageState();
@@ -132,7 +135,7 @@ class _PwoPageState extends State<PwoPage> {
               return const Center(child: CircularProgressIndicator());
             }
             final l = _store.ledger;
-            final today = Jalali.now();
+            final today = Jalali.fromDateTime(widget.today ?? DateTime.now());
             final years = <int>{...l.years, today.year}.toList()
               ..sort((a, b) => b.compareTo(a));
             final year = (_year != null && years.contains(_year))
