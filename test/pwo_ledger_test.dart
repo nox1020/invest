@@ -181,7 +181,9 @@ void main() {
     for (final kb in [0.0, 300.0]) {
       testWidgets('edit month sheet, keyboard=$kb', (tester) async {
         await boot(tester);
-        await tester.scrollUntilVisible(find.text('شهریور 1405'), 200);
+        await tester.scrollUntilVisible(find.text('شهریور 1405'), 200, alignment: 0.35);
+        await tester.ensureVisible(find.text('شهریور 1405'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('شهریور 1405'));
         await tester.pumpAndSettle();
         setKeyboard(tester, kb);
@@ -199,7 +201,9 @@ void main() {
 
       testWidgets('automatic current month sheet, keyboard=$kb', (tester) async {
         await boot(tester);
-        await tester.scrollUntilVisible(find.text('آبان 1405'), 200);
+        await tester.scrollUntilVisible(find.text('آبان 1405'), 200, alignment: 0.35);
+        await tester.ensureVisible(find.text('آبان 1405'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('آبان 1405'));
         await tester.pumpAndSettle();
         setKeyboard(tester, kb);
@@ -250,7 +254,9 @@ void main() {
       expect(l.target, 150000000);
       expect(tester.takeException(), isNull);
       // Automatic current month shows only active people (M, A, Z).
-      await tester.scrollUntilVisible(find.text('آبان 1405'), 200);
+      await tester.scrollUntilVisible(find.text('آبان 1405'), 200, alignment: 0.35);
+        await tester.ensureVisible(find.text('آبان 1405'));
+        await tester.pumpAndSettle();
       await tester.tap(find.text('آبان 1405'));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pwo-amount-2')), findsOneWidget);
