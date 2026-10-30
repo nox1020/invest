@@ -5,8 +5,30 @@ import 'package:invest/data/pwo_store.dart';
 import 'package:invest/domain/services/pwo_ledger.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shamsi_date/shamsi_date.dart';
 
 void main() {
+  test('current Jalali month is automatic, unique and does not change stored totals', () {
+    final ledger = PwoLedger()..applySeed();
+    final recordedCount = ledger.months.length;
+    final historicalTotal = ledger.yearTotal(1405);
+    final visible = pwoVisibleMonths(ledger, 1405, Jalali(1405, 8, 8));
+    expect(visible.last.key, '1405-08');
+    expect(visible.last.total, 0);
+    expect(ledger.months.length, recordedCount);
+    expect(ledger.yearTotal(1405), historicalTotal);
+    expect(pwoVisibleMonths(ledger, 1404, Jalali(1405, 8, 8)), isEmpty);
+
+    ledger.upsert(PwoMonth(year: 1405, month: 8, amounts: {'p0': 3000000}));
+    final alreadyRecorded = pwoVisibleMonths(ledger, 1405, Jalali(1405, 8, 8));
+    expect(alreadyRecorded.where((m) => m.key == '1405-08').length, 1);
+    expect(alreadyRecorded.last.total, 3000000);
+
+    final newYear = pwoVisibleMonths(ledger, 1406, Jalali(1406, 1, 1));
+    expect(newYear.single.key, '1406-01');
+    expect(ledger.months['1406-01'], isNull);
+  });
+
   test('seed adds 1405 Excel rows with correct totals', () {
     final l = PwoLedger();
     expect(l.applySeed(), isTrue);
