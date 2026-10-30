@@ -79,7 +79,7 @@ void main() {
       tester.view.physicalSize = const Size(320, 568);
       tester.view.padding = const FakeViewPadding(bottom: 48, top: 24);
       addTearDown(tester.view.reset);
-      await tester.pumpWidget(const MaterialApp(home: PwoPage()));
+      await tester.pumpWidget(MaterialApp(home: PwoPage(today: DateTime(2026, 10, 30))));
       await tester.pumpAndSettle();
     }
 
@@ -175,9 +175,10 @@ void main() {
         expect(PwoStore.instance.ledger.months['1405-06']!.of('p1'), 37000000);
       });
 
-      testWidgets('new month sheet, keyboard=$kb', (tester) async {
+      testWidgets('automatic current month sheet, keyboard=$kb', (tester) async {
         await boot(tester);
-        await tester.tap(find.text('ثبت ماه'));
+        await tester.scrollUntilVisible(find.text('آبان 1405'), 200);
+        await tester.tap(find.text('آبان 1405'));
         await tester.pumpAndSettle();
         setKeyboard(tester, kb);
         await tester.pumpAndSettle();
@@ -226,8 +227,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(l.target, 150000000);
       expect(tester.takeException(), isNull);
-      // New month form shows only active people (M, A, Z).
-      await tester.tap(find.text('ثبت ماه'));
+      // Automatic current month shows only active people (M, A, Z).
+      await tester.scrollUntilVisible(find.text('آبان 1405'), 200);
+      await tester.tap(find.text('آبان 1405'));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pwo-amount-2')), findsOneWidget);
       expect(find.byKey(const ValueKey('pwo-amount-3')), findsNothing);
