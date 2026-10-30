@@ -17,7 +17,7 @@ Future<void> boot(WidgetTester tester, {Size size = const Size(320, 568)}) async
         body: Center(
           child: TextButton(
             onPressed: () => Navigator.of(c)
-                .push(MaterialPageRoute(builder: (_) => const PwoPage())),
+                .push(MaterialPageRoute(builder: (_) => PwoPage(today: DateTime(2026, 10, 30)))),
             child: const Text('open'),
           ),
         ),
@@ -71,44 +71,34 @@ void main() {
     expect(m.of('p1'), 1234);
   });
 
-  testWidgets('replacing an existing month keeps archived people amounts',
+  testWidgets('editing a historical month retains archived people amounts',
       (tester) async {
     await boot(tester);
     final store = PwoStore.instance;
     // N (p2) has history -> archived; 1405-06 still has N = 30M.
     await tester.runAsync(() => store.removePerson('p2'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('ثبت ماه'));
-    await tester.pumpAndSettle();
-    // Default month is "now"; pick شهریور 1405 explicitly.
-    await tester.tap(find.byType(DropdownButtonFormField<int>).first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('شهریور').last);
-    await tester.pumpAndSettle();
+    await openMonth(tester, 'شهریور 1405');
     await tester.enterText(find.byKey(const ValueKey('pwo-amount-0')), '1');
     await tester.tap(find.byKey(const ValueKey('pwo-save-month')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('جایگزین'));
     await tester.pumpAndSettle();
     final m = store.ledger.months['1405-06']!;
     expect(m.of('p0'), 1000000);
     expect(m.of('p2'), 30000000);
   });
 
-  testWidgets('moving a month onto an existing one asks first', (tester) async {
+  testWidgets('historical month date is fixed and cannot overwrite another month',
+      (tester) async {
     await boot(tester);
     await openMonth(tester, 'شهریور 1405');
-    await tester.tap(find.byType(DropdownButtonFormField<int>).first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('مرداد').last);
-    await tester.pumpAndSettle();
+    expect(find.byType(DropdownButtonFormField<int>), findsNothing);
+    expect(find.text('ماه و سال بر اساس تاریخ تعیین شده‌اند و قابل تغییر نیستند.'),
+        findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('pwo-amount-0')), '2');
     await tester.tap(find.byKey(const ValueKey('pwo-save-month')));
     await tester.pumpAndSettle();
-    expect(find.text('جایگزین'), findsOneWidget);
-    await tester.tap(find.text('انصراف'));
-    await tester.pumpAndSettle();
     expect(PwoStore.instance.ledger.months['1405-05']!.of('p0'), 309300000);
-    expect(PwoStore.instance.ledger.months['1405-06'], isNotNull);
+    expect(PwoStore.instance.ledger.months['1405-06']!.of('p0'), 2000000);
   });
 
   test('duplicate active names are rejected locally', () async {
@@ -150,12 +140,26 @@ void main() {
     expect(PwoStore.instance.ledger.target, pwoDefaultTarget);
   });
 
-  testWidgets('no add-month button before data is loaded', (tester) async {
+  testWidgets('current Jalali month appears automatically without add-month button',
+      (tester) async {
     SharedPreferences.setMockInitialValues({});
     PwoStore.instance.debugReset();
-    await tester.pumpWidget(const MaterialApp(home: PwoPage()));
-    expect(find.text('ثبت ماه'), findsNothing);
+    await tester.pumpWidget(MaterialApp(
+        home: PwoPage(today: DateTime(2026, 10, 30))));
     await tester.pumpAndSettle();
-    expect(find.text('ثبت ماه'), findsOneWidget);
+    expect(find.text('ثبت ماه'), findsNothing);
+    expect(find.text('آبان 1405'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pwo-current-month-placeholder')),
+        findsOneWidget);
+    expect(PwoStore.instance.ledger.months['1405-08'], isNull);
+    expect(PwoStore.instance.ledger.yearTotal(1405), 1786630000);
+    await tester.scrollUntilVisible(find.text('آبان 1405'), 200);
+    await tester.tap(find.text('آبان 1405'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pwo-delete-month')), findsNothing);
+    await tester.enterText(find.byKey(const ValueKey('pwo-amount-0')), '12');
+    await tester.tap(find.byKey(const ValueKey('pwo-save-month')));
+    await tester.pumpAndSettle();
+    expect(PwoStore.instance.ledger.months['1405-08']!.of('p0'), 12000000);
   });
 }
