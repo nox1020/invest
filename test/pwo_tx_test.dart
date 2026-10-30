@@ -47,7 +47,9 @@ void main() {
     }
 
     Future<void> openMonth(WidgetTester tester, String label) async {
-      await tester.scrollUntilVisible(find.text(label), 200);
+      await tester.scrollUntilVisible(find.text(label), 200, alignment: 0.35);
+    await tester.ensureVisible(find.text(label));
+    await tester.pumpAndSettle();
       await tester.tap(find.text(label));
       await tester.pumpAndSettle();
     }
