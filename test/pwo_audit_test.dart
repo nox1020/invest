@@ -29,7 +29,9 @@ Future<void> boot(WidgetTester tester, {Size size = const Size(320, 568)}) async
 }
 
 Future<void> openMonth(WidgetTester tester, String label) async {
-  await tester.scrollUntilVisible(find.text(label), 200);
+  await tester.scrollUntilVisible(find.text(label), 200, alignment: 0.35);
+    await tester.ensureVisible(find.text(label));
+    await tester.pumpAndSettle();
   await tester.tap(find.text(label));
   await tester.pumpAndSettle();
 }
@@ -150,7 +152,9 @@ void main() {
     expect(find.text('ثبت ماه'), findsNothing);
     expect(PwoStore.instance.ledger.months['1405-08'], isNull);
     expect(PwoStore.instance.ledger.yearTotal(1405), 1786630000);
-    await tester.scrollUntilVisible(find.text('آبان 1405'), 200);
+    await tester.scrollUntilVisible(find.text('آبان 1405'), 200, alignment: 0.35);
+    await tester.ensureVisible(find.text('آبان 1405'));
+    await tester.pumpAndSettle();
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('pwo-current-month-placeholder')),
         findsOneWidget);
