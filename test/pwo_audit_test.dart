@@ -148,12 +148,12 @@ void main() {
         home: PwoPage(today: DateTime(2026, 10, 30))));
     await tester.pumpAndSettle();
     expect(find.text('ثبت ماه'), findsNothing);
-    expect(find.text('آبان 1405'), findsOneWidget);
-    expect(find.byKey(const ValueKey('pwo-current-month-placeholder')),
-        findsOneWidget);
     expect(PwoStore.instance.ledger.months['1405-08'], isNull);
     expect(PwoStore.instance.ledger.yearTotal(1405), 1786630000);
     await tester.scrollUntilVisible(find.text('آبان 1405'), 200);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pwo-current-month-placeholder')),
+        findsOneWidget);
     await tester.tap(find.text('آبان 1405'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('pwo-delete-month')), findsNothing);
