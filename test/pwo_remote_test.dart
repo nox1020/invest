@@ -220,7 +220,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.runAsync(() => Future.delayed(const Duration(milliseconds: 50)));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('فروردین 1405'), 200, alignment: 0.35);
+    await tester.scrollUntilVisible(find.text('فروردین 1405'), 200);
     await tester.ensureVisible(find.text('فروردین 1405'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('فروردین 1405'));
