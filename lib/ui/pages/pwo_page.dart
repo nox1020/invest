@@ -68,6 +68,18 @@ const _bad = AppTheme.negative;
 /// Withdrawal (برداشت) amounts are always red; deposits (واریز) green.
 const pwoWithdrawalColor = AppTheme.negative;
 
+/// Show the current Jalali month without writing empty rows to the server or
+/// counting unrecorded withdrawals as actual activity in financial reports.
+List<PwoMonth> pwoVisibleMonths(PwoLedger ledger, int year, Jalali today) {
+  final result = ledger.monthsOf(year);
+  if (year == today.year &&
+      !ledger.months.containsKey(pwoMonthKey(today.year, today.month))) {
+    result.add(PwoMonth(year: today.year, month: today.month));
+    result.sort((a, b) => a.month.compareTo(b.month));
+  }
+  return result;
+}
+
 /// PWO — monthly personal withdrawals vs. monthly target.
 class PwoPage extends StatefulWidget {
   const PwoPage({super.key, this.store});
@@ -107,16 +119,6 @@ class _PwoPageState extends State<PwoPage> {
             ),
           ],
         ),
-        floatingActionButton: ListenableBuilder(
-          listenable: _store,
-          builder: (context, _) => !_store.loaded
-              ? const SizedBox.shrink()
-              : FloatingActionButton.extended(
-                  onPressed: _saving ? null : () => _edit(null),
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('ثبت ماه'),
-                ),
-        ),
         body: ListenableBuilder(
           listenable: _store,
           builder: (context, _) {
@@ -130,11 +132,14 @@ class _PwoPageState extends State<PwoPage> {
               return const Center(child: CircularProgressIndicator());
             }
             final l = _store.ledger;
-            final years = l.years;
+            final today = Jalali.now();
+            final years = <int>{...l.years, today.year}.toList()
+              ..sort((a, b) => b.compareTo(a));
             final year = (_year != null && years.contains(_year))
                 ? _year!
-                : (years.isNotEmpty ? years.first : Jalali.now().year);
+                : today.year;
             final months = l.monthsOf(year);
+            final visibleMonths = pwoVisibleMonths(l, year, today);
             return RefreshIndicator(
               onRefresh: () => _store.refresh(),
               child: ListView(
@@ -191,8 +196,9 @@ class _PwoPageState extends State<PwoPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  for (final m in months.reversed)
+                  for (final m in visibleMonths.reversed)
                     _MonthTile(
+                      automatic: !l.months.containsKey(m.key),
                       month: m,
                       prev: l.previousOf(m),
                       ledger: l,
@@ -208,7 +214,9 @@ class _PwoPageState extends State<PwoPage> {
     );
   }
 
-  Future<void> _edit(PwoMonth? existing) async {
+  Future<void> _edit(PwoMonth existing) async {
+    if (_saving) return;
+    final recorded = _store.ledger.months.containsKey(existing.key);
     final res = await showModalBottomSheet<PwoMonth>(
       context: context,
       isScrollControlled: true,
@@ -217,11 +225,7 @@ class _PwoPageState extends State<PwoPage> {
         store: _store,
         existing: existing,
         people: _store.ledger.peopleFor(existing),
-        defaultYear: _year ??
-            (_store.ledger.years.isNotEmpty
-                ? _store.ledger.years.first
-                : Jalali.now().year),
-        onDelete: existing == null
+        onDelete: !recorded
             ? null
             : () async {
                 Navigator.pop(ctx);
@@ -230,35 +234,7 @@ class _PwoPageState extends State<PwoPage> {
               },
       ),
     );
-    if (res == null || _saving) return;
-    final clash = _store.ledger.months[res.key];
-    if (clash != null && res.key != existing?.key) {
-      if (!mounted) return;
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (c) => AlertDialog(
-          content: Text(
-              '${pwoMonthNames[res.month - 1]} ${res.year} قبلاً ثبت شده. جایگزین شود؟'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(c, false),
-                child: const Text('انصراف')),
-            FilledButton(
-                onPressed: () => Navigator.pop(c, true),
-                child: const Text('جایگزین')),
-          ],
-        ),
-      );
-      if (ok != true) return;
-      // Keep amounts the form did not show (e.g. archived people).
-      final shown = _store.ledger.peopleFor(existing).map((p) => p.id).toSet();
-      clash.amounts.forEach((k, v) {
-        if (!shown.contains(k) && !res.amounts.containsKey(k)) {
-          res.amounts[k] = v;
-        }
-      });
-    }
-    if (!mounted) return;
+    if (res == null || _saving || !mounted) return;
     setState(() => _saving = true);
     final ok =
         await _guard(context, () => _store.saveMonth(res, replacing: existing));
@@ -388,12 +364,14 @@ class _MonthTile extends StatelessWidget {
     required this.ledger,
     required this.target,
     required this.onTap,
+    this.automatic = false,
   });
   final PwoMonth month;
   final PwoMonth? prev;
   final PwoLedger ledger;
   final double target;
   final VoidCallback onTap;
+  final bool automatic;
 
   @override
   Widget build(BuildContext context) =>
@@ -401,12 +379,12 @@ class _MonthTile extends StatelessWidget {
 
   Widget _inner(BuildContext context) {
     final ok = month.withinTarget(target);
-    final c = ok ? _good : _bad;
+    final c = automatic ? AppTheme.muted : (ok ? _good : _bad);
     String? delta;
     // Month-over-month: withdrawing LESS than last month is good (green),
     // MORE is red, equal / first month neutral. Amount and delta agree.
     final dc = pwoTrendColor(month.total, prev?.total);
-    if (prev != null) {
+    if (prev != null && !automatic) {
       final d = month.total - prev!.total;
       final pct = prev!.total > 0 ? d / prev!.total * 100 : null;
       final arrow = d < 0
@@ -434,7 +412,7 @@ class _MonthTile extends StatelessWidget {
               Row(
                 children: [
                   // Same check icon either way; colour says within/over.
-                  Icon(Icons.check_circle_rounded,
+                  Icon(automatic ? Icons.schedule_rounded : Icons.check_circle_rounded,
                       key: ValueKey('pwo-check-${month.year}-${month.month}'),
                       color: c,
                       size: 20),
@@ -452,10 +430,15 @@ class _MonthTile extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 6),
-              Text([
-                for (final p in ledger.peopleFor(month))
-                  '${p.name}: ${_mil(month.of(p.id))}'
-              ].join('  ·  ')),
+              if (automatic)
+                const Text('ماه جاری · هنوز برداشتی ثبت نشده؛ برای ثبت لمس کنید',
+                    key: ValueKey('pwo-current-month-placeholder'),
+                    style: TextStyle(color: AppTheme.muted, fontSize: 12))
+              else
+                Text([
+                  for (final p in ledger.peopleFor(month))
+                    '${p.name}: ${_mil(month.of(p.id))}'
+                ].join('  ·  ')),
               if (delta != null)
                 Text(delta,
                     key: ValueKey('pwo-delta-${month.year}-${month.month}'),
@@ -564,13 +547,11 @@ class _MonthEditor extends StatefulWidget {
   const _MonthEditor({
     required this.existing,
     required this.people,
-    required this.defaultYear,
     this.onDelete,
     this.store,
   });
-  final PwoMonth? existing;
+  final PwoMonth existing;
   final List<PwoPerson> people;
-  final int defaultYear;
   final PwoStore? store;
   final VoidCallback? onDelete;
 
@@ -579,19 +560,12 @@ class _MonthEditor extends StatefulWidget {
 }
 
 class _MonthEditorState extends State<_MonthEditor> {
-  late int _year = widget.existing?.year ?? widget.defaultYear;
-
-  /// A month with single withdrawals keeps its month/year (they belong to it).
-  bool get _locked => (widget.existing?.txs.isNotEmpty ?? false);
-  late int _month = widget.existing?.month ?? _nextMonth();
   late final List<TextEditingController> _c = [
     for (final p in widget.people)
       TextEditingController(
-          text: _millionsText(widget.existing?.baseOf(p.id) ?? 0)),
+          text: _millionsText(widget.existing.baseOf(p.id))),
   ];
   String? _error;
-
-  int _nextMonth() => Jalali.now().month;
 
   @override
   void dispose() {
@@ -603,7 +577,6 @@ class _MonthEditorState extends State<_MonthEditor> {
 
   @override
   Widget build(BuildContext context) {
-    final years = [for (var y = _year - 2; y <= _year + 1; y++) y];
     return _SheetFrame(
       footer: Row(
         children: [
@@ -624,42 +597,11 @@ class _MonthEditorState extends State<_MonthEditor> {
         ],
       ),
       children: [
-        Text(widget.existing == null ? 'ثبت برداشت ماه' : 'ویرایش ماه',
+        Text('برداشت‌های ${pwoMonthNames[widget.existing.month - 1]} ${widget.existing.year}',
             style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<int>(
-                isExpanded: true,
-                initialValue: _month,
-                decoration: const InputDecoration(labelText: 'ماه'),
-                items: [
-                  for (var m = 1; m <= 12; m++)
-                    DropdownMenuItem(
-                        value: m, child: Text(pwoMonthNames[m - 1])),
-                ],
-                onChanged: _locked
-                    ? null
-                    : (v) => setState(() => _month = v ?? _month),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: DropdownButtonFormField<int>(
-                isExpanded: true,
-                initialValue: _year,
-                decoration: const InputDecoration(labelText: 'سال'),
-                items: [
-                  for (final y in years)
-                    DropdownMenuItem(value: y, child: Text('$y')),
-                ],
-                onChanged:
-                    _locked ? null : (v) => setState(() => _year = v ?? _year),
-              ),
-            ),
-          ],
-        ),
+        const SizedBox(height: 6),
+        const Text('ماه و سال بر اساس تاریخ تعیین شده‌اند و قابل تغییر نیستند.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 12)),
         const SizedBox(height: 12),
         for (var i = 0; i < widget.people.length; i++) ...[
           TextField(
@@ -671,19 +613,19 @@ class _MonthEditorState extends State<_MonthEditor> {
             ],
             decoration: InputDecoration(
               labelText: 'برداشت ${widget.people[i].name} (میلیون تومان)',
-              helperText: (widget.existing?.txOf(widget.people[i].id) ?? 0) > 0
-                  ? '+ برداشت‌های تکی: ${_mil(widget.existing!.txOf(widget.people[i].id))}'
+              helperText: widget.existing.txOf(widget.people[i].id) > 0
+                  ? '+ برداشت‌های تکی: ${_mil(widget.existing.txOf(widget.people[i].id))}'
                   : null,
             ),
           ),
           const SizedBox(height: 8),
         ],
         if (_error != null) Text(_error!, style: const TextStyle(color: _bad)),
-        if (widget.existing != null && widget.store != null)
+        if (widget.store != null)
           _MonthTxSection(
             store: widget.store!,
-            year: widget.existing!.year,
-            month: widget.existing!.month,
+            year: widget.existing.year,
+            month: widget.existing.month,
           ),
       ],
     );
@@ -704,13 +646,14 @@ class _MonthEditorState extends State<_MonthEditor> {
       vals[widget.people[i].id] = (v * 1000000).roundToDouble();
     }
     // Keep amounts of people not shown in this form (never drop data).
-    final old = widget.existing;
-    if (old != null) {
-      old.amounts.forEach((k, v) {
-        if (!widget.people.any((p) => p.id == k)) vals[k] = v;
-      });
-    }
-    Navigator.pop(context, PwoMonth(year: _year, month: _month, amounts: vals));
+    widget.existing.amounts.forEach((k, v) {
+      if (!widget.people.any((p) => p.id == k)) vals[k] = v;
+    });
+    Navigator.pop(context, PwoMonth(
+      year: widget.existing.year,
+      month: widget.existing.month,
+      amounts: vals,
+    ));
   }
 }
 
