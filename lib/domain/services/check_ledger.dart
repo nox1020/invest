@@ -1,7 +1,19 @@
 import 'package:invest/domain/models/bank_check.dart';
+import 'package:invest/domain/models/check_payment.dart';
 
 /// Which slice of the cheque book the list is showing.
-enum CheckListFilter { all, receivable, payable, pending, due, bounced, settled, archived }
+enum CheckListFilter {
+  all,
+  receivable,
+  payable,
+  pending,
+  due,
+  bounced,
+  settled,
+  check,
+  deposit,
+  archived
+}
 
 /// Open cheques that should raise a due reminder (overdue through 7 days).
 const checkReminderWithinDays = 7;
@@ -41,10 +53,10 @@ class ChequeNavEffect {
     for (final check in checks) {
       if (check.status != checkStatusPending || check.isArchived) continue;
       if (check.isReceivable) {
-        receivable += check.amount;
+        receivable += check.remainingAmount;
         receivableCount++;
       } else if (check.isPayable) {
-        payable += check.amount;
+        payable += check.remainingAmount;
         payableCount++;
       }
     }
@@ -142,19 +154,19 @@ class CheckLedger {
     for (final c in checks) {
       if (c.isArchived) continue;
       if (c.countsAsReceivable) {
-        openReceivable += c.amount;
+        openReceivable += c.remainingAmount;
         openReceivableCount++;
       }
       if (c.countsAsDebt) {
-        debts += c.amount;
+        debts += c.remainingAmount;
         debtCount++;
       }
       if (c.isReceivable && c.isBounced) {
-        bouncedReceivable += c.amount;
+        bouncedReceivable += c.remainingAmount;
         bouncedReceivableCount++;
       }
       if (c.isPayable && c.isBounced) {
-        bouncedPayable += c.amount;
+        bouncedPayable += c.remainingAmount;
       }
       if (c.isReceivable && c.status == checkStatusCleared) {
         clearedReceivable += c.amount;
@@ -165,10 +177,10 @@ class CheckLedger {
       if (!c.isOpen) continue;
       final days = c.daysUntilDue(now);
       if (days < 0) {
-        overdueAmount += c.amount;
+        overdueAmount += c.remainingAmount;
         overdueCount++;
       } else if (days <= 7) {
-        dueSoonAmount += c.amount;
+        dueSoonAmount += c.remainingAmount;
         dueSoonCount++;
       }
       if (next == null || c.dueDate.compareTo(next.dueDate) < 0) {
@@ -231,6 +243,8 @@ bool _matchesFilter(BankCheck c, CheckListFilter filter, DateTime today) {
     CheckListFilter.due => c.isOpen && c.daysUntilDue(today) <= 7,
     CheckListFilter.bounced => c.isBounced,
     CheckListFilter.settled => c.isSettled,
+    CheckListFilter.check => c.isCheck,
+    CheckListFilter.deposit => c.isDeposit,
   };
 }
 
@@ -246,6 +260,8 @@ bool _matchesQuery(BankCheck c, String query) {
     c.directionLabel,
     c.statusLabel,
     c.pendingPlaceLabel,
+    c.kindLabel,
+    c.paymentStateLabel,
   ].join(' '));
   return hay.contains(asciiDigits(query));
 }
@@ -275,7 +291,11 @@ bool sameCheckContent(BankCheck a, BankCheck b) {
       (!(a.endorseFromServer || b.endorseFromServer) ||
           (a.endorsedTo == b.endorsedTo && a.endorsedFor == b.endorsedFor)) &&
       // An older server never stores the flag; do not resend forever.
-      (!(a.archiveFromServer || b.archiveFromServer) || a.isArchived == b.isArchived);
+      (!(a.archiveFromServer || b.archiveFromServer) ||
+          a.isArchived == b.isArchived) &&
+      (!(a.kindFromServer || b.kindFromServer) || a.kind == b.kind) &&
+      (!(a.paymentsFromServer || b.paymentsFromServer) ||
+          samePaymentLists(a.payments, b.payments));
 }
 
 /// Local rows the device still has to send before it can trust the server book.
@@ -333,7 +353,12 @@ List<BankCheck> checksNeedingReminder(
 /// A server that does not know `archived_at` returns rows without it; keep
 /// the flag from the device copy so archiving is never silently undone.
 BankCheck keepLocalArchive(BankCheck remote, Iterable<BankCheck> local) {
-  if (remote.archiveFromServer && remote.endorseFromServer) return remote;
+  if (remote.archiveFromServer &&
+      remote.endorseFromServer &&
+      remote.kindFromServer &&
+      remote.paymentsFromServer) {
+    return remote;
+  }
   for (final row in local) {
     if (row.id == remote.id) {
       var out = remote;
@@ -342,7 +367,18 @@ BankCheck keepLocalArchive(BankCheck remote, Iterable<BankCheck> local) {
       }
       // A server without the «خرج شده» fields must not erase them.
       if (!remote.endorseFromServer) {
-        out = out.copyWith(endorsedTo: row.endorsedTo, endorsedFor: row.endorsedFor);
+        out = out.copyWith(
+            endorsedTo: row.endorsedTo, endorsedFor: row.endorsedFor);
+      }
+      if (!remote.kindFromServer) {
+        out = out.copyWith(kind: row.kind, kindFromServer: row.kindFromServer);
+      }
+      // A server that does not echo payments must not wipe local history.
+      if (!remote.paymentsFromServer) {
+        out = out.copyWith(
+          payments: row.payments,
+          paymentsFromServer: row.paymentsFromServer,
+        );
       }
       return out;
     }

@@ -99,7 +99,7 @@ class AppDatabase {
     final path = p.join(dir.path, 'invest.db');
     return openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: (db, version) async {
         await db.execute('PRAGMA foreign_keys = ON');
         await _createSchema(db);
@@ -120,6 +120,10 @@ class AppDatabase {
         }
         if (oldVersion < 6) {
           await addCheckEndorseColumns(db);
+        }
+        if (oldVersion < 7) {
+          await addCheckKindColumn(db);
+          await ensureCheckPaymentsTable(db);
         }
       },
       onOpen: (db) async {
@@ -187,6 +191,26 @@ CREATE TABLE IF NOT EXISTS capital_snapshots (
     await db.execute(CheckRepository.createSql);
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_checks_due ON checks(due_date)',
+    );
+    await ensureCheckPaymentsTable(db);
+  }
+
+  /// Additive: existing cheques become kind=check.
+  static Future<void> addCheckKindColumn(DatabaseExecutor db) async {
+    try {
+      await db.execute(
+        "ALTER TABLE checks ADD COLUMN kind TEXT NOT NULL DEFAULT 'check'",
+      );
+    } catch (_) {
+      // Column already present (fresh v7 table created with it).
+    }
+  }
+
+  /// Separate table so payment history survives checks.replaceAll.
+  static Future<void> ensureCheckPaymentsTable(DatabaseExecutor db) async {
+    await db.execute(CheckRepository.createPaymentsSql);
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_check_payments_check_id ON check_payments(check_id)',
     );
   }
 

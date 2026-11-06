@@ -242,7 +242,7 @@ class _DashboardBodyState extends State<_DashboardBody>
       SpeedDialAction(
           id: 'qa-check',
           icon: Icons.receipt_rounded,
-          label: 'ثبت چک',
+          label: 'ثبت تراکنش',
           onTap: () => openChecksPage(context)),
       SpeedDialAction(
           id: 'qa-withdraw',
@@ -303,23 +303,23 @@ class _DashboardBodyState extends State<_DashboardBody>
               ),
               const SizedBox(height: 12),
               ..._compactChildren(
-                  context,
-                  state: state,
-                  snap: snap,
-                  trend: trend,
-                  usdt: usdt,
-                  today: today,
-                  pwo: pwo,
-                  projects: projects,
-                  alerts: alerts,
-                  upcoming: upcoming,
-                  openAlert: openAlert,
-                  openPwo: openPwo,
-                  yoy: yoy,
-                  anchorsCaption: anchors.caption,
-                  offline:
-                      !conn.isOnline && conn != AppConnectionStatus.localOnly,
-                ),
+                context,
+                state: state,
+                snap: snap,
+                trend: trend,
+                usdt: usdt,
+                today: today,
+                pwo: pwo,
+                projects: projects,
+                alerts: alerts,
+                upcoming: upcoming,
+                openAlert: openAlert,
+                openPwo: openPwo,
+                yoy: yoy,
+                anchorsCaption: anchors.caption,
+                offline:
+                    !conn.isOnline && conn != AppConnectionStatus.localOnly,
+              ),
               const SizedBox(height: 28),
             ],
           ),
@@ -328,7 +328,6 @@ class _DashboardBodyState extends State<_DashboardBody>
     );
   }
 }
-
 
 extension _CompactDash on _DashboardBodyState {
   List<Widget> _compactChildren(
@@ -368,7 +367,8 @@ extension _CompactDash on _DashboardBodyState {
         TodayChip(
             id: 'overdue',
             icon: Icons.warning_amber_rounded,
-            label: '${week.where((u) => u.daysLeft < 0).length} چک سررسید گذشته',
+            label:
+                '${week.where((u) => u.daysLeft < 0).length} چک سررسید گذشته',
             color: AppTheme.negative,
             onTap: () => openChecksPage(context)),
       if (week.any((u) => u.daysLeft >= 0))
@@ -404,9 +404,10 @@ extension _CompactDash on _DashboardBodyState {
     ];
 
     // Holdings split by class (same kind rule as the valuation).
-    AssetKind kindOf(Asset a) => TradeService.isGoldAsset(a.name, a.symbol, a.notes)
-        ? AssetKind.gold
-        : detectAssetKind(name: a.name, symbol: a.symbol, notes: a.notes);
+    AssetKind kindOf(Asset a) =>
+        TradeService.isGoldAsset(a.name, a.symbol, a.notes)
+            ? AssetKind.gold
+            : detectAssetKind(name: a.name, symbol: a.symbol, notes: a.notes);
     final gold = <({Asset asset, HoldingMetrics metrics})>[];
     final fx = <({Asset asset, HoldingMetrics metrics})>[];
     final other = <({Asset asset, HoldingMetrics metrics})>[];
@@ -431,7 +432,8 @@ extension _CompactDash on _DashboardBodyState {
 
     Widget rows(List<({Asset asset, HoldingMetrics metrics})> l) => Column(
           children: [
-            for (final h in [...l]..sort((a, b) => b.metrics.marketValue.compareTo(a.metrics.marketValue)))
+            for (final h in [...l]..sort((a, b) =>
+                b.metrics.marketValue.compareTo(a.metrics.marketValue)))
               CompactHoldingRow(
                 name: h.asset.name,
                 value: h.metrics.marketValue,
@@ -469,7 +471,9 @@ extension _CompactDash on _DashboardBodyState {
     final goldPct = pctOf(gold);
     final fxPct = pctOf(fx);
     final otherPct = pctOf(other);
-    final pendingCheques = state.checks.where((c) => c.status == checkStatusPending && !c.isArchived).length;
+    final pendingCheques = state.checks
+        .where((c) => c.status == checkStatusPending && !c.isArchived)
+        .length;
 
     return [
       // Use the existing detailed valuation as the dashboard hero instead of
@@ -487,7 +491,8 @@ extension _CompactDash on _DashboardBodyState {
           projects: projects,
           refreshing: state.refreshing,
           onOpenCharts: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const CapitalChartPage())),
+              MaterialPageRoute<void>(
+                  builder: (_) => const CapitalChartPage())),
         ),
       ),
       TodayStrip(chips: chips),
@@ -497,17 +502,23 @@ extension _CompactDash on _DashboardBodyState {
           padding: const EdgeInsets.only(bottom: 10),
           child: Text(fa(anchorsCaption),
               key: const ValueKey('cd-anchor-caption'),
-              style: const TextStyle(color: AppTheme.muted, fontSize: 11, height: 1.4)),
+              style: const TextStyle(
+                  color: AppTheme.muted, fontSize: 11, height: 1.4)),
         ),
-      if (pwo != null) PwoProgressCard(summary: pwo, monthLabel: pwoMonthLabel(pwo.month), onTap: openPwo),
+      if (pwo != null)
+        PwoProgressCard(
+            summary: pwo, monthLabel: pwoMonthLabel(pwo.month), onTap: openPwo),
       section(
         id: 'index',
         icon: Icons.candlestick_chart_rounded,
         color: const Color(0xFF5AC8FA),
         title: 'شاخص بازار',
-        line: fa('${state.commodityIndex.length} نرخ${state.wallexMarkets.isEmpty ? '' : ' · ${state.wallexMarkets.length} بازار کریپتو'} · تورم و نگاه اقتصاددان'),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          for (final q in state.commodityIndex.where((q) => q.price != null && q.price! > 0))
+        line: fa(
+            '${state.commodityIndex.length} نرخ${state.wallexMarkets.isEmpty ? '' : ' · ${state.wallexMarkets.length} بازار کریپتو'} · تورم و نگاه اقتصاددان'),
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          for (final q in state.commodityIndex
+              .where((q) => q.price != null && q.price! > 0))
             InkWell(
               key: ValueKey('cd-index-${q.id}'),
               onTap: () => openQuoteDetail(context, q),
@@ -517,20 +528,40 @@ extension _CompactDash on _DashboardBodyState {
                   Icon(q.icon, size: 16, color: AppTheme.muted),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text(q.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: AppTheme.text, fontSize: 13, fontWeight: FontWeight.w600)),
+                    child: Text(q.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: AppTheme.text,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600)),
                   ),
                   Flexible(
-                    child: Text(fa(q.formatPrice(compact: true)), maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: AppTheme.title, fontSize: 13, fontWeight: FontWeight.w700)),
+                    child: Text(fa(q.formatPrice(compact: true)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: AppTheme.title,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700)),
                   ),
                   const SizedBox(width: 6),
-                  if (q.change24h != null && q.change24h != 0) TrendArrow(q.change24h!, size: 18),
+                  if (q.change24h != null && q.change24h != 0)
+                    TrendArrow(q.change24h!, size: 18),
                   SizedBox(
                     width: 52,
-                    child: Text(q.change24h == null ? '—' : fa(formatPct(q.change24h!.abs()).replaceAll('+', '')),
+                    child: Text(
+                        q.change24h == null
+                            ? '—'
+                            : fa(formatPct(q.change24h!.abs())
+                                .replaceAll('+', '')),
                         textAlign: TextAlign.end,
-                        style: TextStyle(color: q.change24h == null ? AppTheme.muted : toneOf(q.change24h!), fontSize: 11.5, fontWeight: FontWeight.w700)),
+                        style: TextStyle(
+                            color: q.change24h == null
+                                ? AppTheme.muted
+                                : toneOf(q.change24h!),
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700)),
                   ),
                 ]),
               ),
@@ -554,9 +585,14 @@ extension _CompactDash on _DashboardBodyState {
         color: toneOf(snap.totalPnl),
         title: 'سود و زیان',
         line: 'باز، تحقق‌یافته، امسال و مقایسه سالانه',
-        value: signedToman(snap.totalPnl + state.realizedBreakdown.property + state.realizedBreakdown.projects),
-        valueColor: toneOf(snap.totalPnl + state.realizedBreakdown.property + state.realizedBreakdown.projects),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        value: signedToman(snap.totalPnl +
+            state.realizedBreakdown.property +
+            state.realizedBreakdown.projects),
+        valueColor: toneOf(snap.totalPnl +
+            state.realizedBreakdown.property +
+            state.realizedBreakdown.projects),
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Align(
             alignment: AlignmentDirectional.centerEnd,
             child: _FxToggle(usd: _usd, onChanged: _setUsd),
@@ -566,10 +602,17 @@ extension _CompactDash on _DashboardBodyState {
             const Padding(
               padding: EdgeInsets.only(bottom: 10),
               child: _HintBanner(
-                text: 'دلار فقط با بهای خرید ثبت‌شده محاسبه می‌شود. برای لات‌های بدون دلار، «—» می‌بینید.',
+                text:
+                    'دلار فقط با بهای خرید ثبت‌شده محاسبه می‌شود. برای لات‌های بدون دلار، «—» می‌بینید.',
               ),
             ),
-          _PnlLedger(snap: snap, usd: _usd, yoy: yoy, projects: projects, property: state.realizedBreakdown.property, usdt: usdt ?? 0),
+          _PnlLedger(
+              snap: snap,
+              usd: _usd,
+              yoy: yoy,
+              projects: projects,
+              property: state.realizedBreakdown.property,
+              usdt: usdt ?? 0),
         ]),
       ),
       if (alerts.isNotEmpty)
@@ -611,7 +654,8 @@ extension _CompactDash on _DashboardBodyState {
           icon: Icons.category_rounded,
           color: AppTheme.muted,
           title: 'سایر دارایی‌ها',
-          line: fa('${other.length} دارایی · ${formatCompactToman(sumV(other))}'),
+          line:
+              fa('${other.length} دارایی · ${formatCompactToman(sumV(other))}'),
           value: otherPct == null ? null : signedPct(otherPct),
           valueColor: otherPct == null ? AppTheme.muted : toneOf(otherPct),
           child: rows(other),
@@ -623,14 +667,21 @@ extension _CompactDash on _DashboardBodyState {
         title: 'چک‌ها',
         line: upcoming.isEmpty
             ? fa('$pendingCheques چک باز')
-            : fa('$pendingCheques چک باز · نزدیک‌ترین ${upcoming.first.daysLeft < 0 ? 'سررسید گذشته' : '${upcoming.first.daysLeft} روز دیگر'}'),
-        value: snap.chequeNav.affectsNav ? signedToman(snap.chequeNav.net) : null,
+            : fa(
+                '$pendingCheques چک باز · نزدیک‌ترین ${upcoming.first.daysLeft < 0 ? 'سررسید گذشته' : '${upcoming.first.daysLeft} روز دیگر'}'),
+        value:
+            snap.chequeNav.affectsNav ? signedToman(snap.chequeNav.net) : null,
         valueColor: toneOf(snap.chequeNav.net),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const ChecksDashboardCard(digits: fa),
           if (upcoming.isNotEmpty) ...[
             const SizedBox(height: 8),
-            DashUpcomingCheques(key: const ValueKey('dash-upcoming'), items: upcoming, calendar: state.settings.calendar, onTap: () => openChecksPage(context)),
+            DashUpcomingCheques(
+                key: const ValueKey('dash-upcoming'),
+                items: upcoming,
+                calendar: state.settings.calendar,
+                onTap: () => openChecksPage(context)),
           ],
         ]),
       ),
@@ -639,7 +690,9 @@ extension _CompactDash on _DashboardBodyState {
         icon: Icons.account_balance_wallet_rounded,
         color: AppTheme.positive,
         title: 'برداشت و PWO',
-        line: pwo == null ? 'سهمیه سالانه برداشت' : '${pwoMonthLabel(pwo.month)} · جدول و سهمیه',
+        line: pwo == null
+            ? 'سهمیه سالانه برداشت'
+            : '${pwoMonthLabel(pwo.month)} · جدول و سهمیه',
         child: DashPwoCard(
           summary: pwo,
           withdrawable: state.withdrawableAmount,
@@ -654,7 +707,8 @@ extension _CompactDash on _DashboardBodyState {
           icon: Icons.engineering_rounded,
           color: const Color(0xFFB38CFF),
           title: 'پروژه‌ها',
-          line: fa('${projects.activeCount} فعال · ${projects.finishedCount} تمام‌شده'),
+          line: fa(
+              '${projects.activeCount} فعال · ${projects.finishedCount} تمام‌شده'),
           value: signedToman(projects.sheetProfit),
           valueColor: toneOf(projects.sheetProfit),
           child: const ProjectsDashboardCard(digits: fa),
@@ -673,8 +727,11 @@ extension _CompactDash on _DashboardBodyState {
           icon: Icons.donut_large_rounded,
           color: AppTheme.muted,
           title: 'ترکیب',
-          line: fa('${snap.holdingCount} دارایی · ${snap.openLotCount} لات باز'),
-          child: DashAssetMix(valuation: snap.valuation!, onOpen: () => _openTradesTab(context)),
+          line:
+              fa('${snap.holdingCount} دارایی · ${snap.openLotCount} لات باز'),
+          child: DashAssetMix(
+              valuation: snap.valuation!,
+              onOpen: () => _openTradesTab(context)),
         ),
       LastUpdatedLine(at: state.lastSyncedAt),
     ];
@@ -765,7 +822,8 @@ class _PnlLedger extends StatelessWidget {
           toman: snap.realizedPnl + property + (projects?.realized ?? 0),
           usd: snap.realizedUsd == null || usdt <= 0
               ? null
-              : snap.realizedUsd! + (property + (projects?.realized ?? 0)) / usdt,
+              : snap.realizedUsd! +
+                  (property + (projects?.realized ?? 0)) / usdt,
         ),
     ];
 

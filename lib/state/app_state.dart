@@ -38,6 +38,7 @@ import 'package:invest/domain/services/backup_service.dart';
 import 'package:invest/domain/services/chart_series.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/check_ledger.dart';
+import 'package:invest/domain/services/check_payments.dart';
 import 'package:invest/domain/services/commodity_index_service.dart';
 import 'package:invest/domain/services/iran_inflation_service.dart';
 import 'package:invest/domain/services/notification_service.dart';
@@ -89,7 +90,8 @@ class _RefreshStepException implements Exception {
 /// App-wide state — online (Vinor API), offline cache, or local SQLite.
 /// Realized profit by source (toman).
 class RealizedBreakdown {
-  const RealizedBreakdown({this.trades = 0, this.property = 0, this.projects = 0});
+  const RealizedBreakdown(
+      {this.trades = 0, this.property = 0, this.projects = 0});
   final double trades;
   final double property;
   final double projects;
@@ -178,8 +180,12 @@ class AppState extends ChangeNotifier {
       if (!_checksPendingSyncV && dirtyCheckIds.isEmpty) {
         await prefs.remove(_checkSyncKey);
       } else {
-        await prefs.setString(_checkSyncKey,
-            jsonEncode({'pending': _checksPendingSyncV, 'dirty': dirtyCheckIds.toList()}));
+        await prefs.setString(
+            _checkSyncKey,
+            jsonEncode({
+              'pending': _checksPendingSyncV,
+              'dirty': dirtyCheckIds.toList()
+            }));
       }
     } catch (_) {}
   }
@@ -1130,10 +1136,10 @@ class AppState extends ChangeNotifier {
       final bundle = await _putRemoteSettings(
         includeChecks: sentChecks != null,
         // Rows still waiting in the outbox (temp ids) are never mirrored.
-        clientWithdrawals: (clientWithdrawals ??
-                (_withdrawalsHydrated ? withdrawals : null))
-            ?.where((w) => (w.id ?? 0) >= 0)
-            .toList(),
+        clientWithdrawals:
+            (clientWithdrawals ?? (_withdrawalsHydrated ? withdrawals : null))
+                ?.where((w) => (w.id ?? 0) >= 0)
+                .toList(),
         clientChecks: sentChecks,
       );
       settings = bundle.settings;
@@ -1158,8 +1164,8 @@ class AppState extends ChangeNotifier {
     List<Withdrawal>? clientWithdrawals,
     List<BankCheck>? clientChecks,
   }) async {
-    final withdrawals = clientWithdrawals ??
-        (_withdrawalsHydrated ? this.withdrawals : null);
+    final withdrawals =
+        clientWithdrawals ?? (_withdrawalsHydrated ? this.withdrawals : null);
     Future<RemoteSettingsBundle> send(List<BankCheck>? checks) {
       return remote!.saveSettings(
         settings,
@@ -1170,8 +1176,9 @@ class AppState extends ChangeNotifier {
       );
     }
 
-    final checksToSend =
-        includeChecks ? (clientChecks ?? (_checksHydrated ? checks : null)) : null;
+    final checksToSend = includeChecks
+        ? (clientChecks ?? (_checksHydrated ? checks : null))
+        : null;
     try {
       return await send(checksToSend);
     } on InvestApiException catch (e) {
@@ -1185,8 +1192,8 @@ class AppState extends ChangeNotifier {
   void _noteCheckEcho(RemoteSettingsBundle bundle) {
     if (_checksFromRemote) return;
     if (!_checksHydrated && checks.isEmpty) return;
-    final echoed = bundle.serverEchoedChecks &&
-        sameCheckIds(bundle.echoedChecks, checks);
+    final echoed =
+        bundle.serverEchoedChecks && sameCheckIds(bundle.echoedChecks, checks);
     if (echoed) {
       _checksPendingSync = false;
       checkSyncError = null;
@@ -1225,7 +1232,8 @@ class AppState extends ChangeNotifier {
       () => _applyRemoteLockFromBundle(bundle, migrateLocal: migrate),
     );
     await _local('settings-persist', () => _persistSettingsLocal(settings));
-    await _local('settings-prefs-save', () => PriceAlertPrefs.saveFrom(settings));
+    await _local(
+        'settings-prefs-save', () => PriceAlertPrefs.saveFrom(settings));
     await _local('settings-worker', () => BackgroundPriceWorker.sync(settings));
 
     final shouldMigrateLock = migrate &&
@@ -1247,7 +1255,8 @@ class AppState extends ChangeNotifier {
         await AppLockStore.saveHash('');
         appLockHash = null;
         appLockEnabled = false;
-        if (bundle.appLockBiometric == false || bundle.appLockBiometric == null) {
+        if (bundle.appLockBiometric == false ||
+            bundle.appLockBiometric == null) {
           biometricUnlockEnabled = false;
           await AppLockStore.saveBiometricEnabled(false);
         }
@@ -1381,9 +1390,8 @@ class AppState extends ChangeNotifier {
       // A book already on screen stays (read-only) even if the disk cache
       // cannot be read; before, this path left offline+writable with a raw
       // error banner and the auto-probe never ran again (stuck «connecting»).
-      final hadBook = assets.isNotEmpty ||
-          openTrades.isNotEmpty ||
-          closedTrades.isNotEmpty;
+      final hadBook =
+          assets.isNotEmpty || openTrades.isNotEmpty || closedTrades.isNotEmpty;
       final loaded = hadBook || await _applyPortfolioCache();
       if (loaded) {
         readOnlyOffline = true;
@@ -1479,7 +1487,6 @@ class AppState extends ChangeNotifier {
     }
     return local;
   }
-
 }
 
 class BackupRestoreReport {
