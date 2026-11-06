@@ -18,7 +18,8 @@ void main() {
       File('android/app/src/main/res/drawable/$name.png').existsSync(),
       isTrue,
     );
-    final keep = File('android/app/src/main/res/raw/keep.xml').readAsStringSync();
+    final keep =
+        File('android/app/src/main/res/raw/keep.xml').readAsStringSync();
     expect(keep.contains('@drawable/$name'), isTrue);
   });
 
@@ -57,6 +58,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('پورتفوی خالی است'), findsOneWidget);
-    expect(find.text('مدیریت چک‌ها'), findsOneWidget);
+    expect(find.text('مدیریت تراکنش‌ها'), findsOneWidget);
   });
 }

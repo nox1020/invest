@@ -62,7 +62,8 @@ extension AppStateChecks on AppState {
 
   Future<List<BankCheck>> _readStashedChecks() async {
     try {
-      final raw = await AppState.checkBookCache.read(AccountCache.norm(userPhone));
+      final raw =
+          await AppState.checkBookCache.read(AccountCache.norm(userPhone));
       if (raw == null || raw.isEmpty) return const [];
       final decoded = jsonDecode(raw);
       if (decoded is! List) return const [];
@@ -377,9 +378,9 @@ extension AppStateChecks on AppState {
   }) {
     return emitLocalAlert(
       kind: NotificationKind.checks,
-      title: isNew ? 'چک ثبت شد' : 'چک ویرایش شد',
+      title: isNew ? '${item.kindLabel} ثبت شد' : '${item.kindLabel} ویرایش شد',
       body:
-          '${item.directionLabel} · ${item.statusLabel} · ${formatMoney(item.amount)}',
+          '${item.kindLabel} · ${item.directionLabel} · ${item.statusLabel} · ${formatMoney(item.amount)}',
     );
   }
 
@@ -421,6 +422,34 @@ extension AppStateChecks on AppState {
     return result.synced;
   }
 
+  /// Record a partial or full payment. Full settlement of the current
+  /// remaining amount marks the row cleared.
+  Future<({BankCheck check, bool synced})> recordCheckPayment(
+    BankCheck item, {
+    required double amount,
+    String? paidAt,
+    String note = '',
+  }) {
+    final next = applyCheckPayment(
+      item,
+      prepareCheckPayment(
+        item: item,
+        amount: amount,
+        paidAt: paidAt,
+        note: note,
+      ),
+    );
+    return saveCheck(next);
+  }
+
+  Future<({BankCheck check, bool synced})> settleCheckPayment(
+    BankCheck item, {
+    String? paidAt,
+    String note = '',
+  }) {
+    return saveCheck(settleCheckInFull(item, paidAt: paidAt, note: note));
+  }
+
   int get archivedCheckCount => checks.where((c) => c.isArchived).length;
 
   Future<bool> deleteCheck(BankCheck item) async {
@@ -433,7 +462,10 @@ extension AppStateChecks on AppState {
     if (id == null) {
       throw ArgumentError('شناسه چک نامعتبر است.');
     }
-    final next = [for (final row in checks) if (row.id != id) row];
+    final next = [
+      for (final row in checks)
+        if (row.id != id) row
+    ];
     if (_checksApiReady) {
       try {
         await remote!.deleteCheck(id);
@@ -660,7 +692,9 @@ extension AppStateChecks on AppState {
             ...groups.overdue,
             ...groups.dueSoon,
             ...groups.bounced,
-          ]).where((c) => !c.isArchived && !archivedIds.contains(c.id)).toList();
+          ])
+              .where((c) => !c.isArchived && !archivedIds.contains(c.id))
+              .toList();
         }
       } on InvestApiException {
         // The book on the device still knows which cheques are due.

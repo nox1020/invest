@@ -55,7 +55,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('مدیریت چک‌ها'), findsOneWidget);
+    expect(find.text('مدیریت تراکنش‌ها'), findsOneWidget);
     expect(find.text('در انتظار'), findsWidgets);
     expect(find.text('رضا'), findsOneWidget);
     expect(find.text('شرکت آریا'), findsOneWidget);
@@ -71,7 +71,7 @@ void main() {
     expect(find.text('رضا'), findsNothing);
     expect(find.text('شرکت آریا'), findsOneWidget);
 
-    await tester.tap(find.text('ثبت چک'));
+    await tester.tap(find.text('ثبت تراکنش'));
     await tester.pumpAndSettle();
     expect(find.text('مبلغ (تومان)'), findsOneWidget);
     expect(find.text('تاریخ سررسید'), findsOneWidget);
@@ -128,7 +128,8 @@ void main() {
     expect(find.text('نزد صندوق'), findsWidgets);
   });
 
-  testWidgets('settings drops the cheque section and the dashboard card still opens the book',
+  testWidgets(
+      'settings drops the cheque section and the dashboard card still opens the book',
       (tester) async {
     final state = AppState()
       ..loading = false
@@ -157,7 +158,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('مدیریت چک‌ها'), findsNothing);
+    expect(find.text('مدیریت تراکنش‌ها'), findsNothing);
     expect(find.text('چک‌ها'), findsNothing);
     expect(find.text('پشتیبان‌گیری'), findsOneWidget);
     expect(find.text('صدور پشتیبان'), findsOneWidget);
@@ -170,10 +171,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('مدیریت چک‌ها'));
+    await tester.tap(find.text('مدیریت تراکنش‌ها'));
     await tester.pumpAndSettle();
     expect(find.byType(ChecksPage), findsOneWidget);
-    expect(find.text('ثبت چک'), findsOneWidget);
+    expect(find.text('ثبت تراکنش'), findsOneWidget);
   });
 
   testWidgets('cheque details scroll on small, typical, and large phones',
@@ -184,7 +185,8 @@ void main() {
       Size(840, 1200),
     ];
     const scales = <double>[1, 1.3, 1.5];
-    final note = '${'یادداشت خیلی طولانی برای شرح چک و طرف حساب. ' * 12}پایان یادداشت';
+    final note =
+        '${'یادداشت خیلی طولانی برای شرح چک و طرف حساب. ' * 12}پایان یادداشت';
     final bank = 'بانک ${'سپه صادرات ملت ' * 8}';
     final payee = 'شرکت ${'بازرگانی بین المللی پارس ' * 6}';
     final state = AppState()
@@ -206,8 +208,7 @@ void main() {
           purpose: 'بابت ${'تسویه قرارداد فروش کالا و خدمات ' * 4}',
           note: 'مبلغ به حروف: ۱۲۳۴۵۶۷۸۹۰۱۲۳۴ تومان. $note',
           status: checkStatusPending,
-          statusLabelFromServer:
-              'نزد صندوق — ${'در انتظار وصول از شعبه ' * 3}',
+          statusLabelFromServer: 'نزد صندوق — ${'در انتظار وصول از شعبه ' * 3}',
         ),
       ];
 
@@ -232,7 +233,8 @@ void main() {
         await tester.pumpAndSettle();
 
         if (find.text('ویرایش').evaluate().isNotEmpty) {
-          final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+          final navigator =
+              tester.state<NavigatorState>(find.byType(Navigator));
           navigator.pop();
           await tester.pumpAndSettle();
         }
@@ -357,7 +359,8 @@ void main() {
     expect(find.widgetWithText(OutlinedButton, 'پاس شده'), findsOneWidget);
   });
 
-  testWidgets('small phone, large text, and keyboard keep cheque actions visible',
+  testWidgets(
+      'small phone, large text, and keyboard keep cheque actions visible',
       (tester) async {
     final note = '${'شرح بسیار طولانی قرارداد و یادداشت چک. ' * 10}پایان شرح';
     final state = AppState()

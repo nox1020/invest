@@ -1,3 +1,4 @@
+import 'package:invest/domain/models/check_payment.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/json_values.dart';
 
@@ -30,6 +31,18 @@ const checkStatuses = <String>[
   checkStatusCancelled,
 ];
 
+/// Paper or Sayad cheque (چک).
+const checkKindCheck = 'check';
+
+/// Security deposit (ودیعه).
+const checkKindDeposit = 'deposit';
+
+const checkKinds = <String>[checkKindCheck, checkKindDeposit];
+
+const paymentStateUnpaid = 'unpaid';
+const paymentStatePartial = 'partial';
+const paymentStatePaid = 'paid';
+
 /// One paper or Sayad cheque in the personal ledger.
 class BankCheck {
   BankCheck({
@@ -52,6 +65,10 @@ class BankCheck {
     this.settledDate,
     this.archivedAt,
     this.archiveFromServer = false,
+    this.kind = checkKindCheck,
+    this.kindFromServer = false,
+    this.payments = const <CheckPayment>[],
+    this.paymentsFromServer = false,
     this.createdAt = '',
     this.updatedAt = '',
     this.statusLabelFromServer,
@@ -96,6 +113,18 @@ class BankCheck {
   /// True when the row came from a server that knows `archived_at`. An older
   /// server drops the field, so the device copy keeps the flag instead.
   bool archiveFromServer;
+
+  /// `check` or `deposit`. Existing rows default to cheque.
+  String kind;
+
+  /// True when the row came from a server that stores `kind`.
+  bool kindFromServer;
+
+  /// Local payment history. Lives in `check_payments`, not the checks row.
+  List<CheckPayment> payments;
+
+  /// True when the payload included a `payments` key.
+  bool paymentsFromServer;
   String createdAt;
   String updatedAt;
 
@@ -106,6 +135,82 @@ class BankCheck {
 
   bool get isReceivable => direction == checkDirectionReceivable;
   bool get isPayable => direction == checkDirectionPayable;
+  bool get isCheck => kind == checkKindCheck;
+  bool get isDeposit => kind == checkKindDeposit;
+
+  String get kindLabel => switch (kind) {
+        checkKindDeposit => 'ودیعه',
+        _ => 'چک',
+      };
+
+  double get recordedPaid =>
+      payments.fold<double>(0, (sum, row) => sum + row.amount);
+
+  /// Amount treated as paid for remaining-balance math.
+  ///
+  /// Historical cleared / endorsed / cancelled rows without payment history
+  /// count as fully settled so old books keep a zero remaining balance.
+  double get paidAmount {
+    if (status == checkStatusCleared ||
+        status == checkStatusEndorsed ||
+        status == checkStatusCancelled) {
+      return amount;
+    }
+    if (recordedPaid > amount) return amount;
+    return recordedPaid < 0 ? 0 : recordedPaid;
+  }
+
+  /// What is still collectable or owed. Cancelled and endorsed items are
+  /// closed. Bounced items keep their face value and cannot take payments.
+  double get remainingAmount {
+    if (status == checkStatusCancelled ||
+        status == checkStatusEndorsed ||
+        status == checkStatusCleared) {
+      return 0;
+    }
+    if (status == checkStatusBounced) return amount;
+    final left = amount - paidAmount;
+    return left < 0 ? 0 : left;
+  }
+
+  String get paymentState {
+    if (remainingAmount <= 0.001) return paymentStatePaid;
+    if (paidAmount > 0.001) return paymentStatePartial;
+    return paymentStateUnpaid;
+  }
+
+  String get paymentStateLabel => switch (paymentState) {
+        paymentStatePaid => 'پرداخت‌شده',
+        paymentStatePartial => 'پرداخت جزئی',
+        _ => 'پرداخت‌نشده',
+      };
+
+  bool get canAcceptPayment {
+    if (isArchived) return false;
+    if (status == checkStatusCancelled ||
+        status == checkStatusBounced ||
+        status == checkStatusEndorsed) {
+      return false;
+    }
+    return remainingAmount > 0.001;
+  }
+
+  String get paymentBlockReason {
+    if (isArchived) return 'تراکنش بایگانی‌شده را نمی‌توان پرداخت کرد.';
+    if (status == checkStatusCancelled) {
+      return 'تراکنش باطل را نمی‌توان پرداخت کرد.';
+    }
+    if (status == checkStatusBounced) {
+      return 'تراکنش برگشتی را نمی‌توان پرداخت کرد.';
+    }
+    if (status == checkStatusEndorsed) {
+      return 'چک خرج‌شده را نمی‌توان پرداخت کرد.';
+    }
+    if (remainingAmount <= 0.001) {
+      return 'مانده‌ای برای پرداخت نمانده است.';
+    }
+    return 'این تراکنش قابل پرداخت نیست.';
+  }
 
   /// Still an open promise (نزد صندوق، صادرشده، یا برگشتی).
   bool get isOpen =>
@@ -156,7 +261,7 @@ class BankCheck {
   String get statusLabel {
     final fromServer = statusLabelFromServer?.trim() ?? '';
     if (fromServer.isNotEmpty) return fromServer;
-    return labelForCheckStatus(status, receivable: isReceivable);
+    return labelForCheckStatus(status, receivable: isReceivable, kind: kind);
   }
 
   /// Where a pending cheque sits. Matches the server badge.
@@ -187,6 +292,7 @@ class BankCheck {
   String get identityLabel {
     if (checkNumber.trim().isNotEmpty) return 'شماره ${checkNumber.trim()}';
     if (sayadId.trim().isNotEmpty) return 'صیاد ${sayadId.trim()}';
+    if (isDeposit) return kindLabel;
     return 'بدون شماره';
   }
 
@@ -212,6 +318,10 @@ class BankCheck {
     String? archivedAt,
     bool clearArchived = false,
     bool? archiveFromServer,
+    String? kind,
+    bool? kindFromServer,
+    List<CheckPayment>? payments,
+    bool? paymentsFromServer,
     String? createdAt,
     String? updatedAt,
     String? statusLabelFromServer,
@@ -237,18 +347,20 @@ class BankCheck {
       endorsedFor: endorsedFor ?? this.endorsedFor,
       endorseFromServer: endorseFromServer ?? this.endorseFromServer,
       status: status ?? this.status,
-      settledDate:
-          clearSettledDate ? null : (settledDate ?? this.settledDate),
+      settledDate: clearSettledDate ? null : (settledDate ?? this.settledDate),
       archivedAt: clearArchived ? null : (archivedAt ?? this.archivedAt),
       archiveFromServer: archiveFromServer ?? this.archiveFromServer,
+      kind: kind ?? this.kind,
+      kindFromServer: kindFromServer ?? this.kindFromServer,
+      payments: payments ?? this.payments,
+      paymentsFromServer: paymentsFromServer ?? this.paymentsFromServer,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       statusLabelFromServer: statusChanged
           ? null
           : (statusLabelFromServer ?? this.statusLabelFromServer),
-      dueLabelFromServer: dueChanged
-          ? null
-          : (dueLabelFromServer ?? this.dueLabelFromServer),
+      dueLabelFromServer:
+          dueChanged ? null : (dueLabelFromServer ?? this.dueLabelFromServer),
       daysUntilDueFromServer: dueChanged
           ? null
           : (daysUntilDueFromServer ?? this.daysUntilDueFromServer),
@@ -281,7 +393,12 @@ class BankCheck {
       status: _statusOf(m['status']),
       settledDate: _optionalDateOf(m['settled_date'] ?? m['settledDate']),
       archivedAt: _optionalText(m['archived_at'] ?? m['archivedAt']),
-      archiveFromServer: m.containsKey('archived_at') || m.containsKey('is_archived'),
+      archiveFromServer:
+          m.containsKey('archived_at') || m.containsKey('is_archived'),
+      kind: _kindOf(m['kind']),
+      kindFromServer: m.containsKey('kind'),
+      payments: _paymentsOf(m['payments']),
+      paymentsFromServer: m.containsKey('payments'),
       createdAt: text(m['created_at'], m['createdAt']),
       updatedAt: text(m['updated_at'], m['updatedAt']),
       statusLabelFromServer: _optionalText(m['status_label']),
@@ -308,9 +425,18 @@ class BankCheck {
         'status': status,
         'settled_date': settledDate,
         'archived_at': archivedAt,
+        'kind': kind,
+        'payments': payments.map((p) => p.toMap()).toList(),
         'created_at': createdAt,
         'updated_at': updatedAt,
       };
+
+  /// SQLite `checks` row: no nested payment list.
+  Map<String, Object?> toRow() {
+    final row = Map<String, Object?>.from(toMap());
+    row.remove('payments');
+    return row;
+  }
 }
 
 DateTime _calendarDate(String iso) {
@@ -358,10 +484,21 @@ String asciiDigits(String raw) {
 String normalizeSayadId(String raw) =>
     asciiDigits(raw).replaceAll(RegExp(r'\D'), '');
 
-String _foldLabel(String raw) =>
-    raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+String _foldLabel(String raw) => raw.trim().replaceAll(RegExp(r'\s+'), ' ');
 
-String labelForCheckStatus(String status, {required bool receivable}) {
+String labelForCheckStatus(
+  String status, {
+  required bool receivable,
+  String kind = checkKindCheck,
+}) {
+  if (kind == checkKindDeposit) {
+    return switch (status) {
+      checkStatusPending => 'در انتظار',
+      checkStatusCleared => 'تسویه شده',
+      checkStatusCancelled => 'باطل',
+      _ => status,
+    };
+  }
   return switch (status) {
     checkStatusPending => receivable ? 'نزد صندوق' : 'صادر شده',
     checkStatusCleared => receivable ? 'وصول شده' : 'پاس شده',
@@ -370,6 +507,26 @@ String labelForCheckStatus(String status, {required bool receivable}) {
     checkStatusCancelled => 'باطل',
     _ => status,
   };
+}
+
+String _kindOf(Object? raw) {
+  final t = '$raw'.trim();
+  if (t.isEmpty) return checkKindCheck;
+  if (t == checkKindDeposit || t == 'ودیعه' || t == 'deposit') {
+    return checkKindDeposit;
+  }
+  if (t == checkKindCheck || t == 'چک' || t == 'cheque') {
+    return checkKindCheck;
+  }
+  return checkKinds.contains(t) ? t : checkKindCheck;
+}
+
+List<CheckPayment> _paymentsOf(Object? raw) {
+  if (raw is! List) return const <CheckPayment>[];
+  return [
+    for (final entry in raw)
+      if (entry is Map) CheckPayment.fromMap(Map<String, Object?>.from(entry)),
+  ];
 }
 
 String _directionOf(Object? raw) {
@@ -468,15 +625,18 @@ BankCheck prepareBankCheck(
           ? checkDirectionReceivable
           : '';
   if (direction.isEmpty) {
-    throw ArgumentError('نوع چک را مشخص کنید: دریافتی یا پرداختی.');
+    throw ArgumentError('نوع را مشخص کنید: دریافتی یا پرداختی.');
   }
+
+  final kind = _kindOf(draft.kind);
+  final amountLabel = kind == checkKindDeposit ? 'ودیعه' : 'چک';
 
   final amount = draft.amount;
   if (amount.isNaN || amount.isInfinite || amount <= 0) {
-    throw ArgumentError('مبلغ چک باید بزرگ‌تر از صفر باشد.');
+    throw ArgumentError('مبلغ $amountLabel باید بزرگ‌تر از صفر باشد.');
   }
   if (amount > 1e16) {
-    throw ArgumentError('مبلغ چک نامعتبر است.');
+    throw ArgumentError('مبلغ $amountLabel نامعتبر است.');
   }
 
   final issue = tryNormalizeToIso(draft.issueDate);
@@ -493,7 +653,7 @@ BankCheck prepareBankCheck(
 
   final number = _foldLabel(asciiDigits(draft.checkNumber));
   final sayad = normalizeSayadId(draft.sayadId);
-  if (number.isEmpty && sayad.isEmpty) {
+  if (kind == checkKindCheck && number.isEmpty && sayad.isEmpty) {
     throw ArgumentError('شماره چک یا شناسه صیادی را وارد کنید.');
   }
   if (number.length > 32) {
@@ -506,6 +666,9 @@ BankCheck prepareBankCheck(
   final bank = _clip(_foldLabel(draft.bankName), 48, 'نام بانک');
   final branch = _clip(_foldLabel(draft.branch), 48, 'شعبه');
   final party = _clip(_foldLabel(draft.counterparty), 80, 'طرف حساب');
+  if (kind == checkKindDeposit && party.isEmpty) {
+    throw ArgumentError('طرف حساب ودیعه را وارد کنید.');
+  }
   final purpose = _clip(_foldLabel(draft.purpose), 120, 'بابت');
   final note = _clip(draft.note.trim(), 300, 'یادداشت');
   final endorsedTo = _clip(_foldLabel(draft.endorsedTo), 80, 'خرج شده به');
@@ -513,6 +676,10 @@ BankCheck prepareBankCheck(
 
   var status = draft.status.trim();
   if (!checkStatuses.contains(status)) status = checkStatusPending;
+  if (kind == checkKindDeposit &&
+      (status == checkStatusEndorsed || status == checkStatusBounced)) {
+    throw ArgumentError('ودیعه را نمی‌توان برگشتی یا خرج‌شده ثبت کرد.');
+  }
   if (direction == checkDirectionPayable && status == checkStatusEndorsed) {
     throw ArgumentError('چک پرداختی را نمی‌توان خرج‌شده ثبت کرد.');
   }
@@ -522,10 +689,14 @@ BankCheck prepareBankCheck(
     if (other.id != null && other.id == selfId) continue;
     // Cancelled rows release both the Sayad id and the bank number.
     if (other.status == checkStatusCancelled) continue;
-    if (sayad.isNotEmpty && normalizeSayadId(other.sayadId) == sayad) {
+    if (sayad.isNotEmpty &&
+        other.isCheck &&
+        normalizeSayadId(other.sayadId) == sayad) {
       throw ArgumentError('این شناسه صیادی قبلاً ثبت شده است.');
     }
-    if (number.isNotEmpty &&
+    if (kind == checkKindCheck &&
+        number.isNotEmpty &&
+        other.isCheck &&
         other.direction == direction &&
         _foldLabel(asciiDigits(other.checkNumber)) == number &&
         _foldLabel(other.bankName) == bank) {
@@ -557,6 +728,10 @@ BankCheck prepareBankCheck(
     settledDate: settled,
     archivedAt: draft.archivedAt,
     archiveFromServer: draft.archiveFromServer,
+    kind: kind,
+    kindFromServer: draft.kindFromServer,
+    payments: draft.payments,
+    paymentsFromServer: draft.paymentsFromServer,
     createdAt: draft.createdAt,
     updatedAt: draft.updatedAt,
   );

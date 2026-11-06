@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:invest/ui/widgets/pending_sync_mark.dart';
 import 'package:invest/domain/models/bank_check.dart';
+import 'package:invest/domain/models/check_payment.dart';
 import 'package:invest/domain/services/check_ledger.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
@@ -89,7 +90,7 @@ class ChecksDashboardCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
-                      'مدیریت چک‌ها',
+                      'مدیریت تراکنش‌ها',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -108,7 +109,7 @@ class ChecksDashboardCard extends StatelessWidget {
               const SizedBox(height: 12),
               if (state.checks.isEmpty)
                 const Text(
-                  'چک دریافتی و پرداختی را با مبلغ، تاریخ صدور و سررسید ثبت کنید.',
+                  'چک و ودیعهٔ دریافتی و پرداختی را با مبلغ و تاریخ ثبت کنید.',
                   textAlign: TextAlign.right,
                   style: TextStyle(
                     color: AppTheme.muted,
@@ -123,10 +124,9 @@ class ChecksDashboardCard extends StatelessWidget {
                       child: _MiniStat(
                         label: 'بدهی',
                         value: digits(formatMoney(book.debts)),
-                        hint: digits('${book.debtCount} چک پرداختی'),
-                        color: book.debts > 0
-                            ? AppTheme.negative
-                            : AppTheme.title,
+                        hint: digits('${book.debtCount} پرداختی'),
+                        color:
+                            book.debts > 0 ? AppTheme.negative : AppTheme.title,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -149,7 +149,8 @@ class ChecksDashboardCard extends StatelessWidget {
                       : digits('خالص بدهی ${formatMoney(book.net.abs())}'),
                   textAlign: TextAlign.right,
                   style: TextStyle(
-                    color: book.net >= 0 ? AppTheme.positive : AppTheme.negative,
+                    color:
+                        book.net >= 0 ? AppTheme.positive : AppTheme.negative,
                     fontWeight: FontWeight.w700,
                     fontSize: 12,
                   ),
@@ -157,7 +158,8 @@ class ChecksDashboardCard extends StatelessWidget {
                 if (next != null) ...[
                   const SizedBox(height: 6),
                   Text(
-                    digits('${next.directionLabel} · ${next.identityLabel} · ${formatDisplayDate(next.dueDate, calendar)} · ${next.dueRelativeLabel()}'),
+                    digits(
+                        '${next.directionLabel} · ${next.identityLabel} · ${formatDisplayDate(next.dueDate, calendar)} · ${next.dueRelativeLabel()}'),
                     textAlign: TextAlign.right,
                     style: TextStyle(
                       color: next.daysUntilDue() < 0
@@ -208,12 +210,13 @@ class _ChecksPageState extends State<ChecksPage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: const HeaderStatusTitle(title: 'مدیریت چک‌ها')),
+        appBar:
+            AppBar(title: const HeaderStatusTitle(title: 'مدیریت تراکنش‌ها')),
         floatingActionButton: state.canMutate
             ? FloatingActionButton.extended(
                 onPressed: () => openCheckEditor(context),
                 icon: const Icon(Icons.add),
-                label: const Text('ثبت چک'),
+                label: const Text('ثبت تراکنش'),
               )
             : null,
         floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
@@ -231,7 +234,7 @@ class _ChecksPageState extends State<ChecksPage> {
               onChanged: (_) => setState(() {}),
               textAlign: TextAlign.right,
               decoration: const InputDecoration(
-                hintText: 'جستجو: شماره، صیادی، بانک، طرف حساب',
+                hintText: 'جستجو: چک، ودیعه، شماره، طرف حساب',
                 prefixIcon: Icon(Icons.search_rounded),
                 isDense: true,
               ),
@@ -251,7 +254,7 @@ class _ChecksPageState extends State<ChecksPage> {
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 24),
                 child: Text(
-                  'چک بایگانی‌شده‌ای ندارید.',
+                  'تراکنش بایگانی‌شده‌ای ندارید.',
                   key: ValueKey('check-archive-empty'),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppTheme.muted),
@@ -310,7 +313,7 @@ class _BookSummary extends StatelessWidget {
               child: _MiniStat(
                 label: 'بدهی',
                 value: formatMoney(book.debts),
-                hint: '${book.debtCount} چک',
+                hint: '${book.debtCount} مورد',
                 color: book.debts > 0 ? AppTheme.negative : AppTheme.title,
               ),
             ),
@@ -319,7 +322,7 @@ class _BookSummary extends StatelessWidget {
               child: _MiniStat(
                 label: 'دریافتی باز',
                 value: formatMoney(book.openReceivable),
-                hint: '${book.openReceivableCount} چک',
+                hint: '${book.openReceivableCount} مورد',
                 color: book.openReceivable > 0
                     ? AppTheme.positive
                     : AppTheme.title,
@@ -412,7 +415,6 @@ class _MiniStat extends StatelessWidget {
   }
 }
 
-
 class _OverdueBanner extends StatelessWidget {
   const _OverdueBanner({required this.book});
   final CheckLedger book;
@@ -427,7 +429,7 @@ class _OverdueBanner extends StatelessWidget {
         border: Border.all(color: AppTheme.negative.withValues(alpha: 0.35)),
       ),
       child: Text(
-        '${book.overdueCount} چک از سررسید گذشته · ${formatMoney(book.overdueAmount)}',
+        '${book.overdueCount} تراکنش از سررسید گذشته · ${formatMoney(book.overdueAmount)}',
         textAlign: TextAlign.right,
         style: const TextStyle(
           color: AppTheme.negative,
@@ -458,6 +460,8 @@ class _FilterRow extends StatelessWidget {
     CheckListFilter.due: 'سررسید',
     CheckListFilter.bounced: 'برگشتی',
     CheckListFilter.settled: 'تسویه‌شده',
+    CheckListFilter.check: 'چک',
+    CheckListFilter.deposit: 'ودیعه',
     CheckListFilter.archived: 'بایگانی',
   };
 
@@ -515,7 +519,7 @@ class _EmptyBook extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            hasAny ? 'چکی با این فیلتر نیست' : 'هنوز چکی ثبت نشده',
+            hasAny ? 'تراکنشی با این فیلتر نیست' : 'هنوز تراکنشی ثبت نشده',
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: AppTheme.title,
@@ -524,7 +528,7 @@ class _EmptyBook extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           const Text(
-            'مبلغ، تاریخ صدور، سررسید، شماره یا شناسه صیادی.',
+            'چک یا ودیعه را با مبلغ، تاریخ و طرف حساب ثبت کنید.',
             textAlign: TextAlign.center,
             style: TextStyle(color: AppTheme.muted, fontSize: 12),
           ),
@@ -533,7 +537,7 @@ class _EmptyBook extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onAdd,
               icon: const Icon(Icons.add),
-              label: const Text('ثبت اولین چک'),
+              label: const Text('ثبت اولین تراکنش'),
             ),
           ],
         ],
@@ -554,8 +558,8 @@ class _CheckCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) =>
-      PendingSyncMark(pending: _checkPending(context, item.id), child: _inner(context));
+  Widget build(BuildContext context) => PendingSyncMark(
+      pending: _checkPending(context, item.id), child: _inner(context));
 
   Widget _inner(BuildContext context) {
     final overdue = item.isActiveOpen && item.daysUntilDue() < 0;
@@ -588,7 +592,9 @@ class _CheckCard extends StatelessWidget {
                   Flexible(
                     flex: 2,
                     child: Text(
-                      formatMoney(item.amount),
+                      item.paymentState == paymentStatePartial
+                          ? '${formatMoney(item.remainingAmount)} از ${formatMoney(item.amount)}'
+                          : formatMoney(item.amount),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -599,9 +605,15 @@ class _CheckCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  _Tag(text: item.kindLabel, color: AppTheme.muted),
+                  const SizedBox(width: 6),
                   Flexible(
                     child: _Tag(text: item.statusLabel, color: AppTheme.muted),
                   ),
+                  if (item.paymentState == paymentStatePartial) ...[
+                    const SizedBox(width: 6),
+                    const _Tag(text: 'پرداخت جزئی', color: AppTheme.positive),
+                  ],
                   if (item.isArchived) ...[
                     const SizedBox(width: 6),
                     const _Tag(
@@ -774,7 +786,21 @@ class _CheckDetailSheet extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 12),
+                          _Fact('نوع', check.kindLabel),
                           _Fact('وضعیت', check.statusLabel),
+                          if (check.paymentState != paymentStateUnpaid ||
+                              check.payments.isNotEmpty) ...[
+                            _Fact(
+                              'پرداخت‌شده',
+                              formatMoney(
+                                check.recordedPaid > 0
+                                    ? check.recordedPaid
+                                    : check.paidAmount,
+                              ),
+                            ),
+                            _Fact('مانده', formatMoney(check.remainingAmount)),
+                            _Fact('وضعیت پرداخت', check.paymentStateLabel),
+                          ],
                           _Fact(
                             'سررسید',
                             '${formatDisplayDate(check.dueDate, calendar)} · ${check.dueRelativeLabel()}',
@@ -809,7 +835,30 @@ class _CheckDetailSheet extends StatelessWidget {
                                   : check.endorsedFor,
                             ),
                           ],
-                          if (check.note.isNotEmpty) _Fact('یادداشت', check.note),
+                          if (check.note.isNotEmpty)
+                            _Fact('یادداشت', check.note),
+                          if (check.payments.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            const Text(
+                              'تاریخچه پرداخت',
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                color: AppTheme.muted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            for (final payment in check.payments)
+                              _Fact(
+                                formatDisplayDate(payment.paidAt, calendar),
+                                [
+                                  formatMoney(payment.amount),
+                                  if (payment.note.trim().isNotEmpty)
+                                    payment.note.trim(),
+                                ].join(' · '),
+                              ),
+                          ],
                           if (check.isArchived)
                             _Fact(
                               'بایگانی',
@@ -835,6 +884,10 @@ class _CheckDetailSheet extends StatelessWidget {
                         child: _DetailActions(
                           key: actionsKey,
                           actions: actions,
+                          canPay: check.canAcceptPayment,
+                          remaining: check.remainingAmount,
+                          onPartialPay: () => _payPartial(context, check),
+                          onFullPay: () => _payFull(context, check),
                           onStatus: (action) =>
                               _applyStatus(context, check, action),
                           onDelete: () => _delete(context, state, check),
@@ -865,6 +918,72 @@ class _CheckDetailSheet extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _payPartial(BuildContext context, BankCheck check) async {
+    final picked = await askCheckPayment(context, check);
+    if (picked == null || !context.mounted) return;
+    await _commitPayment(context, () {
+      return context.read<AppState>().recordCheckPayment(
+            check,
+            amount: picked.amount,
+            paidAt: picked.paidAt,
+            note: picked.note,
+          );
+    });
+  }
+
+  Future<void> _payFull(BuildContext context, BankCheck check) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تسویه کامل'),
+        content: Text(
+          'مانده ${formatMoney(check.remainingAmount)} به‌طور کامل ثبت شود؟',
+          textAlign: TextAlign.right,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('انصراف'),
+          ),
+          ElevatedButton(
+            key: const ValueKey('check-pay-full-confirm'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('تسویه'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    await _commitPayment(context, () {
+      return context.read<AppState>().settleCheckPayment(check);
+    });
+  }
+
+  Future<void> _commitPayment(
+    BuildContext context,
+    Future<({BankCheck check, bool synced})> Function() run,
+  ) async {
+    final state = context.read<AppState>();
+    try {
+      final result = await run();
+      if (!context.mounted) return;
+      if (!result.synced) {
+        final detail = state.checkSyncError;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              (detail != null && detail.trim().isNotEmpty)
+                  ? detail
+                  : 'پرداخت روی دستگاه ذخیره شد. سرور هنوز دفتر را برنگردانده.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) showUserError(context, e);
+    }
   }
 
   Future<void> _applyStatus(
@@ -915,9 +1034,9 @@ class _CheckDetailSheet extends StatelessWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('حذف چک'),
+        title: const Text('حذف تراکنش'),
         content: const Text(
-          'این چک از دفتر حذف شود؟',
+          'این تراکنش از دفتر حذف شود؟',
           textAlign: TextAlign.right,
         ),
         actions: [
@@ -964,10 +1083,18 @@ class _DetailActions extends StatelessWidget {
     required this.onEdit,
     this.onArchive,
     this.archived = false,
+    this.canPay = false,
+    this.remaining = 0,
+    this.onPartialPay,
+    this.onFullPay,
   });
 
   final VoidCallback? onArchive;
   final bool archived;
+  final bool canPay;
+  final double remaining;
+  final VoidCallback? onPartialPay;
+  final VoidCallback? onFullPay;
   final List<_StatusAction> actions;
   final ValueChanged<_StatusAction> onStatus;
   final VoidCallback onDelete;
@@ -985,6 +1112,25 @@ class _DetailActions extends StatelessWidget {
           children: [
             const Divider(height: 1, color: AppTheme.border),
             const SizedBox(height: 8),
+            if (canPay) ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton(
+                    key: const ValueKey('check-pay-partial'),
+                    onPressed: onPartialPay,
+                    child: const Text('پرداخت جزئی'),
+                  ),
+                  ElevatedButton(
+                    key: const ValueKey('check-pay-full'),
+                    onPressed: onFullPay,
+                    child: Text('تسویه کامل (${formatMoney(remaining)})'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
             if (actions.isNotEmpty)
               Wrap(
                 spacing: 8,
@@ -1097,14 +1243,16 @@ class _StatusAction {
 
 List<_StatusAction> _statusActions(BankCheck check) {
   final cleared = _StatusAction(
-    check.isReceivable ? 'وصول شده' : 'پاس شده',
+    check.isDeposit
+        ? 'تسویه شده'
+        : (check.isReceivable ? 'وصول شده' : 'پاس شده'),
     checkStatusCleared,
   );
   if (check.status == checkStatusPending) {
     return [
       cleared,
-      const _StatusAction('برگشتی', checkStatusBounced),
-      if (check.isReceivable)
+      if (check.isCheck) const _StatusAction('برگشتی', checkStatusBounced),
+      if (check.isCheck && check.isReceivable)
         const _StatusAction('خرج شده', checkStatusEndorsed),
       const _StatusAction('باطل', checkStatusCancelled),
     ];
@@ -1145,6 +1293,7 @@ class CheckEditorPage extends StatefulWidget {
 }
 
 class _CheckEditorPageState extends State<CheckEditorPage> {
+  late String _kind;
   late String _direction;
   late String _status;
   late String _issue;
@@ -1165,6 +1314,7 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
   void initState() {
     super.initState();
     final e = widget.existing;
+    _kind = e?.kind ?? checkKindCheck;
     _direction = e?.direction ?? checkDirectionReceivable;
     _status = e?.status ?? checkStatusPending;
     _issue = e?.issueDate.isNotEmpty == true ? e!.issueDate : todayIso();
@@ -1188,8 +1338,9 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
   List<String> get _editorStatuses => [
         checkStatusPending,
         checkStatusCleared,
-        checkStatusBounced,
-        if (_direction == checkDirectionReceivable) checkStatusEndorsed,
+        if (_kind == checkKindCheck) checkStatusBounced,
+        if (_kind == checkKindCheck && _direction == checkDirectionReceivable)
+          checkStatusEndorsed,
         checkStatusCancelled,
       ];
 
@@ -1213,16 +1364,16 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
     final state = context.watch<AppState>();
     final calendar = state.settings.calendar;
     final editing = widget.existing != null;
-    final partyLabel = _direction == checkDirectionReceivable
-        ? 'صادرکننده'
-        : 'در وجه';
+    final partyLabel = _kind == checkKindDeposit
+        ? 'طرف حساب'
+        : (_direction == checkDirectionReceivable ? 'صادرکننده' : 'در وجه');
     final horizon = DateTime(DateTime.now().year + 15, 12, 31);
 
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(editing ? 'ویرایش چک' : 'ثبت چک'),
+          title: Text(editing ? 'ویرایش تراکنش' : 'ثبت تراکنش'),
           actions: [
             TextButton(
               onPressed: _saving ? null : _save,
@@ -1233,6 +1384,30 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
         body: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
           children: [
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                  value: checkKindCheck,
+                  label: Text('چک'),
+                  icon: Icon(Icons.receipt_long_outlined),
+                ),
+                ButtonSegment(
+                  value: checkKindDeposit,
+                  label: Text('ودیعه'),
+                  icon: Icon(Icons.savings_outlined),
+                ),
+              ],
+              selected: {_kind},
+              onSelectionChanged: (v) => setState(() {
+                _kind = v.first;
+                if (_kind == checkKindDeposit &&
+                    (_status == checkStatusEndorsed ||
+                        _status == checkStatusBounced)) {
+                  _status = checkStatusPending;
+                }
+              }),
+            ),
+            const SizedBox(height: 10),
             SegmentedButton<String>(
               segments: const [
                 ButtonSegment(
@@ -1257,9 +1432,13 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              _direction == checkDirectionReceivable
-                  ? 'چکی که می‌گیرید؛ تا وصول، جزو دریافتی باز است.'
-                  : 'چکی که صادر می‌کنید؛ تا پاس شدن، جزو بدهی است.',
+              _kind == checkKindDeposit
+                  ? (_direction == checkDirectionReceivable
+                      ? 'ودیعه‌ای که گرفته‌اید؛ تا بازگشت، جزو دریافتی باز است.'
+                      : 'ودیعه‌ای که سپرده‌اید؛ تا بازگشت، جزو بدهی است.')
+                  : (_direction == checkDirectionReceivable
+                      ? 'چکی که می‌گیرید؛ تا وصول، جزو دریافتی باز است.'
+                      : 'چکی که صادر می‌کنید؛ تا پاس شدن، جزو بدهی است.'),
               textAlign: TextAlign.right,
               style: const TextStyle(color: AppTheme.muted, fontSize: 12),
             ),
@@ -1272,7 +1451,7 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
               onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                 labelText: 'مبلغ (تومان)',
-                helperText: 'مبلغ چک را به تومان بنویسید، نه ریال.',
+                helperText: 'مبلغ را به تومان بنویسید، نه ریال.',
               ),
             ),
             if (_parsedAmount != null) ...[
@@ -1295,6 +1474,7 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
                       labelForCheckStatus(
                         status,
                         receivable: _direction == checkDirectionReceivable,
+                        kind: _kind,
                       ),
                     ),
                     selected: _status == status,
@@ -1322,7 +1502,9 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
               ),
             ],
             AppDateTile(
-              label: 'تاریخ صدور',
+              label: _kind == checkKindDeposit
+                  ? 'تاریخ دریافت/پرداخت'
+                  : 'تاریخ صدور',
               isoDate: _issue,
               calendar: calendar,
               firstDate: DateTime(2000),
@@ -1330,54 +1512,57 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
               onChanged: (v) => setState(() => _issue = v),
             ),
             AppDateTile(
-              label: 'تاریخ سررسید',
+              label:
+                  _kind == checkKindDeposit ? 'تاریخ بازگشت' : 'تاریخ سررسید',
               isoDate: _due,
               calendar: calendar,
               firstDate: DateTime(2000),
               lastDate: horizon,
               onChanged: (v) => setState(() => _due = v),
             ),
-            TextField(
-              controller: _number,
-              textAlign: TextAlign.right,
-              decoration: const InputDecoration(labelText: 'شماره چک'),
-            ),
-            TextField(
-              controller: _sayad,
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.right,
-              decoration: const InputDecoration(
-                labelText: 'شناسه صیادی (۱۶ رقم)',
+            if (_kind == checkKindCheck) ...[
+              TextField(
+                controller: _number,
+                textAlign: TextAlign.right,
+                decoration: const InputDecoration(labelText: 'شماره چک'),
               ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _bank,
-              textAlign: TextAlign.right,
-              decoration: const InputDecoration(labelText: 'بانک'),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 36,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                reverse: true,
-                itemCount: _iranianBanks.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 6),
-                itemBuilder: (_, i) {
-                  final bank = _iranianBanks[i];
-                  return ActionChip(
-                    label: Text(bank, style: const TextStyle(fontSize: 12)),
-                    onPressed: () => setState(() => _bank.text = bank),
-                  );
-                },
+              TextField(
+                controller: _sayad,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+                decoration: const InputDecoration(
+                  labelText: 'شناسه صیادی (۱۶ رقم)',
+                ),
               ),
-            ),
-            TextField(
-              controller: _branch,
-              textAlign: TextAlign.right,
-              decoration: const InputDecoration(labelText: 'شعبه'),
-            ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _bank,
+                textAlign: TextAlign.right,
+                decoration: const InputDecoration(labelText: 'بانک'),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 36,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  reverse: true,
+                  itemCount: _iranianBanks.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 6),
+                  itemBuilder: (_, i) {
+                    final bank = _iranianBanks[i];
+                    return ActionChip(
+                      label: Text(bank, style: const TextStyle(fontSize: 12)),
+                      onPressed: () => setState(() => _bank.text = bank),
+                    );
+                  },
+                ),
+              ),
+              TextField(
+                controller: _branch,
+                textAlign: TextAlign.right,
+                decoration: const InputDecoration(labelText: 'شعبه'),
+              ),
+            ],
             TextField(
               controller: _party,
               textAlign: TextAlign.right,
@@ -1418,6 +1603,10 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
     final amount = parseCheckAmount(_amount.text);
     final draft = BankCheck(
       id: widget.existing?.id,
+      kind: _kind,
+      kindFromServer: widget.existing?.kindFromServer ?? false,
+      payments: widget.existing?.payments ?? const <CheckPayment>[],
+      paymentsFromServer: widget.existing?.paymentsFromServer ?? false,
       direction: _direction,
       amount: amount ?? 0,
       issueDate: _issue,
@@ -1464,7 +1653,6 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
     }
   }
 }
-
 
 /// Archive or restore [check]. An open cheque asks first, because archiving
 /// takes it out of portfolio value, totals and alerts. Returns true when the
@@ -1562,7 +1750,8 @@ class _ArchiveNote extends StatelessWidget {
               'هشدارها و سررسیدها حساب نمی‌شوند. برای بازگردانی، چک را بکشید '
               'یا باز کنید و «بازگردانی» را بزنید.',
               textAlign: TextAlign.right,
-              style: TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.6),
+              style:
+                  TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.6),
             ),
           ),
         ],
@@ -1604,7 +1793,8 @@ class _ArchiveSwipe extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             restore ? 'بازگردانی' : 'بایگانی',
-            style: const TextStyle(color: AppTheme.text, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+                color: AppTheme.text, fontWeight: FontWeight.w700),
           ),
         ],
       ),
@@ -1624,7 +1814,6 @@ class _ArchiveSwipe extends StatelessWidget {
   }
 }
 
-
 bool _checkPending(BuildContext context, int? id) {
   try {
     final s = Provider.of<AppState>(context);
@@ -1633,7 +1822,6 @@ bool _checkPending(BuildContext context, int? id) {
     return false;
   }
 }
-
 
 /// Ask who a receivable was spent to and what for. Both are required.
 /// Returns null when the user cancels.
@@ -1727,6 +1915,113 @@ class _EndorseDialogState extends State<_EndorseDialog> {
               Navigator.pop(context, (to: to, what: what));
             },
             child: const Text('ثبت خرج'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<({double amount, String paidAt, String note})?> askCheckPayment(
+  BuildContext context,
+  BankCheck check,
+) {
+  return showDialog<({double amount, String paidAt, String note})>(
+    context: context,
+    builder: (_) => _PaymentDialog(check: check),
+  );
+}
+
+class _PaymentDialog extends StatefulWidget {
+  const _PaymentDialog({required this.check});
+  final BankCheck check;
+
+  @override
+  State<_PaymentDialog> createState() => _PaymentDialogState();
+}
+
+class _PaymentDialogState extends State<_PaymentDialog> {
+  late final TextEditingController _amount = TextEditingController();
+  late final TextEditingController _note = TextEditingController();
+  late String _paidAt = todayIso();
+  String? _error;
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final calendar = context.read<AppState>().settings.calendar;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: const Text('پرداخت جزئی'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'مانده ${formatMoney(widget.check.remainingAmount)} از ${formatMoney(widget.check.amount)}',
+                textAlign: TextAlign.right,
+                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                key: const ValueKey('check-payment-amount'),
+                controller: _amount,
+                autofocus: true,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                textAlign: TextAlign.right,
+                decoration: InputDecoration(
+                  labelText: 'مبلغ پرداخت (تومان)',
+                  errorText: _error,
+                ),
+              ),
+              AppDateTile(
+                label: 'تاریخ پرداخت',
+                isoDate: _paidAt,
+                calendar: calendar,
+                firstDate: DateTime(2000),
+                lastDate: DateTime(DateTime.now().year + 1, 12, 31),
+                onChanged: (v) => setState(() => _paidAt = v),
+              ),
+              TextField(
+                controller: _note,
+                textAlign: TextAlign.right,
+                decoration:
+                    const InputDecoration(labelText: 'یادداشت (اختیاری)'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('انصراف'),
+          ),
+          ElevatedButton(
+            key: const ValueKey('check-payment-save'),
+            onPressed: () {
+              final amount = parseCheckAmount(_amount.text);
+              if (amount == null || amount <= 0) {
+                setState(
+                    () => _error = 'مبلغ پرداخت باید بزرگ‌تر از صفر باشد.');
+                return;
+              }
+              if (amount - widget.check.remainingAmount > 0.001) {
+                setState(() => _error = 'مبلغ پرداخت از مانده بیشتر است.');
+                return;
+              }
+              Navigator.pop(context,
+                  (amount: amount, paidAt: _paidAt, note: _note.text.trim()));
+            },
+            child: const Text('ثبت پرداخت'),
           ),
         ],
       ),
