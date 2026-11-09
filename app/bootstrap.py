@@ -1,7 +1,7 @@
-from app.services.ai_accountant_service import AiAccountantService
 """Application bootstrap: database, settings, shared services."""
 
 from __future__ import annotations
+from app.services.ai_accountant_service import AiAccountantService
 
 import logging
 import sqlite3

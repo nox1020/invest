@@ -1,7 +1,7 @@
-from app.services.ai_accountant_service import AiAccountantService
 """Construct application services with shared dependencies."""
 
 from __future__ import annotations
+from app.services.ai_accountant_service import AiAccountantService
 
 import sqlite3
 from dataclasses import dataclass
