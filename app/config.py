@@ -106,3 +106,5 @@ THEME_LABELS: dict[str, str] = {
     THEME_LIGHT: "روشن",
     THEME_DARK: "تاریک",
 }
+
+SETTING_GEMINI_API_KEY = "gemini_api_key"

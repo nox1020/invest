@@ -47,8 +47,8 @@ class AiAccountantService {
     final summaryData = _aggregateFinancialData(state);
 
     // ۳. تلاش برای فراخوانی API جمنای
-    final effectiveKey = apiKey?.trim().isNotEmpty == true
-        ? apiKey!.trim()
+    final effectiveKey = apiKey != null && apiKey.trim().isNotEmpty
+        ? apiKey.trim()
         : prefs.getString(_kApiKeyPref)?.trim() ?? '';
 
     AiAuditReport? report;
@@ -102,10 +102,10 @@ class AiAccountantService {
     final today = todayIso();
 
     // محاسبه دارایی‌ها
-    double totalCapitalTmn = state.metrics?.totalCapital ?? 0;
+    final double totalCapitalTmn = state.metrics?.totalValue ?? 0;
     final assetBreakdown = <String, double>{};
     for (final a in state.assets) {
-      final val = a.currentValue ?? 0;
+      final val = a.totalValue;
       if (val > 0) {
         assetBreakdown[a.name] = val;
       }
@@ -124,7 +124,7 @@ class AiAccountantService {
       if (c.status == checkStatusBounced) {
         bouncedCount++;
       } else if (c.status == checkStatusPending) {
-        final amount = c.amount ?? 0;
+        final amount = c.amount;
         if (c.direction == checkDirectionPayable) {
           pendingPayableTmn += amount;
         } else if (c.direction == checkDirectionReceivable) {

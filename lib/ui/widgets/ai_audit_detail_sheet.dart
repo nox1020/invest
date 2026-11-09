@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:invest/domain/models/ai_audit_report.dart';
 import 'package:invest/domain/services/ai_accountant_service.dart';
-import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -161,7 +160,7 @@ class _AiAuditDetailSheetContentState
               const SizedBox(height: 12),
               TextField(
                 controller: controller,
-                dir: TextDirection.ltr,
+                textDirection: TextDirection.ltr,
                 style: const TextStyle(color: AppTheme.text, fontSize: 13),
                 decoration: InputDecoration(
                   hintText: 'AIzaSy...',
@@ -184,10 +183,9 @@ class _AiAuditDetailSheetContentState
             ElevatedButton(
               onPressed: () async {
                 await AiAccountantService.instance.saveApiKey(controller.text);
-                if (mounted) {
-                  Navigator.of(dCtx).pop();
-                  _handleRefresh();
-                }
+                if (!dCtx.mounted) return;
+                Navigator.of(dCtx).pop();
+                _handleRefresh();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.accent,
@@ -203,7 +201,6 @@ class _AiAuditDetailSheetContentState
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final scoreColor = _scoreColor(_report.healthScore);
 
     return Directionality(

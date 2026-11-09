@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 /// یک مورد هشدار یا مغایرت شناسایی‌شده توسط حسابدار هوشمند
 class AiAuditAlert {
   const AiAuditAlert({

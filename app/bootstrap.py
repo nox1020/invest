@@ -1,3 +1,4 @@
+from app.services.ai_accountant_service import AiAccountantService
 """Application bootstrap: database, settings, shared services."""
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ class AppContext:
     analytics_reports: AnalyticsReportGenerator
     insights_engine: InvestmentInsightsEngine
     insights: InsightProvider
+    ai_accountant: AiAccountantService
 
     def money(
         self,
@@ -196,6 +198,7 @@ def bootstrap() -> AppContext:
         analytics_reports=services.analytics_reports,
         insights_engine=services.insights_engine,
         insights=services.insights,
+        ai_accountant=services.ai_accountant,
     )
     ctx._seed_live_quotes()
     ctx.apply_price_api_settings()
