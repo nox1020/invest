@@ -107,26 +107,29 @@ class _AiAccountantCardState extends State<AiAccountantCard> {
               textDirection: TextDirection.rtl,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   // ردیف هدر کارت
                   Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(6),
+                        padding: const EdgeInsets.all(5),
                         decoration: BoxDecoration(
                           color: AppTheme.accent.withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(
                           Icons.auto_awesome_rounded,
-                          size: 16,
+                          size: 15,
                           color: AppTheme.positive,
                         ),
                       ),
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
-                          'حسابدار هوشمند +V (بازبینی روزانه حساب‌ها)',
+                          'حسابدار هوشمند +V',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: AppTheme.title,
                             fontSize: 13,
@@ -134,43 +137,32 @@ class _AiAccountantCardState extends State<AiAccountantCard> {
                           ),
                         ),
                       ),
-                      if (_report != null)
+                      if (_report != null) ...[
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
+                            horizontal: 6,
+                            vertical: 2,
                           ),
                           decoration: BoxDecoration(
                             color: _scoreColor(_report!.healthScore)
                                 .withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: _scoreColor(_report!.healthScore)
                                   .withValues(alpha: 0.4),
                             ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                fa('${_report!.healthScore}'),
-                                style: TextStyle(
-                                  color: _scoreColor(_report!.healthScore),
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              Text(
-                                '/۱۰۰',
-                                style: TextStyle(
-                                  color: _scoreColor(_report!.healthScore)
-                                      .withValues(alpha: 0.8),
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            fa('${_report!.healthScore}/۱۰۰'),
+                            style: TextStyle(
+                              color: _scoreColor(_report!.healthScore),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 11,
+                            ),
                           ),
                         ),
+                        const SizedBox(width: 4),
+                      ],
                       IconButton(
                         icon: _loading
                             ? const SizedBox(
@@ -194,21 +186,25 @@ class _AiAccountantCardState extends State<AiAccountantCard> {
                   // محتوای خلاصه یا وضعیت لودینگ
                   if (_loading && _report == null)
                     const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
+                      padding: EdgeInsets.symmetric(vertical: 6),
                       child: Row(
                         children: [
                           SizedBox(
-                            width: 14,
-                            height: 14,
+                            width: 12,
+                            height: 12,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: AppTheme.positive,
                             ),
                           ),
                           SizedBox(width: 8),
-                          Text(
-                            'در حال بازبینی حساب‌ها و دفاتر توسط هوش مصنوعی...',
-                            style: TextStyle(color: AppTheme.muted, fontSize: 11),
+                          Expanded(
+                            child: Text(
+                              'در حال بازبینی دفاتر...',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(color: AppTheme.muted, fontSize: 11),
+                            ),
                           ),
                         ],
                       ),
@@ -217,7 +213,9 @@ class _AiAccountantCardState extends State<AiAccountantCard> {
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Text(
-                        'خطا در بارگذاری حسابرسی: $_error',
+                        'خطا در بارگذاری: $_error',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: AppTheme.negative,
                           fontSize: 11,
@@ -228,13 +226,15 @@ class _AiAccountantCardState extends State<AiAccountantCard> {
                     // عنوان وضعیت
                     Text(
                       _report!.healthTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: _scoreColor(_report!.healthScore),
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     // متن خلاصه کوتاه شده
                     Text(
                       fa(_report!.summary),
@@ -250,50 +250,60 @@ class _AiAccountantCardState extends State<AiAccountantCard> {
 
                     // نوار پایینی دکمه و تعداد هشدارها
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        if (_report!.alerts.isNotEmpty)
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.warning_amber_rounded,
-                                size: 13,
-                                color: Color(0xFFFFB340),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                fa('${_report!.alerts.length} هشدار و مغایرت مالی'),
-                                style: const TextStyle(
-                                  color: Color(0xFFFFB340),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
+                        Expanded(
+                          child: _report!.alerts.isNotEmpty
+                              ? Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.warning_amber_rounded,
+                                      size: 13,
+                                      color: Color(0xFFFFB340),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        fa('${_report!.alerts.length} هشدار مالی'),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Color(0xFFFFB340),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.check_circle_outline_rounded,
+                                      size: 13,
+                                      color: AppTheme.positive,
+                                    ),
+                                    SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        'تراز بدون مغایرت',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: AppTheme.positive,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ],
-                          )
-                        else
-                          const Row(
-                            children: [
-                              Icon(
-                                Icons.check_circle_outline_rounded,
-                                size: 13,
-                                color: AppTheme.positive,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                'تراز حساب‌ها بدون مغایرت',
-                                style: TextStyle(
-                                  color: AppTheme.positive,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
+                        ),
+                        const SizedBox(width: 8),
                         const Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              'مشاهده گزارش کامل حسابرس',
+                              'گزارش کامل',
                               style: TextStyle(
                                 color: AppTheme.positive,
                                 fontSize: 11,
