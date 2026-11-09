@@ -36,6 +36,9 @@ import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/ui/pages/price_alerts_page.dart';
 import 'package:invest/ui/widgets/dashboard_compact.dart';
+import 'package:invest/domain/services/ai_accountant_service.dart';
+import 'package:invest/ui/widgets/ai_accountant_card.dart';
+import 'package:invest/ui/widgets/ai_audit_detail_sheet.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -363,6 +366,28 @@ extension _CompactDash on _DashboardBodyState {
           (a.below != null && a.below! > 0 && v <= a.below!);
     }).length;
     final chips = [
+      TodayChip(
+        id: 'ai-audit',
+        icon: Icons.auto_awesome_rounded,
+        label: 'حسابدار AI',
+        color: AppTheme.positive,
+        onTap: () async {
+          final cached = await AiAccountantService.instance.getLastCachedReport();
+          if (context.mounted) {
+            if (cached != null) {
+              showAiAuditDetailSheet(context, report: cached, onRefresh: () {});
+            } else {
+              final rep = await AiAccountantService.instance.auditAccounts(
+                state: Provider.of<AppState>(context, listen: false),
+                force: true,
+              );
+              if (context.mounted) {
+                showAiAuditDetailSheet(context, report: rep, onRefresh: () {});
+              }
+            }
+          }
+        },
+      ),
       if (week.any((u) => u.daysLeft < 0))
         TodayChip(
             id: 'overdue',
@@ -495,6 +520,7 @@ extension _CompactDash on _DashboardBodyState {
                   builder: (_) => const CapitalChartPage())),
         ),
       ),
+      const AiAccountantCard(),
       TodayStrip(chips: chips),
       RatesStrip(quotes: rates),
       if (anchorsCaption != null && anchorsCaption.trim().isNotEmpty)
