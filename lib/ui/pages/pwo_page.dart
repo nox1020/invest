@@ -143,6 +143,10 @@ class _PwoPageState extends State<PwoPage> {
                 : today.year;
             final months = l.monthsOf(year);
             final visibleMonths = pwoVisibleMonths(l, year, today);
+            final avgMonthly = months.isEmpty
+                ? 0.0
+                : months.map((e) => e.total).fold(0.0, (a, b) => a + b) /
+                    months.length;
             return RefreshIndicator(
               onRefresh: () => _store.refresh(),
               child: ListView(
@@ -182,6 +186,29 @@ class _PwoPageState extends State<PwoPage> {
                   const SizedBox(height: 12),
                   _Card(
                     title: 'نمودار ماهانه',
+                    trailing: months.isNotEmpty && avgMonthly > 0
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF00838F)
+                                  .withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'میانگین: ${formatCompactToman(avgMonthly)}',
+                              key: const ValueKey('pwo-chart-avg-badge'),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: const Color(0xFF00838F),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 11,
+                                  ),
+                            ),
+                          )
+                        : null,
                     child: SizedBox(
                       height: 200,
                       child: months.isEmpty
@@ -252,8 +279,9 @@ class _PwoPageState extends State<PwoPage> {
 String _mil(num v) => formatCompactToman(v);
 
 class _Card extends StatelessWidget {
-  const _Card({this.title, required this.child});
+  const _Card({this.title, this.trailing, required this.child});
   final String? title;
+  final Widget? trailing;
   final Widget child;
 
   @override
@@ -266,11 +294,17 @@ class _Card extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (title != null) ...[
-              Text(title!,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w700)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(title!,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w700)),
+                  if (trailing != null) trailing!,
+                ],
+              ),
               const SizedBox(height: 10),
             ],
             child,
@@ -466,8 +500,13 @@ class _PwoChartPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     const bottom = 22.0, top = 8.0;
     final h = size.height - bottom - top;
+    final avg = months.isEmpty
+        ? 0.0
+        : months.map((e) => e.total).fold(0.0, (a, b) => a + b) /
+            months.length;
     final maxV = math.max(
-        target * 1.15, months.map((e) => e.total).fold(0.0, math.max) * 1.05);
+        math.max(target * 1.15, avg * 1.15),
+        months.map((e) => e.total).fold(0.0, math.max) * 1.05);
     if (maxV <= 0) return;
     final n = months.length;
     final slot = size.width / n;
@@ -506,10 +545,41 @@ class _PwoChartPainter extends CustomPainter {
     final lp = TextPainter(
       text: TextSpan(
           text: 'هدف ${_mil(target)}',
-          style: const TextStyle(color: Colors.amber, fontSize: 10)),
+          style: const TextStyle(
+              color: Colors.amber, fontSize: 10, fontWeight: FontWeight.w600)),
       textDirection: TextDirection.rtl,
     )..layout();
     lp.paint(canvas, Offset(2, math.max(0, ty - lp.height - 2)));
+
+    // Average consumption line and Persian label
+    if (avg > 0) {
+      final ay = top + h - h * (avg / maxV);
+      const avgColor = Color(0xFF00838F);
+      final avgDash = Paint()
+        ..color = avgColor.withValues(alpha: 0.85)
+        ..strokeWidth = 1.4;
+      for (double x = 0; x < size.width; x += 8) {
+        canvas.drawLine(
+            Offset(x, ay), Offset(math.min(x + 4, size.width), ay), avgDash);
+      }
+      final ap = TextPainter(
+        text: TextSpan(
+            text: 'میانگین ${_mil(avg)}',
+            style: const TextStyle(
+                color: avgColor, fontSize: 10, fontWeight: FontWeight.w600)),
+        textDirection: TextDirection.rtl,
+      )..layout();
+      final double textY = ((ay - ty).abs() < 14)
+          ? ((ay >= ty) ? ay + 2 : ay - ap.height - 2)
+          : ay - ap.height - 2;
+      ap.paint(
+        canvas,
+        Offset(
+          size.width - ap.width - 2,
+          math.max(0, math.min(size.height - bottom - ap.height, textY)),
+        ),
+      );
+    }
   }
 
   @override

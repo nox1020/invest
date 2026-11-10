@@ -123,6 +123,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('pwo-chart')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pwo-chart-avg-badge')), findsOneWidget);
   });
 
   test('chart labels switch to numbers when slots are narrow', () {
