@@ -136,12 +136,13 @@ class _PortfolioValueCardState extends State<PortfolioValueCard> {
                       runSpacing: 4,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        if (usd != null)
-                          Text('≈ ${formatUsd(usd)}',
-                              key: const ValueKey('pv-usd'),
-                              textDirection: TextDirection.ltr,
-                              style: const TextStyle(color: kUsd, fontSize: 15, fontWeight: FontWeight.w700)),
-                        if (usd != null && snap.usdtTmn != null)
+                        if (usd != null && CurrencyMode.isUsd)
+                          DashTag(
+                            fa('تومان: ${formatCompactToman(nav, forceToman: true)}'),
+                            key: const ValueKey('pv-toman-sub'),
+                            color: AppTheme.muted,
+                          ),
+                        if (snap.usdtTmn != null)
                           DashTag(
                             fa('${widget.usdIsLive ? 'نرخ زنده' : 'نرخ ذخیره‌شده'} ${formatNumber(snap.usdtTmn!)}'),
                             key: const ValueKey('pv-rate'),
@@ -302,9 +303,13 @@ class _PortfolioValueCardState extends State<PortfolioValueCard> {
       stat('سود باز', fa(formatCompactToman(snap.unrealizedPnl.abs())), toneOf(snap.unrealizedPnl),
           dir: snap.unrealizedPnl, sub: fa(formatPct(snap.unrealizedPct.abs()).replaceAll('+', '')),
           key: const ValueKey('pv-pnl')),
-      stat('سود دلاری', usdPnl == null ? '—' : formatUsd(usdPnl.abs(), compact: true),
-          usdPnl == null ? AppTheme.muted : toneOf(usdPnl),
-          dir: usdPnl, key: const ValueKey('pv-usd-pnl'), ltr: usdPnl != null),
+      if (CurrencyMode.isUsd)
+        stat('سود دلاری', usdPnl == null ? '—' : formatUsd(usdPnl.abs(), compact: true),
+            usdPnl == null ? AppTheme.muted : toneOf(usdPnl),
+            dir: usdPnl, key: const ValueKey('pv-usd-pnl'), ltr: usdPnl != null)
+      else
+        stat('بهای تمام‌شده', fa(formatCompactToman(snap.costBasis)), AppTheme.muted,
+            key: const ValueKey('pv-cost')),
       if (t.pct != null)
         stat(fa('روند ${t.days} روز'), fa(formatPct(t.pct!.abs()).replaceAll('+', '')), toneOf(t.pct!),
             dir: t.pct, sub: 'از ${fa(formatCompactToman(t.baseValue!))}', key: const ValueKey('pv-trend'))

@@ -48,7 +48,44 @@ int _autoDecimals(double value) {
   return 1;
 }
 
-String formatMoney(num value, {bool showSign = false, int decimals = 0}) {
+/// Global display currency setting and USDT conversion rate.
+class CurrencyMode {
+  static String current = 'toman';
+  static double? usdtRate;
+
+  static bool get isUsd => current == 'usd' || current == 'usdt';
+
+  static void update({required String currency, double? liveUsdt}) {
+    current = currency;
+    if (liveUsdt != null && liveUsdt > 0) {
+      usdtRate = liveUsdt;
+    }
+  }
+
+  static void reset() {
+    current = 'toman';
+    usdtRate = null;
+  }
+
+  /// Convert a Toman amount to USD based on the active rate.
+  static double? toUsd(num toman) {
+    final rate = (usdtRate != null && usdtRate! > 0) ? usdtRate! : 70000.0;
+    return toman / rate;
+  }
+}
+
+String formatMoney(
+  num value, {
+  bool showSign = false,
+  int decimals = 0,
+  bool forceToman = false,
+}) {
+  if (!forceToman && CurrencyMode.isUsd) {
+    final usd = CurrencyMode.toUsd(value);
+    if (usd != null) {
+      return formatUsd(usd, showSign: showSign);
+    }
+  }
   final abs = value.abs();
   final body = '${formatNumber(abs, decimals: decimals)} تومان';
   return _signed(body, value, showSign: showSign);
@@ -65,14 +102,30 @@ int tomanUnitDecimals(num value) {
 }
 
 /// Unit buy/current Toman price — keeps fractions for cheap coins.
-String formatTomanPrice(num value, {bool showSign = false}) => formatMoney(
+String formatTomanPrice(
+  num value, {
+  bool showSign = false,
+  bool forceToman = false,
+}) =>
+    formatMoney(
       value,
       showSign: showSign,
       decimals: tomanUnitDecimals(value),
+      forceToman: forceToman,
     );
 
 /// Compact Toman like `182 میلیارد ت` for portfolio cards.
-String formatCompactToman(num value, {bool showSign = false}) {
+String formatCompactToman(
+  num value, {
+  bool showSign = false,
+  bool forceToman = false,
+}) {
+  if (!forceToman && CurrencyMode.isUsd) {
+    final usd = CurrencyMode.toUsd(value);
+    if (usd != null) {
+      return formatUsd(usd, compact: true, showSign: showSign);
+    }
+  }
   final abs = value.abs();
   late final String body;
   if (abs >= 1e12) {

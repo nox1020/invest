@@ -3,6 +3,7 @@ import 'package:invest/domain/services/connection_status.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/index_analytics.dart';
 import 'package:invest/domain/services/year_nav_compare.dart';
+import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
@@ -150,6 +151,10 @@ class _DashboardBodyState extends State<_DashboardBody>
 
   Widget _buildPage(BuildContext context, AppState state) {
     final usdt = state.liveUsdt ?? state.settings.usdtTmnRate;
+    CurrencyMode.update(
+      currency: state.settings.currency,
+      liveUsdt: usdt,
+    );
     final snap = DashboardSnapshot.compute(
       assets: state.assets,
       openTrades: state.openTrades,
@@ -292,15 +297,39 @@ class _DashboardBodyState extends State<_DashboardBody>
               stage(
                 a: 0,
                 b: 0.35,
-                child: Center(
-                  key: const ValueKey('dash-date-header'),
-                  child: Text(
-                    fa(formatDisplayDate(today, calendar)
-                        .replaceFirst(RegExp(r'^0'), '')),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: mutedStyle(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          fa(formatDisplayDate(today, calendar)
+                              .replaceFirst(RegExp(r'^0'), '')),
+                          key: const ValueKey('dash-date-header'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.start,
+                          style: mutedStyle(12),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _CurrencyToggleSwitch(
+                        key: const ValueKey('dash-currency-toggle'),
+                        isUsd: state.settings.currency == AppConfig.currencyUsd,
+                        onChanged: (usd) async {
+                          final picked = usd
+                              ? AppConfig.currencyUsd
+                              : AppConfig.currencyToman;
+                          CurrencyMode.update(
+                            currency: picked,
+                            liveUsdt: state.liveUsdt ?? state.settings.usdtTmnRate,
+                          );
+                          final next = state.settings.copyWith(currency: picked);
+                          await state.saveSettings(next);
+                        },
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1226,4 +1255,81 @@ Future<void> showWithdrawalChooser(BuildContext context) {
       ),
     ),
   );
+}
+
+
+class _CurrencyToggleSwitch extends StatelessWidget {
+  const _CurrencyToggleSwitch({
+    super.key,
+    required this.isUsd,
+    required this.onChanged,
+  });
+
+  final bool isUsd;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: AppTheme.card.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.border.withValues(alpha: 0.8)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _chip(
+            label: 'تومان',
+            active: !isUsd,
+            onTap: () => onChanged(false),
+            key: const ValueKey('currency-toggle-toman'),
+          ),
+          _chip(
+            label: 'دلار',
+            active: isUsd,
+            onTap: () => onChanged(true),
+            key: const ValueKey('currency-toggle-usd'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip({
+    required String label,
+    required bool active,
+    required VoidCallback onTap,
+    required Key key,
+  }) {
+    return InkWell(
+      key: key,
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
+        decoration: BoxDecoration(
+          color: active
+              ? AppTheme.positive.withValues(alpha: 0.25)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: active
+              ? Border.all(
+                  color: AppTheme.positive.withValues(alpha: 0.7), width: 1)
+              : Border.all(color: Colors.transparent, width: 1),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: active ? AppTheme.positive : AppTheme.muted,
+            fontSize: 11,
+            fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
 }

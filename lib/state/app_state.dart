@@ -309,6 +309,10 @@ class AppState extends ChangeNotifier {
     } catch (e, st) {
       debugPrint('overlay failed: $e\n$st');
     }
+    CurrencyMode.update(
+      currency: settings.currency,
+      liveUsdt: liveUsdt ?? settings.usdtTmnRate,
+    );
     syncOffline.value = useRemote && (offline || readOnlyOffline);
     super.notifyListeners();
   }

@@ -46,4 +46,17 @@ void main() {
     expect(parseFlexibleNumber('12.5'), 12.5);
     expect(parseFlexibleNumber(''), isNull);
   });
+
+  test('CurrencyMode converts to USD when active', () {
+    addTearDown(CurrencyMode.reset);
+    CurrencyMode.update(currency: 'usd', liveUsdt: 60000);
+    expect(CurrencyMode.isUsd, isTrue);
+    expect(formatMoney(120000), r'$2');
+    expect(formatCompactToman(120000000), r'$2K');
+    expect(formatCompactToman(120000000, forceToman: true), contains('میلیون ت'));
+
+    CurrencyMode.update(currency: 'toman');
+    expect(CurrencyMode.isUsd, isFalse);
+    expect(formatMoney(120000), contains('تومان'));
+  });
 }
