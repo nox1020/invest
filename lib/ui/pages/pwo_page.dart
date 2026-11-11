@@ -143,10 +143,6 @@ class _PwoPageState extends State<PwoPage> {
                 : today.year;
             final months = l.monthsOf(year);
             final visibleMonths = pwoVisibleMonths(l, year, today);
-            final avgMonthly = months.isEmpty
-                ? 0.0
-                : months.map((e) => e.total).fold(0.0, (a, b) => a + b) /
-                    months.length;
             return RefreshIndicator(
               onRefresh: () => _store.refresh(),
               child: ListView(
@@ -186,29 +182,6 @@ class _PwoPageState extends State<PwoPage> {
                   const SizedBox(height: 12),
                   _Card(
                     title: 'نمودار ماهانه',
-                    trailing: months.isNotEmpty && avgMonthly > 0
-                        ? Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF00838F)
-                                  .withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              'میانگین: ${formatCompactToman(avgMonthly)}',
-                              key: const ValueKey('pwo-chart-avg-badge'),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(
-                                    color: const Color(0xFF00838F),
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 11,
-                                  ),
-                            ),
-                          )
-                        : null,
                     child: SizedBox(
                       height: 200,
                       child: months.isEmpty
@@ -279,9 +252,8 @@ class _PwoPageState extends State<PwoPage> {
 String _mil(num v) => formatCompactToman(v);
 
 class _Card extends StatelessWidget {
-  const _Card({this.title, this.trailing, required this.child});
+  const _Card({this.title, required this.child});
   final String? title;
-  final Widget? trailing;
   final Widget child;
 
   @override
@@ -294,17 +266,11 @@ class _Card extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (title != null) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(title!,
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700)),
-                  if (trailing != null) trailing!,
-                ],
-              ),
+              Text(title!,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700)),
               const SizedBox(height: 10),
             ],
             child,
@@ -575,7 +541,7 @@ class _PwoChartPainter extends CustomPainter {
       ap.paint(
         canvas,
         Offset(
-          size.width - ap.width - 2,
+          math.max(2, size.width - ap.width - 2),
           math.max(0, math.min(size.height - bottom - ap.height, textY)),
         ),
       );
