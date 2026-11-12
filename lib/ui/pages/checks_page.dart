@@ -39,9 +39,11 @@ const _iranianBanks = <String>[
   'مهر ایران',
 ];
 
-void openChecksPage(BuildContext context) {
+void openChecksPage(BuildContext context, {CheckListFilter? filter}) {
   Navigator.of(context).push(
-    MaterialPageRoute<void>(builder: (_) => const ChecksPage()),
+    MaterialPageRoute<void>(
+      builder: (_) => ChecksPage(initialFilter: filter ?? CheckListFilter.all),
+    ),
   );
 }
 
@@ -180,15 +182,23 @@ class ChecksDashboardCard extends StatelessWidget {
 }
 
 class ChecksPage extends StatefulWidget {
-  const ChecksPage({super.key});
+  const ChecksPage({super.key, this.initialFilter = CheckListFilter.all});
+
+  final CheckListFilter initialFilter;
 
   @override
   State<ChecksPage> createState() => _ChecksPageState();
 }
 
 class _ChecksPageState extends State<ChecksPage> {
-  CheckListFilter _filter = CheckListFilter.all;
+  late CheckListFilter _filter;
   final _search = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _filter = widget.initialFilter;
+  }
 
   @override
   void dispose() {
@@ -458,6 +468,8 @@ class _FilterRow extends StatelessWidget {
     CheckListFilter.payable: 'پرداختی',
     CheckListFilter.pending: 'در انتظار',
     CheckListFilter.due: 'سررسید',
+    CheckListFilter.overdue: 'معوق',
+    CheckListFilter.partial: 'پرداخت جزئی',
     CheckListFilter.bounced: 'برگشتی',
     CheckListFilter.settled: 'تسویه‌شده',
     CheckListFilter.check: 'چک',

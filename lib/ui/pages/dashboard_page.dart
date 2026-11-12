@@ -37,7 +37,7 @@ import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/ui/pages/price_alerts_page.dart';
 import 'package:invest/ui/widgets/dashboard_compact.dart';
-import 'package:invest/domain/services/ai_accountant_service.dart';
+import 'package:invest/domain/services/ai_accountant_controller.dart';
 import 'package:invest/ui/widgets/ai_accountant_card.dart';
 import 'package:invest/ui/widgets/ai_audit_detail_sheet.dart';
 import 'package:provider/provider.dart';
@@ -405,19 +405,11 @@ extension _CompactDash on _DashboardBodyState {
         label: 'حسابدار AI',
         color: AppTheme.positive,
         onTap: () async {
-          final cached = await AiAccountantService.instance.getLastCachedReport();
-          if (context.mounted) {
-            if (cached != null) {
-              showAiAuditDetailSheet(context, report: cached, onRefresh: () {});
-            } else {
-              final rep = await AiAccountantService.instance.auditAccounts(
-                state: Provider.of<AppState>(context, listen: false),
-                force: true,
-              );
-              if (context.mounted) {
-                showAiAuditDetailSheet(context, report: rep, onRefresh: () {});
-              }
-            }
+          final state = Provider.of<AppState>(context, listen: false);
+          await AiAccountantController.instance.load(state);
+          if (context.mounted &&
+              AiAccountantController.instance.report != null) {
+            showAiAuditDetailSheet(context);
           }
         },
       ),

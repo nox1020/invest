@@ -1,7 +1,6 @@
 """Application bootstrap: database, settings, shared services."""
 
 from __future__ import annotations
-from app.services.ai_accountant_service import AiAccountantService
 
 import logging
 import sqlite3
@@ -17,6 +16,7 @@ from app.analytics.portfolio_analytics_service import PortfolioAnalyticsService
 from app.analytics.report_generator import AnalyticsReportGenerator
 from app.insights.engine import InvestmentInsightsEngine
 from app.insights.provider import InsightProvider
+from app.services.ai_accountant_service import AiAccountantService
 from app.services.backup_service import BackupService
 from app.services.export_service import ExportService
 from app.services.fx_service import FxService
@@ -157,6 +157,7 @@ class AppContext:
         self.analytics_reports = services.analytics_reports
         self.insights_engine = services.insights_engine
         self.insights = services.insights
+        self.ai_accountant = services.ai_accountant
 
     def _seed_live_quotes(self) -> None:
         raw_usdt = self.settings_repo.get(SETTING_USDT_TMN_RATE)

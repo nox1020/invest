@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:invest/domain/models/ai_audit_report.dart';
-import 'package:invest/domain/services/ai_accountant_service.dart';
+import 'package:invest/domain/services/ai_accountant_controller.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/ai_audit_detail_sheet.dart';
+import 'package:invest/ui/widgets/ai_health_style.dart';
 import 'package:invest/ui/widgets/dashboard_kit.dart';
 import 'package:provider/provider.dart';
 
-/// کارت حسابدار هوشمند در داشبورد برای بازبینی حساب‌ها و گزارش روزانه
+/// Dashboard card for the on-device accountant.
 class AiAccountantCard extends StatefulWidget {
   const AiAccountantCard({super.key});
 
@@ -16,65 +16,48 @@ class AiAccountantCard extends StatefulWidget {
 }
 
 class _AiAccountantCardState extends State<AiAccountantCard> {
-  AiAuditReport? _report;
-  bool _loading = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadInitialReport();
-  }
-
-  Future<void> _loadInitialReport() async {
-    // ابتدا کش را بررسی می‌کنیم
-    final cached = await AiAccountantService.instance.getLastCachedReport();
-    if (mounted && cached != null) {
-      setState(() => _report = cached);
-      return;
-    }
-
-    // در غیر این صورت حسابرسی انجام می‌دهیم
-    _performAudit(force: false);
-  }
-
-  Future<void> _performAudit({bool force = true}) async {
-    if (!mounted) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      final state = Provider.of<AppState>(context, listen: false);
-      final report = await AiAccountantService.instance.auditAccounts(
-        state: state,
-        force: force,
-      );
-      if (mounted) {
-        setState(() {
-          _report = report;
-          _loading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = e.toString();
-        });
-      }
-    }
-  }
-
-  Color _scoreColor(int score) {
-    if (score >= 80) return AppTheme.positive;
-    if (score >= 60) return const Color(0xFFFFB340);
-    return AppTheme.negative;
-  }
+  String? _phone;
 
   @override
   Widget build(BuildContext context) {
+    final phone =
+        context.select<AppState, String>((state) => state.userPhone ?? '');
+    if (_phone != phone) {
+      _phone = phone;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _phone != phone) return;
+        AiAccountantController.instance.load(context.read<AppState>());
+      });
+    }
+    return ListenableBuilder(
+      listenable: AiAccountantController.instance,
+      builder: (context, _) => _buildCard(context),
+    );
+  }
+
+  Future<void> _refresh() {
+    return AiAccountantController.instance.load(
+      context.read<AppState>(),
+      force: true,
+    );
+  }
+
+  void _open() {
+    final controller = AiAccountantController.instance;
+    if (controller.report == null && !controller.loading) {
+      _refresh();
+      return;
+    }
+    showAiAuditDetailSheet(context);
+  }
+
+  Widget _buildCard(BuildContext context) {
+    final controller = AiAccountantController.instance;
+    final report = controller.report;
+    final loading = controller.loading;
+    final color =
+        report == null ? AppTheme.border : aiHealthColor(report.healthScore);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Material(
@@ -82,34 +65,19 @@ class _AiAccountantCardState extends State<AiAccountantCard> {
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: () {
-            if (_report != null) {
-              showAiAuditDetailSheet(
-                context,
-                report: _report!,
-                onRefresh: () => _performAudit(force: true),
-              );
-            } else {
-              _performAudit(force: true);
-            }
-          },
+          onTap: _open,
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: _report != null
-                    ? _scoreColor(_report!.healthScore).withValues(alpha: 0.3)
-                    : AppTheme.border,
-              ),
+                  color: color.withValues(alpha: report == null ? 1 : 0.3)),
             ),
             child: Directionality(
               textDirection: TextDirection.rtl,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // ردیف هدر کارت
                   Row(
                     children: [
                       Container(
@@ -137,25 +105,21 @@ class _AiAccountantCardState extends State<AiAccountantCard> {
                           ),
                         ),
                       ),
-                      if (_report != null) ...[
+                      if (report != null) ...[
                         Container(
+                          key: const Key('ai-card-score'),
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
+                              horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: _scoreColor(_report!.healthScore)
-                                .withValues(alpha: 0.15),
+                            color: color.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: _scoreColor(_report!.healthScore)
-                                  .withValues(alpha: 0.4),
-                            ),
+                            border:
+                                Border.all(color: color.withValues(alpha: 0.4)),
                           ),
                           child: Text(
-                            fa('${_report!.healthScore}/۱۰۰'),
+                            fa('${report.healthScore}/100'),
                             style: TextStyle(
-                              color: _scoreColor(_report!.healthScore),
+                              color: color,
                               fontWeight: FontWeight.w900,
                               fontSize: 11,
                             ),
@@ -164,7 +128,7 @@ class _AiAccountantCardState extends State<AiAccountantCard> {
                         const SizedBox(width: 4),
                       ],
                       IconButton(
-                        icon: _loading
+                        icon: loading
                             ? const SizedBox(
                                 width: 14,
                                 height: 14,
@@ -177,67 +141,52 @@ class _AiAccountantCardState extends State<AiAccountantCard> {
                         color: AppTheme.muted,
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
-                        onPressed: _loading ? null : () => _performAudit(force: true),
+                        onPressed: loading ? null : _refresh,
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-
-                  // محتوای خلاصه یا وضعیت لودینگ
-                  if (_loading && _report == null)
+                  if (controller.stale)
                     const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 6),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppTheme.positive,
-                            ),
-                          ),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'در حال بازبینی دفاتر...',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: AppTheme.muted, fontSize: 11),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  else if (_error != null && _report == null)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      padding: EdgeInsets.only(bottom: 6),
                       child: Text(
-                        'خطا در بارگذاری: $_error',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppTheme.negative,
+                        'این گزارش برای امروز نیست و در حال به‌روزرسانی است.',
+                        key: Key('ai-card-stale'),
+                        style: TextStyle(
+                          color: aiHealthAmber,
                           fontSize: 11,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
+                    ),
+                  if (loading && report == null)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 6),
+                      child: Text(
+                        'در حال بازبینی دفاتر...',
+                        style: TextStyle(color: AppTheme.muted, fontSize: 11),
+                      ),
                     )
-                  else if (_report != null) ...[
-                    // عنوان وضعیت
+                  else if (controller.error != null && report == null)
                     Text(
-                      _report!.healthTitle,
+                      controller.error!,
+                      style: const TextStyle(
+                          color: AppTheme.negative, fontSize: 11),
+                    )
+                  else if (report != null) ...[
+                    Text(
+                      report.healthTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: _scoreColor(_report!.healthScore),
+                        color: color,
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 3),
-                    // متن خلاصه کوتاه شده
                     Text(
-                      fa(_report!.summary),
+                      fa(report.summary),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -246,77 +195,49 @@ class _AiAccountantCardState extends State<AiAccountantCard> {
                         height: 1.4,
                       ),
                     ),
+                    if (report.fallbackReason != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'گزارش محلی نشان داده می‌شود: ${report.fallbackReason}',
+                        key: const Key('ai-card-fallback'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(color: aiHealthAmber, fontSize: 11),
+                      ),
+                    ],
                     const SizedBox(height: 8),
-
-                    // نوار پایینی دکمه و تعداد هشدارها
                     Row(
                       children: [
                         Expanded(
-                          child: _report!.alerts.isNotEmpty
-                              ? Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.warning_amber_rounded,
-                                      size: 13,
-                                      color: Color(0xFFFFB340),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Expanded(
-                                      child: Text(
-                                        fa('${_report!.alerts.length} هشدار مالی'),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Color(0xFFFFB340),
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              : const Row(
-                                  children: [
-                                    Icon(
-                                      Icons.check_circle_outline_rounded,
-                                      size: 13,
-                                      color: AppTheme.positive,
-                                    ),
-                                    SizedBox(width: 4),
-                                    Expanded(
-                                      child: Text(
-                                        'تراز بدون مغایرت',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: AppTheme.positive,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                          child: Text(
+                            report.alerts.isEmpty
+                                ? 'تراز بدون مغایرت'
+                                : fa('${report.alerts.length} هشدار مالی'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: report.alerts.isEmpty
+                                  ? AppTheme.positive
+                                  : aiHealthAmber,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
-                        const SizedBox(width: 8),
-                        const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'گزارش کامل',
-                              style: TextStyle(
-                                color: AppTheme.positive,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            SizedBox(width: 2),
-                            Icon(
-                              Icons.arrow_back_ios_new_rounded,
-                              size: 10,
-                              color: AppTheme.positive,
-                            ),
-                          ],
+                        const Text(
+                          'گزارش کامل',
+                          style: TextStyle(
+                            color: AppTheme.positive,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        const Icon(
+                          Icons.arrow_back_ios_new_rounded,
+                          size: 10,
+                          color: AppTheme.positive,
                         ),
                       ],
                     ),

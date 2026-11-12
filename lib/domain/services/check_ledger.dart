@@ -9,6 +9,8 @@ enum CheckListFilter {
   pending,
   due,
   bounced,
+  overdue,
+  partial,
   settled,
   check,
   deposit,
@@ -242,6 +244,10 @@ bool _matchesFilter(BankCheck c, CheckListFilter filter, DateTime today) {
     CheckListFilter.pending => c.status == checkStatusPending,
     CheckListFilter.due => c.isOpen && c.daysUntilDue(today) <= 7,
     CheckListFilter.bounced => c.isBounced,
+    CheckListFilter.overdue =>
+      c.isActiveOpen && !c.isBounced && c.daysUntilDue(today) < 0,
+    CheckListFilter.partial =>
+      c.status == checkStatusPending && c.paymentState == paymentStatePartial,
     CheckListFilter.settled => c.isSettled,
     CheckListFilter.check => c.isCheck,
     CheckListFilter.deposit => c.isDeposit,
