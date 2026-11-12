@@ -1,7 +1,6 @@
 """Construct application services with shared dependencies."""
 
 from __future__ import annotations
-from app.services.ai_accountant_service import AiAccountantService
 
 import sqlite3
 from dataclasses import dataclass
@@ -12,6 +11,8 @@ from app.analytics.portfolio_analytics_service import PortfolioAnalyticsService
 from app.analytics.report_generator import AnalyticsReportGenerator
 from app.insights.engine import InvestmentInsightsEngine
 from app.insights.provider import InsightProvider
+from app.repositories.settings_repo import SettingsRepository
+from app.services.ai_accountant_service import AiAccountantService
 from app.services.backup_service import BackupService
 from app.services.export_service import ExportService
 from app.services.fx_service import FxService
@@ -46,10 +47,11 @@ def build_services(conn: sqlite3.Connection, *, db_path: Path) -> AppServices:
     trades = TradeService(conn, portfolio=portfolio)
     analytics = PortfolioAnalyticsService(portfolio)
     insights_engine = InvestmentInsightsEngine()
+    settings_repo = SettingsRepository(conn)
     ai_accountant = AiAccountantService(
         portfolio_service=portfolio,
         trade_service=trades,
-        settings_repo=settings,
+        settings_repo=settings_repo,
     )
     return AppServices(
         portfolio=portfolio,
@@ -64,4 +66,5 @@ def build_services(conn: sqlite3.Connection, *, db_path: Path) -> AppServices:
         analytics_reports=AnalyticsReportGenerator(analytics),
         insights_engine=insights_engine,
         insights=InsightProvider(analytics, insights_engine),
+        ai_accountant=ai_accountant,
     )

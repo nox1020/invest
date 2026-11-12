@@ -661,7 +661,7 @@ extension AppStateChecks on AppState {
           kind: NotificationKind.checks,
           title: _reminderTitle(c),
           body:
-              '${c.directionLabel} · ${c.statusLabel} · ${formatMoney(c.amount)} · $when${who.isEmpty ? '' : ' · $who'}',
+              '${c.directionLabel} · ${c.statusLabel} · ${formatMoney(c.remainingAmount, forceToman: true)} · $when${who.isEmpty ? '' : ' · $who'}',
           id: 70000 + ((c.id ?? 0).abs() % 20000),
         );
         _checkAlertKeys.add(key);
