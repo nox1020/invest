@@ -836,6 +836,7 @@ typedef _TradeTile = TradeTile;
 
 class TradeTile extends StatelessWidget {
   const TradeTile({
+    super.key,
     required this.trade,
     required this.open,
     this.showAssetIdentity = true,

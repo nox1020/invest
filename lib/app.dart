@@ -122,7 +122,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             } else {
               showModalBottomSheet<void>(
                 context: context,
-                backgroundColor: AppTheme.surface,
+                backgroundColor: AppTheme.card,
                 shape: const RoundedRectangleBorder(
                   borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                 ),

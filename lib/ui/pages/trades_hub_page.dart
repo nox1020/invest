@@ -80,8 +80,8 @@ class _TradesHubPageState extends State<TradesHubPage>
     if (_searchQuery.trim().isNotEmpty) {
       final q = _searchQuery.trim().toLowerCase();
       filtered = filtered.where((t) {
-        final name = (t.assetName ?? '').toLowerCase();
-        final sym = (t.assetSymbol ?? '').toLowerCase();
+        final name = t.assetName.toLowerCase();
+        final sym = t.assetSymbol.toLowerCase();
         return name.contains(q) || sym.contains(q);
       }).toList();
     }
@@ -113,8 +113,8 @@ class _TradesHubPageState extends State<TradesHubPage>
     if (_searchQuery.trim().isNotEmpty) {
       final q = _searchQuery.trim().toLowerCase();
       filtered = filtered.where((t) {
-        final name = (t.assetName ?? '').toLowerCase();
-        final sym = (t.assetSymbol ?? '').toLowerCase();
+        final name = t.assetName.toLowerCase();
+        final sym = t.assetSymbol.toLowerCase();
         return name.contains(q) || sym.contains(q);
       }).toList();
     }
@@ -203,7 +203,7 @@ class _TradesHubPageState extends State<TradesHubPage>
       },
       body: TabBarView(
         controller: _tabController,
-        physics: const NeverScrollableScrollPhysics(), // tab switching via buttons
+        physics: const NeverScrollableScrollPhysics(),
         children: [
           // Tab 0: Open Positions
           _OpenTradesList(
@@ -379,7 +379,7 @@ class _SummaryBanner extends StatelessWidget {
       );
     } else {
       // Holdings / Allocation summary
-      final totalValue = assets.fold<double>(0, (s, a) => s + a.marketValue);
+      final totalValue = assets.fold<double>(0, (s, a) => s + a.totalValue);
       final totalPnl = assets.fold<double>(0, (s, a) => s + a.unrealizedPnl);
       final isUp = totalPnl >= 0;
 
@@ -495,7 +495,7 @@ class _SegmentSelector extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: AppTheme.card,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppTheme.border),
       ),
@@ -623,7 +623,7 @@ class _FilterAndSearchRow extends StatelessWidget {
               child: Container(
                 height: 36,
                 decoration: BoxDecoration(
-                  color: AppTheme.surface,
+                  color: AppTheme.card,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: AppTheme.border),
                 ),
@@ -660,7 +660,7 @@ class _FilterAndSearchRow extends StatelessWidget {
               height: 36,
               padding: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
-                color: AppTheme.surface,
+                color: AppTheme.card,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: AppTheme.border),
               ),
@@ -673,7 +673,7 @@ class _FilterAndSearchRow extends StatelessWidget {
                       color: AppTheme.title,
                       fontSize: 11,
                       fontWeight: FontWeight.w700),
-                  dropdownColor: AppTheme.surface,
+                  dropdownColor: AppTheme.card,
                   items: isOpenTab
                       ? const [
                           DropdownMenuItem(
@@ -724,9 +724,9 @@ class _FilterAndSearchRow extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               _KindChip(
-                label: 'ارز',
-                isSelected: selectedKind == AssetKind.currency,
-                onTap: () => onKindChanged(AssetKind.currency),
+                label: 'ارز و نقد',
+                isSelected: selectedKind == AssetKind.cash,
+                onTap: () => onKindChanged(AssetKind.cash),
               ),
               const SizedBox(width: 6),
               _KindChip(
