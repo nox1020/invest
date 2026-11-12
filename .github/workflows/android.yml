@@ -245,6 +245,7 @@ jobs:
           VERSION_NAME="1.0.${ANDROID_VERSION_CODE}"
           APK_NAME="invest-${VERSION_NAME}.apk"
           flutter build apk --release \
+            --android-skip-build-dependency-validation \
             --build-number="${ANDROID_VERSION_CODE}" \
             --build-name="${VERSION_NAME}" \
             --dart-define=VINOR_API_VERSION="${VINOR_API_VERSION}" \
