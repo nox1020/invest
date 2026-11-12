@@ -13,6 +13,29 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// file_picker 8.3.7 (and several other plugins) still pin compileSdk 34/35.
+// Flutter 3.50 compiles flutter_plugin_android_lifecycle against
+// flutter.compileSdkVersion (36). AGP 9 fails CheckAarMetadata when a library
+// depends on that plugin but compiles against an older SDK. Raise library
+// compileSdk to the app SDK after each plugin's own android block.
+subprojects { subproject ->
+    subproject.pluginManager.withPlugin("com.android.library") {
+        subproject.extensions.configure("androidComponents") { components ->
+            components.finalizeDsl { ext ->
+                def requiredSdk = 36
+                def flutterExt = rootProject.project(":app").extensions.findByName("flutter")
+                if (flutterExt != null && flutterExt.hasProperty("compileSdkVersion")) {
+                    requiredSdk = flutterExt.compileSdkVersion as int
+                }
+                def current = ext.compileSdk
+                if (current == null || (current as int) < requiredSdk) {
+                    ext.compileSdk = requiredSdk
+                }
+            }
+        }
+    }
+}
+
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
