@@ -303,13 +303,9 @@ class _PortfolioValueCardState extends State<PortfolioValueCard> {
       stat('سود باز', fa(formatCompactToman(snap.unrealizedPnl.abs())), toneOf(snap.unrealizedPnl),
           dir: snap.unrealizedPnl, sub: fa(formatPct(snap.unrealizedPct.abs()).replaceAll('+', '')),
           key: const ValueKey('pv-pnl')),
-      if (CurrencyMode.isUsd)
-        stat('سود دلاری', usdPnl == null ? '—' : formatUsd(usdPnl.abs(), compact: true),
-            usdPnl == null ? AppTheme.muted : toneOf(usdPnl),
-            dir: usdPnl, key: const ValueKey('pv-usd-pnl'), ltr: usdPnl != null)
-      else
-        stat('بهای تمام‌شده', fa(formatCompactToman(snap.costBasis)), AppTheme.muted,
-            key: const ValueKey('pv-cost')),
+      stat('سود دلاری', usdPnl == null ? '—' : formatUsd(usdPnl.abs(), compact: true),
+          usdPnl == null ? AppTheme.muted : toneOf(usdPnl),
+          dir: usdPnl, key: const ValueKey('pv-usd-pnl'), ltr: usdPnl != null),
       if (t.pct != null)
         stat(fa('روند ${t.days} روز'), fa(formatPct(t.pct!.abs()).replaceAll('+', '')), toneOf(t.pct!),
             dir: t.pct, sub: 'از ${fa(formatCompactToman(t.baseValue!))}', key: const ValueKey('pv-trend'))

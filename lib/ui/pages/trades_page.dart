@@ -832,8 +832,10 @@ class AssetChoice {
   final String name;
 }
 
-class _TradeTile extends StatelessWidget {
-  const _TradeTile({
+typedef _TradeTile = TradeTile;
+
+class TradeTile extends StatelessWidget {
+  const TradeTile({
     required this.trade,
     required this.open,
     this.showAssetIdentity = true,

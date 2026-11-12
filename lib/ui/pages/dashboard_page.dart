@@ -299,37 +299,41 @@ class _DashboardBodyState extends State<_DashboardBody>
                 b: 0.35,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          fa(formatDisplayDate(today, calendar)
-                              .replaceFirst(RegExp(r'^0'), '')),
+                  child: SizedBox(
+                    height: 32,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Center(
                           key: const ValueKey('dash-date-header'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.start,
-                          style: mutedStyle(12),
+                          child: Text(
+                            fa(formatDisplayDate(today, calendar)
+                                .replaceFirst(RegExp(r'^0'), '')),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: mutedStyle(12),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      _CurrencyToggleSwitch(
-                        key: const ValueKey('dash-currency-toggle'),
-                        isUsd: state.settings.currency == AppConfig.currencyUsd,
-                        onChanged: (usd) async {
-                          final picked = usd
-                              ? AppConfig.currencyUsd
-                              : AppConfig.currencyToman;
-                          CurrencyMode.update(
-                            currency: picked,
-                            liveUsdt: state.liveUsdt ?? state.settings.usdtTmnRate,
-                          );
-                          final next = state.settings.copyWith(currency: picked);
-                          await state.saveSettings(next);
-                        },
-                      ),
-                    ],
+                        Align(
+                          alignment: AlignmentDirectional.centerEnd,
+                          child: _CurrencyToggleSwitch(
+                            key: const ValueKey('dash-currency-toggle'),
+                            isUsd: state.settings.currency == AppConfig.currencyUsd,
+                            onChanged: (usd) async {
+                              final picked = usd
+                                  ? AppConfig.currencyUsd
+                                  : AppConfig.currencyToman;
+                              CurrencyMode.update(
+                                currency: picked,
+                                liveUsdt: state.liveUsdt ?? state.settings.usdtTmnRate,
+                              );
+                              final next = state.settings.copyWith(currency: picked);
+                              await state.saveSettings(next);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

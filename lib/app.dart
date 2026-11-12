@@ -11,6 +11,7 @@ import 'package:invest/ui/pages/login_page.dart';
 import 'package:invest/ui/pages/notifications_page.dart';
 import 'package:invest/ui/pages/performance_page.dart';
 import 'package:invest/ui/pages/trades_hub_page.dart';
+import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/pages/withdrawals_page.dart';
 import 'package:invest/ui/pages/settings_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -115,9 +116,50 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     switch (index) {
       case HomeTabs.trades:
         return FloatingActionButton.extended(
-          onPressed: () => showAssetEditor(context),
-          icon: const Icon(Icons.add),
-          label: const Text('دارایی جدید'),
+          onPressed: () {
+            if (state.assets.isEmpty) {
+              showAssetEditor(context);
+            } else {
+              showModalBottomSheet<void>(
+                context: context,
+                backgroundColor: AppTheme.surface,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                builder: (ctx) => SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.add_shopping_cart_rounded, color: AppTheme.accent),
+                          title: const Text('ثبت معامله خرید جدید'),
+                          subtitle: const Text('ثبت خرید طلا، ارز، کریپتو یا دارایی'),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            showBuyTradeDialog(context);
+                          },
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.add_chart_rounded, color: AppTheme.title),
+                          title: const Text('تعریف دارایی جدید'),
+                          subtitle: const Text('افزودن نماد و دارایی جدید به پورتفو'),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            showAssetEditor(context);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }
+          },
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('معامله / دارایی جدید'),
         );
       case HomeTabs.withdrawals:
         return FloatingActionButton.extended(
