@@ -207,6 +207,12 @@ class AppState extends ChangeNotifier {
   /// the book.
   bool _checksFromRemote = false;
 
+  /// Turned off after a write that included the field came back without it.
+  /// An older Vinor build drops `kind` / `payments`; retrying that payload
+  /// forever would leave the book looking unsynced while the user is online.
+  bool _serverStoresCheckPayments = true;
+  bool _serverStoresCheckKind = true;
+
   /// Ids removed on this phone that the server may still have.
   final Set<int> _pendingDeletedCheckIds = {};
 
@@ -888,6 +894,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _stopAutoRefreshTimer();
+    _syncTimer?.cancel();
     _resumeDebouncer.dispose();
     super.dispose();
   }
@@ -1196,6 +1203,12 @@ class AppState extends ChangeNotifier {
   void _noteCheckEcho(RemoteSettingsBundle bundle) {
     if (_checksFromRemote) return;
     if (!_checksHydrated && checks.isEmpty) return;
+    final err = bundle.clientChecksError?.trim();
+    if (err != null && err.isNotEmpty) {
+      checkSyncError = err;
+      if (checks.isNotEmpty) _checksPendingSync = true;
+      return;
+    }
     final echoed =
         bundle.serverEchoedChecks && sameCheckIds(bundle.echoedChecks, checks);
     if (echoed) {

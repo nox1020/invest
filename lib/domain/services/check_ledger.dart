@@ -309,6 +309,8 @@ bool sameCheckContent(BankCheck a, BankCheck b) {
   required List<BankCheck> local,
   required List<BankCheck> remote,
   required bool pushLocalEdits,
+  bool uploadMissingPayments = false,
+  bool uploadMissingKind = false,
 }) {
   final remoteById = <int, BankCheck>{
     for (final row in remote)
@@ -322,11 +324,36 @@ bool sameCheckContent(BankCheck a, BankCheck b) {
       toCreate.add(row);
       continue;
     }
-    if (pushLocalEdits && !sameCheckContent(row, remoteById[id]!)) {
-      toUpdate.add(row);
-    }
+    final server = remoteById[id]!;
+    final edited = pushLocalEdits && !sameCheckContent(row, server);
+    final payments = uploadMissingPayments && localPaymentsAhead(row, server);
+    final kind = uploadMissingKind && localKindAhead(row, server);
+    if (edited || payments || kind) toUpdate.add(row);
   }
   return (toCreate: toCreate, toUpdate: toUpdate);
+}
+
+/// Local payment rows the server has not stored yet.
+bool localPaymentsAhead(BankCheck local, BankCheck remote) {
+  if (local.payments.isEmpty) return false;
+  if (!remote.paymentsFromServer) return true;
+  for (final payment in local.payments) {
+    final stored = remote.payments.any(
+      (row) =>
+          (row.amount - payment.amount).abs() < 0.001 &&
+          row.paidAt == payment.paidAt &&
+          row.note == payment.note,
+    );
+    if (!stored) return true;
+  }
+  return false;
+}
+
+/// A deposit (or other non-default kind) the server has not stored yet.
+bool localKindAhead(BankCheck local, BankCheck remote) {
+  if (local.kind == checkKindCheck) return false;
+  if (!remote.kindFromServer) return true;
+  return local.kind != remote.kind;
 }
 
 /// Server rows win. Local rows the server does not have yet stay on the device.

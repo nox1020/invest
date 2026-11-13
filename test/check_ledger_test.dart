@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/domain/models/bank_check.dart';
+import 'package:invest/domain/models/check_payment.dart';
 import 'package:invest/domain/services/check_ledger.dart';
 
 void main() {
@@ -309,6 +310,52 @@ void main() {
       remote: [cheque(id: 1, number: '1', amount: 99)],
     );
     expect(merged.map((e) => e.id), [1, 2]);
+  });
+
+  test('online upload sends payments and kind the server has not stored', () {
+    final payment = CheckPayment(
+      id: 1,
+      checkId: 1,
+      amount: 400,
+      paidAt: '2026-10-05',
+      note: 'قسط',
+    );
+    final local = cheque(id: 1, number: '1').copyWith(
+      kind: checkKindDeposit,
+      payments: [payment],
+    );
+    final remote = cheque(id: 1, number: '1');
+    final quiet = planCheckUpload(
+      local: [local],
+      remote: [remote],
+      pushLocalEdits: false,
+    );
+    expect(quiet.toUpdate, isEmpty);
+
+    final upload = planCheckUpload(
+      local: [local],
+      remote: [remote],
+      pushLocalEdits: false,
+      uploadMissingPayments: true,
+      uploadMissingKind: true,
+    );
+    expect(upload.toUpdate.single.payments.single.amount, 400);
+    expect(upload.toUpdate.single.kind, checkKindDeposit);
+
+    final echoed = remote.copyWith(
+      kind: checkKindDeposit,
+      kindFromServer: true,
+      payments: [payment],
+      paymentsFromServer: true,
+    );
+    final done = planCheckUpload(
+      local: [local],
+      remote: [echoed],
+      pushLocalEdits: false,
+      uploadMissingPayments: true,
+      uploadMissingKind: true,
+    );
+    expect(done.toUpdate, isEmpty);
   });
 
   test('reminder window is overdue through seven days', () {

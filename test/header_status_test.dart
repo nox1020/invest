@@ -66,9 +66,11 @@ void main() {
         'در حال بروزرسانی');
     expect(
         HeaderStatus.of(conn: AppConnectionStatus.serverDown).text, 'آفلاین');
-    expect(
-        HeaderStatus.of(conn: AppConnectionStatus.connected, error: true).text,
-        'آفلاین');
+    final onlineError =
+        HeaderStatus.of(conn: AppConnectionStatus.connected, error: true);
+    expect(onlineError.text, 'متصل');
+    expect(onlineError.tone, HeaderTone.warn);
+    expect(onlineError.ok, isFalse);
     final re = HeaderStatus.of(conn: AppConnectionStatus.reauth);
     expect(re.text, 'آفلاین');
     expect(re.tone, HeaderTone.bad);
@@ -84,7 +86,7 @@ void main() {
     expect(_label(t), 'در حال بروزرسانی');
     await t.pumpWidget(
         _host(_s(error: 'assets: InvestApiException(/network_error)')));
-    expect(_label(t), 'آفلاین');
+    expect(_label(t), 'متصل');
     expect(find.textContaining('InvestApiException'), findsNothing);
   });
 
@@ -136,6 +138,7 @@ void main() {
           headers: {'content-type': 'application/json'});
     });
     final s = AppState(httpClient: client);
+    addTearDown(s.dispose);
     try {
       await s.requestOtp('09120000000'); // builds the API client
     } catch (_) {}
