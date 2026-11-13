@@ -156,10 +156,13 @@ extension AppStateChecks on AppState {
       local: visibleLocal,
       remote: visibleRemote,
       pushLocalEdits: _checksPendingSync,
+      uploadMissingPayments: _serverStoresCheckPayments,
+      uploadMissingKind: _serverStoresCheckKind,
     );
     for (final row in plan.toCreate) {
       try {
-        await remote!.createCheck(row);
+        final created = await remote!.createCheck(row);
+        _noteCheckFieldSupport(row, created);
       } on InvestApiException catch (e) {
         if (_isDuplicateCheckId(e)) continue;
         failure ??= e;
@@ -167,7 +170,8 @@ extension AppStateChecks on AppState {
     }
     for (final row in plan.toUpdate) {
       try {
-        await remote!.updateCheck(row);
+        final updated = await remote!.updateCheck(row);
+        _noteCheckFieldSupport(row, updated);
       } on InvestApiException catch (e) {
         if (e.statusCode == 404 && e.message.contains('پیدا نشد')) {
           try {
@@ -293,6 +297,22 @@ extension AppStateChecks on AppState {
       e.statusCode == null ||
       (e.statusCode != null && e.statusCode! >= 500);
 
+  /// A 200 that omits `payments` or `kind` means this Vinor build cannot
+  /// store them. Remember that so the next refresh does not queue the same
+  /// row again and paint the send sheet as offline.
+  void _noteCheckFieldSupport(BankCheck sent, BankCheck echoed) {
+    if (echoed.paymentsFromServer) {
+      _serverStoresCheckPayments = true;
+    } else if (sent.payments.isNotEmpty) {
+      _serverStoresCheckPayments = false;
+    }
+    if (echoed.kindFromServer) {
+      _serverStoresCheckKind = true;
+    } else if (sent.kind != checkKindCheck) {
+      _serverStoresCheckKind = false;
+    }
+  }
+
   Future<BankCheck> _upsertRemoteCheck(
     BankCheck saved, {
     required bool isNew,
@@ -339,10 +359,9 @@ extension AppStateChecks on AppState {
 
     if (_checksApiReady) {
       try {
-        final remoteItem = keepLocalArchive(
-          await _upsertRemoteCheck(saved, isNew: isNew),
-          [saved],
-        );
+        final echoed = await _upsertRemoteCheck(saved, isNew: isNew);
+        _noteCheckFieldSupport(saved, echoed);
+        final remoteItem = keepLocalArchive(echoed, [saved]);
         final synced = await _commitChecks(
           _replaceCheck(checks, remoteItem),
           alreadyRemote: true,
@@ -360,8 +379,10 @@ extension AppStateChecks on AppState {
           await _alertCheckSaved(isNew: isNew, item: saved);
           return (check: saved, synced: false);
         } else {
+          dirtyCheckIds.remove(id);
           checkSyncError = formatUserError(e);
           notifyListeners();
+          unawaited(_persistCheckSyncState());
           rethrow;
         }
       }

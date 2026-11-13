@@ -82,10 +82,12 @@ class HeaderStatus {
         const HeaderStatus(off, Icons.cloud_off_rounded, HeaderTone.warn),
       AppConnectionStatus.localOnly =>
         const HeaderStatus(off, Icons.phone_android_rounded, HeaderTone.warn),
-      _ when error =>
-        const HeaderStatus(off, Icons.cloud_off_rounded, HeaderTone.warn),
       AppConnectionStatus.updating =>
         const HeaderStatus(busy, Icons.sync_rounded, HeaderTone.busy),
+      // A partial refresh or a cheque still waiting to upload is not a lost
+      // connection. The word stays «متصل»; the sheet explains the rest.
+      _ when error =>
+        const HeaderStatus(on, Icons.error_outline_rounded, HeaderTone.warn),
       _ when syncing =>
         const HeaderStatus(busy, Icons.sync_rounded, HeaderTone.busy),
       _ => const HeaderStatus(on, Icons.circle, HeaderTone.ok),
@@ -93,7 +95,7 @@ class HeaderStatus {
     // Queued writes add no text (one-word header); the line stays visible
     // on pushed pages and the sheet lists them.
     if (pending <= 0) return base;
-    // Pending count joins the one-line summary: «آفلاین (۳ در صف)».
+    // Pending count joins the one-line summary: «متصل (۳ در صف)».
     final text = '${base.text} (${fa('$pending')} در صف)';
     if (base.tone != HeaderTone.ok) return HeaderStatus(text, base.icon, base.tone);
     return HeaderStatus(text, Icons.cloud_upload_outlined, HeaderTone.warn);
@@ -159,7 +161,6 @@ class HeaderStatusTitle extends StatelessWidget {
           conn: conn,
           error: extraError ||
               (s.error ?? '').trim().isNotEmpty ||
-              s.checksAwaitingServer ||
               (source?.error() ?? false),
           syncing: source?.syncing() ?? false,
           pending: s.pendingWrites,
@@ -266,9 +267,10 @@ class _StatusSheet extends StatelessWidget {
             (s.error ?? '').trim().isNotEmpty || (source?.error() ?? false);
         final st = HeaderStatus.of(
             conn: conn,
-            error: error || s.checksAwaitingServer,
+            error: error,
             syncing: source?.syncing() ?? false,
             pending: s.pendingWrites);
+        final checkError = s.checkSyncError?.trim();
         final items = <_Pending>[
           for (final o in s.coreOutbox.ops)
             _Pending(o.key, o.label, o.error,
@@ -278,7 +280,13 @@ class _StatusSheet extends StatelessWidget {
             for (final w in q.items)
               _Pending(w.key, w.label, w.error, () => q.discard(w.key), () => q.retry(w.key)),
           if (s.checksAwaitingServer || (s.pendingWrites > 0 && s.dirtyCheckIds.isNotEmpty))
-            _Pending('checks', 'دفتر چک‌ها (${fa('${s.dirtyCheckIds.length}')} چک ویرایش‌شده)', null, null, null),
+            _Pending(
+              'checks',
+              'دفتر چک‌ها (${fa('${s.dirtyCheckIds.length}')} چک ویرایش‌شده)',
+              (checkError == null || checkError.isEmpty) ? null : checkError,
+              null,
+              () => s.syncNow(),
+            ),
         ];
         final busy = s.refreshing || (source?.syncing() ?? false);
         Future<void> retry() async {
@@ -318,11 +326,13 @@ class _StatusSheet extends StatelessWidget {
                       style: const TextStyle(
                           color: AppTheme.text, fontSize: 13, height: 1.5)),
                   if (s.checksAwaitingServer)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
                       child: Text(
-                          'دفتر چک‌ها روی گوشی ذخیره است و با اتصال بعدی به سرور فرستاده می‌شود.',
-                          style: TextStyle(
+                          (s.checkSyncError ?? '').trim().isEmpty
+                              ? 'دفتر چک‌ها روی گوشی ذخیره است. ارسال صف آن را به سرور می‌فرستد؛ اتصال برقرار است.'
+                              : 'دفتر چک‌ها هنوز روی سرور ننشسته: ${s.checkSyncError}',
+                          style: const TextStyle(
                               color: AppTheme.muted,
                               fontSize: 12,
                               height: 1.5)),
