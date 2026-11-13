@@ -3,6 +3,7 @@ import 'package:invest/ui/pages/global_search_page.dart';
 import 'package:invest/ui/widgets/bank_sms_ui.dart';
 import 'package:invest/config/app_config.dart';
 import 'package:invest/data/notification_inbox_store.dart';
+import 'package:invest/data/biz_store.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
@@ -195,6 +196,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         titleSpacing: 16,
         title: HeaderStatusTitle(
           title: titles[index],
+          source: index == HomeTabs.performance
+              ? StoreStatusSource.biz(BizStore.instance)
+              : null,
           alwaysShow: true,
         ),
         flexibleSpace: updating && !state.offline

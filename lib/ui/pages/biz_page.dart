@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:invest/ui/widgets/pending_sync_mark.dart';
@@ -96,10 +97,12 @@ Widget _bizBody(BuildContext context, BizStore store, Widget Function() ready) {
   return ready();
 }
 
-/// Keeps the PWO column of the monthly table in step with PWO edits.
+/// Keeps the PWO column of the monthly table in step with PWO edits and
+/// re-binds when account / remote connectivity transitions.
 mixin _BizPwoSync<T extends StatefulWidget> on State<T> {
   BizStore get bizStore;
   Object? _pwoLedger;
+  String? _lastAuthSig;
 
   @override
   void initState() {
@@ -109,6 +112,26 @@ mixin _BizPwoSync<T extends StatefulWidget> on State<T> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) ensureBizReady(context, bizStore);
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    AppState? app;
+    try {
+      app = Provider.of<AppState>(context);
+    } on ProviderNotFoundException {
+      app = null;
+    }
+    if (app != null) {
+      final sig = '${app.useRemote}:${app.userPhone.trim()}';
+      if (_lastAuthSig != null && _lastAuthSig != sig) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) ensureBizReady(context, bizStore);
+        });
+      }
+      _lastAuthSig = sig;
+    }
   }
 
   /// PWO column is read from the PWO module on the server: refresh after a
@@ -211,6 +234,18 @@ class _BizMonthsPaneState extends State<BizMonthsPane> with _BizPwoSync<BizMonth
 
   @override
   Widget build(BuildContext context) {
+    AppState? app;
+    try {
+      app = Provider.of<AppState>(context);
+    } on ProviderNotFoundException {
+      app = null;
+    }
+    if (app != null) {
+      CurrencyMode.update(
+        currency: app.settings.currency,
+        liveUsdt: app.liveUsdt ?? app.settings.usdtTmnRate,
+      );
+    }
     return ListenableBuilder(
       listenable: _store,
       builder: (context, _) => _bizBody(
@@ -224,20 +259,27 @@ class _BizMonthsPaneState extends State<BizMonthsPane> with _BizPwoSync<BizMonth
               const SizedBox(width: 6),
               const Expanded(
                 child: Text('جدول ماهانه دفتر',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: AppTheme.title, fontWeight: FontWeight.w800, fontSize: 15)),
               ),
               TextButton.icon(
                 key: const ValueKey('perf-open-biz'),
-                style: TextButton.styleFrom(foregroundColor: AppTheme.positive),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.positive,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
                 onPressed: () => Navigator.of(context)
                     .push(MaterialPageRoute<void>(builder: (_) => BizPage(store: widget.store))),
-                icon: const Icon(Icons.home_work_outlined, size: 18),
-                label: const Text('معاملات ملک'),
+                icon: const Icon(Icons.home_work_outlined, size: 17),
+                label: const Text('معاملات ملک', style: TextStyle(fontSize: 12.5)),
               ),
               IconButton(
                 key: const ValueKey('perf-export'),
                 tooltip: 'خروجی سالانه (Excel / PDF)',
-                icon: const Icon(Icons.ios_share_rounded),
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.ios_share_rounded, size: 20),
                 onPressed: _store.snap.raw.isNotEmpty ? () => _exportAnnual(context, _store) : null,
               ),
             ]),
@@ -279,8 +321,13 @@ class _Stat extends StatelessWidget {
 // ---------------------------------------------------------------- trades
 
 /// Jalali sell month key 'YYYY/MM' of a trade, or null when unsold.
-String? _sellMonth(PropertyTrade t) =>
-    t.sellDate.length >= 7 ? t.sellDate.substring(0, 7) : null;
+String? _sellMonth(PropertyTrade t) {
+  final d = parseBizDate(t.sellDate);
+  if (d != null) {
+    return '${d.year.toString().padLeft(4, '0')}/${d.month.toString().padLeft(2, '0')}';
+  }
+  return t.sellDate.length >= 7 ? t.sellDate.substring(0, 7) : null;
+}
 
 class _TradesTab extends StatefulWidget {
   const _TradesTab({required this.store});
@@ -792,12 +839,20 @@ class _TradeDialogState extends State<_TradeDialog> {
 
 // ---------------------------------------------------------------- months
 
-class _MonthsTab extends StatelessWidget {
+class _MonthsTab extends StatefulWidget {
   const _MonthsTab({required this.store});
   final BizStore store;
 
   @override
+  State<_MonthsTab> createState() => _MonthsTabState();
+}
+
+class _MonthsTabState extends State<_MonthsTab> {
+  String _filter = 'all'; // 'all', 'active', 'mismatch'
+
+  @override
   Widget build(BuildContext context) {
+    final store = widget.store;
     final s = store.snap;
     final months = s.months;
     final tot = s.monthTotals;
@@ -805,6 +860,31 @@ class _MonthsTab extends StatelessWidget {
     // While another year is loading, the rows still belong to the old year:
     // hide them so an edit can never land on the wrong year.
     final stale = year != null && s.year != null && s.year != year;
+    final soldByMonth = <int, double>{
+      for (final m in months) m.month: tradeProfitInMonth(s.trades, m.year, m.month),
+    };
+    final mism = year == null ? 0 : bizMismatchMonths(s);
+    final filter = (_filter == 'mismatch' && mism == 0) ? 'all' : _filter;
+    final visible = [
+      for (final m in months)
+        if (filter == 'all' ||
+            (filter == 'active' && (!m.isEmpty || (soldByMonth[m.month] ?? 0) != 0)) ||
+            (filter == 'mismatch' &&
+                (!m.isEmpty || (soldByMonth[m.month] ?? 0) != 0) &&
+                incomeMismatch(m.income, soldByMonth[m.month] ?? 0)))
+          m,
+    ];
+    final activeMonths = [for (final m in months) if (!m.isEmpty) m];
+    final netTotal = tot['net'] ?? 0;
+    final incomeTotal = tot['income'] ?? 0;
+    final avgNet = activeMonths.isEmpty ? 0.0 : netTotal / activeMonths.length;
+    final marginPct = incomeTotal > 0 ? (netTotal / incomeTotal * 100) : null;
+    final yearSoldProfit = year == null
+        ? s.totalProfit
+        : [for (var mo = 1; mo <= 12; mo++) soldByMonth[mo] ?? tradeProfitInMonth(s.trades, year, mo)]
+            .fold<double>(0, (a, b) => a + b);
+    final onlineErr = store.lastError != null && store.lastError != offlineQueueNote;
+
     return RefreshIndicator(
       onRefresh: store.refresh,
       child: ListView(
@@ -831,6 +911,54 @@ class _MonthsTab extends StatelessWidget {
                 icon: const Icon(Icons.chevron_left_rounded),
               ),
             ]),
+          if (onlineErr || store.showingCache) ...[
+            const SizedBox(height: 4),
+            Container(
+              key: const ValueKey('perf-status-banner'),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: (onlineErr ? AppTheme.negative : AppTheme.muted).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: (onlineErr ? AppTheme.negative : AppTheme.border).withValues(alpha: 0.5),
+                ),
+              ),
+              child: Row(children: [
+                Icon(
+                  onlineErr ? Icons.cloud_off_rounded : Icons.offline_bolt_outlined,
+                  size: 15,
+                  color: onlineErr ? AppTheme.negative : AppTheme.muted,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    onlineErr
+                        ? 'خطا در همگام‌سازی · نمایش دادهٔ ذخیره‌شده'
+                        : 'نسخهٔ ذخیره‌شده (آفلاین)',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: onlineErr ? AppTheme.negative : AppTheme.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (onlineErr && store.isRemote && !store.syncing)
+                  InkWell(
+                    onTap: store.refresh,
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      child: Text('تلاش دوباره',
+                          style: TextStyle(
+                              color: AppTheme.positive,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+              ]),
+            ),
+          ],
           const SizedBox(height: 4),
           if (stale)
             Padding(
@@ -841,38 +969,398 @@ class _MonthsTab extends StatelessWidget {
                       : const Text('دادهٔ این سال در دسترس نیست',
                           style: TextStyle(color: AppTheme.muted))),
             )
-          else ...[
-          Card(
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
+          else if (months.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
               child: Column(children: [
-                _Stat('جمع خالص ${year ?? ''}', _m(tot['net'] ?? 0),
-                    color: _sign(tot['net'] ?? 0),
-                    valueKey: const ValueKey('biz-total-net')),
-                const SizedBox(height: 6),
-                _Stat('درآمد', _m(tot['income'] ?? 0)),
-                _Stat('کارمندان', _m(tot['staff'] ?? 0)),
-                _Stat('PWO', _m(tot['pwo'] ?? 0)),
-                _Stat('دیوار - تبلیغات دفتر', _m(tot['ads'] ?? 0)),
+                const Icon(Icons.table_rows_outlined, size: 40, color: AppTheme.muted),
+                const SizedBox(height: 10),
+                const Text('داده‌ای برای جدول ماهانه ثبت نشده است',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppTheme.title, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 const Text(
-                  'خالص ماه = درآمد − کارمندان − PWO − تبلیغات · ستون PWO از بخش PWO خوانده می‌شود',
-                  style: TextStyle(color: AppTheme.muted, fontSize: 11),
+                  'پس از اتصال به حساب وینور یا همگام‌سازی، عملکرد ۱۲ ماهه اینجا نمایش داده می‌شود.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.muted, fontSize: 12),
                 ),
+                if (store.isRemote && !store.syncing) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: store.refresh,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('بارگیری مجدد'),
+                  ),
+                ],
               ]),
+            )
+          else ...[
+            Card(
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  _Stat('جمع خالص ${year ?? ''}', _m(netTotal),
+                      color: _sign(netTotal),
+                      valueKey: const ValueKey('biz-total-net')),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    Expanded(child: _CompactMetric('درآمد', _m(incomeTotal))),
+                    const SizedBox(width: 8),
+                    Expanded(child: _CompactMetric('کارمندان', _m(tot['staff'] ?? 0))),
+                  ]),
+                  const SizedBox(height: 6),
+                  Row(children: [
+                    Expanded(child: _CompactMetric('PWO', _m(tot['pwo'] ?? 0))),
+                    const SizedBox(width: 8),
+                    Expanded(child: _CompactMetric('دیوار - تبلیغات دفتر', _m(tot['ads'] ?? 0))),
+                  ]),
+                  if (activeMonths.isNotEmpty || yearSoldProfit != 0 || mism > 0) ...[
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 10, runSpacing: 4, children: [
+                      if (activeMonths.isNotEmpty)
+                        _KpiChip('میانگین خالص ماهانه', _m(avgNet), color: _sign(avgNet)),
+                      if (marginPct != null)
+                        _KpiChip(
+                          'حاشیه خالص',
+                          '${formatNumber(marginPct, decimals: 1)}٪',
+                          color: _sign(marginPct),
+                        ),
+                      if (yearSoldProfit != 0)
+                        _KpiChip('سود معاملات ملک', _m(yearSoldProfit),
+                            color: _sign(yearSoldProfit)),
+                      if (mism > 0)
+                        InkWell(
+                          key: const ValueKey('biz-mismatch-pill'),
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => setState(() {
+                            _filter = _filter == 'mismatch' ? 'all' : 'mismatch';
+                          }),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.negative.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: AppTheme.negative.withValues(alpha: 0.45)),
+                            ),
+                            child: Text(
+                              '$mism ماه مغایرت درآمد',
+                              style: const TextStyle(
+                                  color: AppTheme.negative,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                    ]),
+                  ],
+                  const SizedBox(height: 6),
+                  const Text(
+                    'خالص ماه = درآمد − کارمندان − PWO − تبلیغات · ستون PWO از بخش PWO خوانده می‌شود',
+                    style: TextStyle(color: AppTheme.muted, fontSize: 10.5),
+                  ),
+                ]),
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          for (final m in months) ...[
-            _MonthTile(store: store, m: m),
-            const SizedBox(height: 6),
-          ],
+            if (activeMonths.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              _BizMonthsChart(months: months, avgNet: avgNet),
+            ],
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _FilterChipBtn(
+                  key: const ValueKey('biz-months-filter-all'),
+                  label: 'همه (${months.length})',
+                  selected: filter == 'all',
+                  onTap: () => setState(() => _filter = 'all'),
+                ),
+                _FilterChipBtn(
+                  key: const ValueKey('biz-months-filter-active'),
+                  label: 'فعال (${activeMonths.length})',
+                  selected: filter == 'active',
+                  onTap: () => setState(() => _filter = 'active'),
+                ),
+                if (mism > 0)
+                  _FilterChipBtn(
+                    key: const ValueKey('biz-months-filter-mismatch'),
+                    label: 'مغایرت ($mism)',
+                    selected: filter == 'mismatch',
+                    tone: AppTheme.negative,
+                    onTap: () => setState(() => _filter = 'mismatch'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (visible.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Column(children: [
+                  const Text('ماهی با این فیلتر وجود ندارد',
+                      style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  TextButton(
+                    onPressed: () => setState(() => _filter = 'all'),
+                    child: const Text('نمایش همه ماه‌ها'),
+                  ),
+                ]),
+              )
+            else
+              for (final m in visible) ...[
+                _MonthTile(store: store, m: m),
+                const SizedBox(height: 6),
+              ],
           ],
         ],
       ),
     );
   }
+}
+
+class _CompactMetric extends StatelessWidget {
+  const _CompactMetric(this.label, this.value);
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppTheme.bg.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppTheme.muted, fontSize: 10.5)),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(value,
+                style: const TextStyle(
+                    color: AppTheme.title, fontWeight: FontWeight.w700, fontSize: 12.5)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KpiChip extends StatelessWidget {
+  const _KpiChip(this.label, this.value, {this.color});
+  final String label;
+  final String value;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text.rich(
+      TextSpan(
+        style: const TextStyle(fontSize: 11),
+        children: [
+          TextSpan(text: '$label: ', style: const TextStyle(color: AppTheme.muted)),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+                color: color ?? AppTheme.title, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterChipBtn extends StatelessWidget {
+  const _FilterChipBtn({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.tone,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color? tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = tone ?? AppTheme.positive;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: selected ? c.withValues(alpha: 0.16) : AppTheme.card,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: selected ? c : AppTheme.border),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? c : AppTheme.muted,
+            fontSize: 11,
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BizMonthsChart extends StatelessWidget {
+  const _BizMonthsChart({required this.months, required this.avgNet});
+  final List<BizMonth> months;
+  final double avgNet;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            const Expanded(
+              child: Text('نمودار خالص ماهانه',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: AppTheme.title,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12)),
+            ),
+            const SizedBox(width: 8),
+            Text('میانگین ${formatCompactToman(avgNet)}',
+                style: TextStyle(
+                    color: _sign(avgNet),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700)),
+          ]),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 88,
+            child: CustomPaint(
+              key: const ValueKey('biz-months-chart'),
+              painter: _BizMonthsChartPainter(
+                months: months,
+                avgNet: avgNet,
+                textColor: AppTheme.muted,
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _BizMonthsChartPainter extends CustomPainter {
+  _BizMonthsChartPainter({
+    required this.months,
+    required this.avgNet,
+    required this.textColor,
+  });
+  final List<BizMonth> months;
+  final double avgNet;
+  final Color textColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (months.isEmpty) return;
+    const bottom = 18.0, top = 6.0;
+    final h = size.height - bottom - top;
+    if (h <= 0) return;
+
+    var maxPos = 0.0;
+    var maxNeg = 0.0;
+    for (final m in months) {
+      if (m.isEmpty) continue;
+      if (m.net > maxPos) maxPos = m.net;
+      if (m.net < 0 && m.net.abs() > maxNeg) maxNeg = m.net.abs();
+    }
+    if (avgNet > maxPos) maxPos = avgNet;
+    if (avgNet < 0 && avgNet.abs() > maxNeg) maxNeg = avgNet.abs();
+    final span = math.max(1.0, (maxPos + maxNeg) * 1.12);
+    final zeroY = top + h * (maxPos * 1.06 / span);
+
+    // Zero baseline
+    canvas.drawLine(
+      Offset(0, zeroY),
+      Offset(size.width, zeroY),
+      Paint()
+        ..color = AppTheme.border
+        ..strokeWidth = 1,
+    );
+
+    final n = months.length;
+    final slot = size.width / n;
+    final barW = math.min(20.0, slot * 0.58);
+    for (var i = 0; i < n; i++) {
+      final m = months[i];
+      // RTL: month 1 on the right.
+      final cx = size.width - slot * (i + 0.5);
+      if (!m.isEmpty) {
+        final bh = math.max(2.0, h * (m.net.abs() / span));
+        final isPos = m.net >= 0;
+        final rect = isPos
+            ? RRect.fromRectAndCorners(
+                Rect.fromLTWH(cx - barW / 2, zeroY - bh, barW, bh),
+                topLeft: const Radius.circular(4),
+                topRight: const Radius.circular(4),
+              )
+            : RRect.fromRectAndCorners(
+                Rect.fromLTWH(cx - barW / 2, zeroY, barW, bh),
+                bottomLeft: const Radius.circular(4),
+                bottomRight: const Radius.circular(4),
+              );
+        canvas.drawRRect(
+          rect,
+          Paint()
+            ..color = (isPos ? AppTheme.positive : AppTheme.negative)
+                .withValues(alpha: 0.85),
+        );
+      } else {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(cx - barW / 2, zeroY - 1.5, barW, 3),
+            const Radius.circular(1.5),
+          ),
+          Paint()..color = AppTheme.border.withValues(alpha: 0.5),
+        );
+      }
+      final tp = TextPainter(
+        text: TextSpan(
+            text: pwoChartLabel(m.month, slot),
+            style: TextStyle(color: textColor, fontSize: 9.5)),
+        textDirection: TextDirection.rtl,
+      )..layout(maxWidth: slot);
+      tp.paint(canvas, Offset(cx - tp.width / 2, size.height - bottom + 3));
+    }
+
+    // Average net dashed line
+    final ay = (zeroY - h * (avgNet / span)).clamp(top, top + h);
+    final avgPaint = Paint()
+      ..color = Colors.amber.withValues(alpha: 0.85)
+      ..strokeWidth = 1.3;
+    for (double x = 0; x < size.width; x += 8) {
+      canvas.drawLine(
+          Offset(x, ay), Offset(math.min(x + 4, size.width), ay), avgPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BizMonthsChartPainter old) =>
+      old.months != months || old.avgNet != avgNet || old.textColor != textColor;
 }
 
 /// Profit of trades sold in Jalali [year]/[month] (by sell date).
@@ -910,54 +1398,87 @@ class _MonthTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final tp = tradeProfitInMonth(store.snap.trades, m.year, m.month);
     final flag = (!m.isEmpty || tp != 0) && incomeMismatch(m.income, tp);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: InkWell(
-        key: ValueKey('biz-month-${m.month}'),
-        borderRadius: BorderRadius.circular(12),
-        onTap: store.readOnly ? null : () => _editMonth(context, store, m),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Row(children: [
-              Expanded(
-                child: Text('برج ${m.month} · ${pwoMonthNames[m.month - 1]}',
-                    style: const TextStyle(fontWeight: FontWeight.w800)),
-              ),
-              const SizedBox(width: 8),
-              _fit(Text(m.isEmpty ? '—' : _m(m.net),
-                  style: TextStyle(
-                      color: m.isEmpty ? AppTheme.muted : _sign(m.net),
-                      fontWeight: FontWeight.w800))),
-            ]),
-            if (!m.isEmpty || tp != 0) ...[
-              const SizedBox(height: 4),
-              Wrap(spacing: 12, runSpacing: 2, children: [
-                _t('درآمد ${_m(m.income)}'),
-                Text('سود معاملات ${_m(tp)}',
-                    key: ValueKey('biz-month-tp-${m.month}'),
+    return PendingSyncMark(
+      pending: m.raw['pending_sync'] == true,
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: InkWell(
+          key: ValueKey('biz-month-${m.month}'),
+          borderRadius: BorderRadius.circular(12),
+          onTap: store.readOnly ? null : () => _editMonth(context, store, m),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                Expanded(
+                  child: Row(children: [
+                    Flexible(
+                      child: Text('برج ${m.month} · ${pwoMonthNames[m.month - 1]}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w800)),
+                    ),
+                    if (!store.readOnly) ...[
+                      const SizedBox(width: 5),
+                      const Icon(Icons.edit_outlined, size: 13, color: AppTheme.muted),
+                    ],
+                  ]),
+                ),
+                const SizedBox(width: 8),
+                _fit(Text(m.isEmpty ? '—' : _m(m.net),
                     style: TextStyle(
-                        color: flag ? AppTheme.negative : AppTheme.muted,
-                        fontSize: 12,
-                        fontWeight: flag ? FontWeight.w700 : null)),
-                _t('کارمندان ${_m(m.staff)}'),
-                _t('PWO ${_m(m.pwo)}'),
-                _t('تبلیغات ${_m(m.ads)}'),
+                        color: m.isEmpty ? AppTheme.muted : _sign(m.net),
+                        fontWeight: FontWeight.w800))),
               ]),
-              if (flag) ...[
+              if (!m.isEmpty || tp != 0) ...[
                 const SizedBox(height: 4),
-                Row(key: ValueKey('biz-month-flag-${m.month}'), children: [
-                  const Icon(Icons.info_outline_rounded, size: 14, color: AppTheme.negative),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                        'درآمد با سود معاملات فروخته‌شدهٔ این ماه ${_m((m.income - tp).abs())} فرق دارد',
-                        style: const TextStyle(color: AppTheme.negative, fontSize: 11)),
-                  ),
+                Wrap(spacing: 12, runSpacing: 2, children: [
+                  _t('درآمد ${_m(m.income)}'),
+                  Text('سود معاملات ${_m(tp)}',
+                      key: ValueKey('biz-month-tp-${m.month}'),
+                      style: TextStyle(
+                          color: flag ? AppTheme.negative : AppTheme.muted,
+                          fontSize: 12,
+                          fontWeight: flag ? FontWeight.w700 : null)),
+                  _t('کارمندان ${_m(m.staff)}'),
+                  _t('PWO ${_m(m.pwo)}'),
+                  _t('تبلیغات ${_m(m.ads)}'),
                 ]),
+                if (m.note.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Icon(Icons.notes_rounded, size: 13, color: AppTheme.muted),
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(m.note,
+                          key: ValueKey('biz-month-note-${m.month}'),
+                          style: const TextStyle(color: AppTheme.muted, fontSize: 11)),
+                    ),
+                  ]),
+                ],
+                if (flag) ...[
+                  const SizedBox(height: 4),
+                  Row(key: ValueKey('biz-month-flag-${m.month}'), children: [
+                    const Icon(Icons.info_outline_rounded, size: 14, color: AppTheme.negative),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                          'درآمد با سود معاملات فروخته‌شدهٔ این ماه ${_m((m.income - tp).abs())} فرق دارد',
+                          style: const TextStyle(color: AppTheme.negative, fontSize: 11)),
+                    ),
+                  ]),
+                ],
+              ] else if (m.note.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(m.note,
+                    key: ValueKey('biz-month-note-${m.month}'),
+                    style: const TextStyle(color: AppTheme.muted, fontSize: 11)),
               ],
-            ],
-          ]),
+            ]),
+          ),
         ),
       ),
     );
@@ -994,21 +1515,37 @@ class _MonthDialogState extends State<_MonthDialog> {
   late final _staff = TextEditingController(text: _amountText(widget.m.staff));
   late final _ads = TextEditingController(text: _amountText(widget.m.ads));
   late final _income = TextEditingController(text: _amountText(widget.m.income));
+  late final _note = TextEditingController(text: widget.m.note);
+
+  @override
+  void initState() {
+    super.initState();
+    for (final c in [_staff, _ads, _income]) {
+      c.addListener(_onFieldChanged);
+    }
+  }
+
+  void _onFieldChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
     _staff.dispose();
     _ads.dispose();
     _income.dispose();
+    _note.dispose();
     super.dispose();
   }
 
-  Widget _f(TextEditingController c, String label, Key key) => Padding(
+  Widget _f(TextEditingController c, String label, Key key, {bool num = true, int maxLines = 1}) =>
+      Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: TextField(
           key: key,
           controller: c,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          maxLines: maxLines,
+          keyboardType: num ? const TextInputType.numberWithOptions(decimal: true) : null,
           decoration: InputDecoration(labelText: label, isDense: true),
         ),
       );
@@ -1016,6 +1553,15 @@ class _MonthDialogState extends State<_MonthDialog> {
   @override
   Widget build(BuildContext context) {
     final m = widget.m;
+    final inc = parseFlexibleNumber(_income.text) ?? 0;
+    final stf = parseFlexibleNumber(_staff.text) ?? 0;
+    final ads = parseFlexibleNumber(_ads.text) ?? 0;
+    final previewNet = inc - stf - m.pwo - ads;
+    final tradeToman = formatMoney(widget.tradeProfit, forceToman: true);
+    final pwoToman = formatMoney(m.pwo, forceToman: true);
+    final netToman = formatMoney(previewNet, forceToman: true);
+    final netUsd = CurrencyMode.isUsd ? ' (${formatMoney(previewNet)})' : '';
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: AlertDialog(
@@ -1036,7 +1582,7 @@ class _MonthDialogState extends State<_MonthDialog> {
                         child: AlertDialog(
                           title: const Text('پر کردن درآمد؟'),
                           content: Text(
-                              'درآمد این ماه با سود معاملات فروخته‌شده (${_m(widget.tradeProfit)}) جایگزین شود؟ تا «ذخیره» را نزنید چیزی ثبت نمی‌شود.'),
+                              'درآمد این ماه با سود معاملات فروخته‌شده ($tradeToman) جایگزین شود؟ تا «ذخیره» را نزنید چیزی ثبت نمی‌شود.'),
                           actions: [
                             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')),
                             FilledButton(
@@ -1051,12 +1597,32 @@ class _MonthDialogState extends State<_MonthDialog> {
                       setState(() => _income.text = formatNumber(widget.tradeProfit));
                     }
                   },
-                  child: Text('پر کردن با سود معاملات این ماه: ${_m(widget.tradeProfit)}',
+                  child: Text('پر کردن با سود معاملات این ماه: $tradeToman',
                       textAlign: TextAlign.right),
                 ),
               ),
             _f(_staff, 'کارمندان (تومان)', const ValueKey('biz-m-staff')),
             _f(_ads, 'دیوار - تبلیغات دفتر (تومان)', const ValueKey('biz-m-ads')),
+            _f(_note, 'یادداشت ماه', const ValueKey('biz-m-note'), num: false, maxLines: 2),
+            Container(
+              key: const ValueKey('biz-m-net-preview'),
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppTheme.border),
+              ),
+              child: Text(
+                'خالص ماه: $netToman$netUsd',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: previewNet < 0 ? AppTheme.negative : AppTheme.positive,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
@@ -1065,7 +1631,7 @@ class _MonthDialogState extends State<_MonthDialog> {
                   nav.pop();
                   nav.push(MaterialPageRoute(builder: (_) => const PwoPage()));
                 },
-                child: Text('PWO این ماه: ${_m(m.pwo)}\nویرایش در بخش PWO',
+                child: Text('PWO این ماه: $pwoToman\nویرایش در بخش PWO',
                     textAlign: TextAlign.right),
               ),
             ),
@@ -1082,13 +1648,16 @@ class _MonthDialogState extends State<_MonthDialog> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('انصراف')),
           FilledButton(
             key: const ValueKey('biz-m-save'),
-            onPressed: () => Navigator.pop(
-                context,
-                _DialogResult({
-                  'staff': parseFlexibleNumber(_staff.text) ?? 0,
-                  'ads': parseFlexibleNumber(_ads.text) ?? 0,
-                  'income': parseFlexibleNumber(_income.text) ?? 0,
-                })),
+            onPressed: () {
+              final nextNote = _note.text.trim();
+              final body = <String, dynamic>{
+                'staff': parseFlexibleNumber(_staff.text) ?? 0,
+                'ads': parseFlexibleNumber(_ads.text) ?? 0,
+                'income': parseFlexibleNumber(_income.text) ?? 0,
+                if (nextNote != widget.m.note) 'note': nextNote,
+              };
+              Navigator.pop(context, _DialogResult(body));
+            },
             child: const Text('ذخیره'),
           ),
         ],

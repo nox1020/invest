@@ -180,8 +180,11 @@ class BizStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  int _refreshSeq = 0;
+
   @visibleForTesting
   void debugReset() {
+    _refreshSeq++;
     _remote = null;
     _account = null;
     _year = null;
@@ -193,6 +196,7 @@ class BizStore extends ChangeNotifier {
   }
 
   void unbind() {
+    _refreshSeq++;
     cache.clearLastAccount();
     queue.bind(null); // the queue stays on disk for that account
     _remote = null;
@@ -200,6 +204,7 @@ class BizStore extends ChangeNotifier {
     _year = null;
     _snap = BizSnapshot.empty;
     loaded = false;
+    syncing = false;
     showingCache = false;
     lastError = null;
     notifyListeners();
@@ -236,28 +241,35 @@ class BizStore extends ChangeNotifier {
   Future<void> refresh() async {
     final remote = _remote, acc = _account;
     if (remote == null || acc == null) return;
+    final seq = ++_refreshSeq;
+    final reqYear = _year;
     syncing = true;
     notifyListeners();
     try {
       await _flush(remote, acc);
-      final s = await remote.fetch(year: _year);
+      if (_account != acc || _year != reqYear || _refreshSeq != seq) return;
+      final s = await remote.fetch(year: reqYear);
+      if (_account != acc || _year != reqYear || _refreshSeq != seq) return;
       await _apply(acc, s);
     } catch (e) {
-      if (_account != acc) return;
+      if (_account != acc || _year != reqYear || _refreshSeq != seq) return;
       lastError = e.toString();
       showingCache = loaded;
     } finally {
-      syncing = false;
-      notifyListeners();
+      if (_refreshSeq == seq) {
+        syncing = false;
+        notifyListeners();
+      }
     }
   }
 
   Future<void> selectYear(int y) async {
+    final seq = ++_refreshSeq;
     _year = y;
     final acc = _account;
     if (acc != null) {
       final raw = await cache.read(acc, y);
-      if (_account != acc || _year != y) return;
+      if (_account != acc || _year != y || _refreshSeq != seq) return;
       if (raw != null) {
         try {
           _snap = BizSnapshot(Map<String, dynamic>.from(jsonDecode(raw) as Map));

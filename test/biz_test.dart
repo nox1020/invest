@@ -13,7 +13,10 @@ import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/session_store.dart';
 import 'package:invest/data/write_queue.dart';
 import 'package:invest/domain/utils/money.dart';
+import 'package:invest/domain/models/app_settings.dart';
+import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/biz_page.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Minimal in-memory /biz server (computes like vinor biz_api).
@@ -534,5 +537,123 @@ void main() {
     expect(m.note.split('\n'), ['تبلیغات 1405/08/03: 250 — دیوار', 'تبلیغات 1405/08/04: 50']);
     expect(adsLine.hasMatch(m.note.split('\n').first), isTrue);
     expect(() => store.addAds(1405, 8, 0, date: '1405/08/04'), throwsArgumentError);
+  });
+
+  testWidgets('performance pane shows chart, filters, notes, pending mark and USD consistency',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+
+    CurrencyMode.reset();
+    addTearDown(CurrencyMode.reset);
+
+    final s = FakeBizServer()..pwo.clear();
+    s.ops[1] = {'income': 100000000, 'staff': 20000000, 'ads': 5000000};
+    s.notes[1] = 'یادداشت تست فروردین';
+    s.trades.add({
+      'id': 1,
+      'buy_date': '1405/01/01',
+      'sell_date': '1405/01/20',
+      'buy_amount': 10000000,
+      'sell_amount': 90000000,
+    });
+    final store = BizStore.instance;
+    await tester.runAsync(() async => store.bindAccount(BizRemote(await _api(s)), '0912'));
+
+    final app = AppState()
+      ..loading = false
+      ..authenticated = true
+      ..liveUsdt = 100000
+      ..settings = AppSettings(currency: AppConfig.currencyUsd, usdtTmnRate: 100000);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: app,
+        child: MaterialApp(home: Scaffold(body: BizMonthsPane(store: store))),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Chart, note and total net (converted to USD via Provider<AppState>) are shown
+    expect(find.byKey(const ValueKey('biz-months-chart')), findsOneWidget);
+    expect(find.byKey(const ValueKey('biz-month-note-1')), findsOneWidget);
+    expect(find.text('یادداشت تست فروردین'), findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('biz-total-net'))).data,
+        formatMoney(75000000));
+
+    // Active filter hides empty months (month 2 has no ops/trades)
+    await tester.tap(find.byKey(const ValueKey('biz-months-filter-active')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('biz-month-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('biz-month-2')), findsNothing);
+
+    // Mismatch filter keeps month 1 (income 100M vs tradeProfit 80M)
+    await tester.tap(find.byKey(const ValueKey('biz-months-filter-mismatch')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('biz-month-1')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('biz-months-filter-all')));
+    await tester.pumpAndSettle();
+
+    // Edit dialog stays in Toman for inputs/helpers while preview also shows USD
+    await tester.tap(find.byKey(const ValueKey('biz-month-1')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('biz-m-net-preview')), findsOneWidget);
+    expect(find.textContaining('تومان'), findsWidgets);
+    await tester.enterText(find.byKey(const ValueKey('biz-m-note')), 'یادداشت ویرایش‌شده');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('biz-m-save')));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pumpAndSettle();
+    expect(s.notes[1], 'یادداشت ویرایش‌شده');
+    expect(find.text('یادداشت ویرایش‌شده'), findsOneWidget);
+
+    // Offline queued month edit renders PendingSyncMark
+    await tester.runAsync(() async {
+      await store.loadOffline();
+      await expectLater(
+        store.saveMonth(1405, 1, {'staff': 25000000, 'ads': 5000000, 'income': 100000000}),
+        throwsA(isA<WriteQueuedException>()),
+      );
+    });
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pending-sync-mark')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('selectYear ignores stale out-of-order responses', () async {
+    Future<http.Response> slowHandler(http.Request r) async {
+      final y = r.url.queryParameters['year'] ?? '1405';
+      if (y == '1405') {
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+      } else {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      final yr = int.parse(y);
+      final snap = {
+        'year': yr,
+        'trades': const [],
+        'months': [
+          for (var m = 1; m <= 12; m++)
+            {'year': yr, 'month': m, 'income': 0, 'staff': 0, 'pwo': 0, 'ads': 0, 'net': 0, 'note': ''},
+        ],
+        'months_totals': {'income': 0, 'staff': 0, 'pwo': 0, 'ads': 0, 'net': 0},
+        'total_profit': 0,
+      };
+      return http.Response(jsonEncode({'success': true, 'biz': snap}), 200,
+          headers: {'content-type': 'application/json; charset=utf-8'});
+    }
+
+    final session = await SessionStore.load();
+    final api = InvestApiClient(session, client: MockClient(slowHandler))..restoreSessionCookie();
+    final store = BizStore.instance;
+    final f1 = store.bindAccount(BizRemote(api), '0912');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    final f2 = store.selectYear(1404);
+    await Future.wait([f1, f2]);
+    expect(store.year, 1404);
+    expect(store.snap.year, 1404);
+    expect(store.syncing, isFalse);
   });
 }
