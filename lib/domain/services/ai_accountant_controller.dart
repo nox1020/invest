@@ -36,7 +36,7 @@ class AiAccountantController extends ChangeNotifier {
   Future<void> _load(AppState state, {required bool force}) async {
     final token = ++_epoch;
     final account = (state.userPhone ?? '').trim();
-    final today = toIsoDate(DateTime.now());
+    final today = toIsoDate((service.clock ?? DateTime.now)());
     final cached = await service.readCache(account);
     if (token != _epoch) return;
     if (cached != null && cached.day != today) {

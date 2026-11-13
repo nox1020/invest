@@ -46,7 +46,9 @@ Future<void> ensureBizReady(BuildContext context, BizStore store,
     }
     return store.bindAccount(remote.biz, phone);
   }
-  if (app == null && store.isRemote) return store.refresh();
+  if (store.isRemote && (app == null || (remote == null && phone.isEmpty))) {
+    return store.refresh();
+  }
   return store.loadOffline();
 }
 
@@ -253,7 +255,7 @@ class _BizMonthsPaneState extends State<BizMonthsPane> with _BizPwoSync<BizMonth
         _store,
         () => Column(children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 4, 0),
+            padding: const EdgeInsets.fromLTRB(12, 4, 4, 0),
             child: Row(children: [
               const Icon(Icons.table_chart_outlined, size: 18, color: AppTheme.positive),
               const SizedBox(width: 6),
@@ -895,6 +897,7 @@ class _MonthsTabState extends State<_MonthsTab> {
               IconButton(
                 key: const ValueKey('biz-year-prev'),
                 tooltip: 'سال قبل',
+                visualDensity: VisualDensity.compact,
                 onPressed: year > 1300 ? () => store.selectYear(year - 1) : null,
                 icon: const Icon(Icons.chevron_right_rounded),
               ),
@@ -902,11 +905,12 @@ class _MonthsTabState extends State<_MonthsTab> {
                 child: Text('سال $year',
                     key: const ValueKey('biz-year'),
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
               ),
               IconButton(
                 key: const ValueKey('biz-year-next'),
                 tooltip: 'سال بعد',
+                visualDensity: VisualDensity.compact,
                 onPressed: year < 1600 ? () => store.selectYear(year + 1) : null,
                 icon: const Icon(Icons.chevron_left_rounded),
               ),
@@ -998,26 +1002,26 @@ class _MonthsTabState extends State<_MonthsTab> {
             Card(
               margin: EdgeInsets.zero,
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   _Stat('جمع خالص ${year ?? ''}', _m(netTotal),
                       color: _sign(netTotal),
                       valueKey: const ValueKey('biz-total-net')),
-                  const SizedBox(height: 8),
-                  Row(children: [
-                    Expanded(child: _CompactMetric('درآمد', _m(incomeTotal))),
-                    const SizedBox(width: 8),
-                    Expanded(child: _CompactMetric('کارمندان', _m(tot['staff'] ?? 0))),
-                  ]),
                   const SizedBox(height: 6),
                   Row(children: [
+                    Expanded(child: _CompactMetric('درآمد', _m(incomeTotal))),
+                    const SizedBox(width: 6),
+                    Expanded(child: _CompactMetric('کارمندان', _m(tot['staff'] ?? 0))),
+                  ]),
+                  const SizedBox(height: 4),
+                  Row(children: [
                     Expanded(child: _CompactMetric('PWO', _m(tot['pwo'] ?? 0))),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Expanded(child: _CompactMetric('دیوار - تبلیغات دفتر', _m(tot['ads'] ?? 0))),
                   ]),
                   if (activeMonths.isNotEmpty || yearSoldProfit != 0 || mism > 0) ...[
-                    const SizedBox(height: 8),
-                    Wrap(spacing: 10, runSpacing: 4, children: [
+                    const SizedBox(height: 6),
+                    Wrap(spacing: 8, runSpacing: 4, children: [
                       if (activeMonths.isNotEmpty)
                         _KpiChip('میانگین خالص ماهانه', _m(avgNet), color: _sign(avgNet)),
                       if (marginPct != null)
@@ -1037,7 +1041,7 @@ class _MonthsTabState extends State<_MonthsTab> {
                             _filter = _filter == 'mismatch' ? 'all' : 'mismatch';
                           }),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                             decoration: BoxDecoration(
                               color: AppTheme.negative.withValues(alpha: 0.14),
                               borderRadius: BorderRadius.circular(8),
@@ -1048,29 +1052,31 @@ class _MonthsTabState extends State<_MonthsTab> {
                               '$mism ماه مغایرت درآمد',
                               style: const TextStyle(
                                   color: AppTheme.negative,
-                                  fontSize: 10.5,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.w700),
                             ),
                           ),
                         ),
                     ]),
                   ],
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   const Text(
-                    'خالص ماه = درآمد − کارمندان − PWO − تبلیغات · ستون PWO از بخش PWO خوانده می‌شود',
-                    style: TextStyle(color: AppTheme.muted, fontSize: 10.5),
+                    'خالص = درآمد − کارمندان − PWO − تبلیغات (PWO خودکار)',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppTheme.muted, fontSize: 10),
                   ),
                 ]),
               ),
             ),
             if (activeMonths.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               _BizMonthsChart(months: months, avgNet: avgNet),
             ],
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Wrap(
               spacing: 6,
-              runSpacing: 6,
+              runSpacing: 4,
               children: [
                 _FilterChipBtn(
                   key: const ValueKey('biz-months-filter-all'),
@@ -1094,7 +1100,7 @@ class _MonthsTabState extends State<_MonthsTab> {
                   ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             if (visible.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 20),
@@ -1128,10 +1134,10 @@ class _CompactMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
         color: AppTheme.bg.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1139,8 +1145,8 @@ class _CompactMetric extends StatelessWidget {
           Text(label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppTheme.muted, fontSize: 10.5)),
-          const SizedBox(height: 2),
+              style: const TextStyle(color: AppTheme.muted, fontSize: 10)),
+          const SizedBox(height: 1),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: AlignmentDirectional.centerStart,
@@ -1227,7 +1233,7 @@ class _BizMonthsChart extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+        padding: const EdgeInsets.fromLTRB(10, 7, 10, 6),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             const Expanded(
@@ -1237,18 +1243,18 @@ class _BizMonthsChart extends StatelessWidget {
                   style: TextStyle(
                       color: AppTheme.title,
                       fontWeight: FontWeight.w700,
-                      fontSize: 12)),
+                      fontSize: 11.5)),
             ),
             const SizedBox(width: 8),
             Text('میانگین ${formatCompactToman(avgNet)}',
                 style: TextStyle(
                     color: _sign(avgNet),
-                    fontSize: 10.5,
+                    fontSize: 10,
                     fontWeight: FontWeight.w700)),
           ]),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           SizedBox(
-            height: 88,
+            height: 62,
             child: CustomPaint(
               key: const ValueKey('biz-months-chart'),
               painter: _BizMonthsChartPainter(
