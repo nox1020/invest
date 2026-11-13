@@ -124,7 +124,7 @@ mixin _BizPwoSync<T extends StatefulWidget> on State<T> {
       app = null;
     }
     if (app != null) {
-      final sig = '${app.useRemote}:${app.userPhone.trim()}';
+      final sig = '${app.useRemote}:${(app.userPhone ?? '').trim()}';
       if (_lastAuthSig != null && _lastAuthSig != sig) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) ensureBizReady(context, bizStore);
