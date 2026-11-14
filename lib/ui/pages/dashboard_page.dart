@@ -38,7 +38,6 @@ import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/ui/pages/price_alerts_page.dart';
 import 'package:invest/ui/widgets/dashboard_compact.dart';
 import 'package:invest/domain/services/ai_accountant_controller.dart';
-import 'package:invest/ui/widgets/ai_accountant_card.dart';
 import 'package:invest/ui/widgets/ai_audit_detail_sheet.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -545,7 +544,6 @@ extension _CompactDash on _DashboardBodyState {
                   builder: (_) => const CapitalChartPage())),
         ),
       ),
-      const AiAccountantCard(),
       TodayStrip(chips: chips),
       RatesStrip(quotes: rates),
       if (anchorsCaption != null && anchorsCaption.trim().isNotEmpty)

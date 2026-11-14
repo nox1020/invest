@@ -222,6 +222,8 @@ void main() {
     expect(find.byKey(const ValueKey('fab-main')), findsOneWidget);
     expect(find.byKey(const ValueKey('cd-value-hero')), findsOneWidget);
     expect(find.byKey(const ValueKey('cd-today-strip')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cd-chip-ai-audit')), findsOneWidget);
+    expect(find.text('حسابدار هوشمند +V'), findsNothing);
     expect(find.byKey(const ValueKey('cd-chip-cheques')), findsOneWidget);
     expect(find.byKey(const ValueKey('cd-sec-gold-body')), findsOneWidget);
     expect(find.byKey(const ValueKey('cd-updated')), findsOneWidget);
