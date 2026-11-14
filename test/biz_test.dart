@@ -8,6 +8,7 @@ import 'package:invest/config/app_config.dart';
 import 'package:invest/data/biz_remote.dart';
 import 'package:invest/data/biz_store.dart';
 import 'package:invest/domain/services/full_export.dart';
+import 'package:invest/domain/services/biz_annual_report.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/session_store.dart';
@@ -29,6 +30,9 @@ class FakeBizServer {
   final bodies = <String, Map<String, dynamic>>{};
   int _id = 0;
   bool down = false;
+
+  /// When set, writes are refused with HTTP 400 and this message.
+  String? refuse;
 
   int year = 1405;
 
@@ -74,6 +78,10 @@ class FakeBizServer {
 
   Future<http.Response> handle(http.Request r) async {
     if (down) throw http.ClientException('offline');
+    if (refuse != null && r.method != 'GET') {
+      return http.Response(jsonEncode({'success': false, 'error': 'validation', 'message': refuse}), 400,
+          headers: {'content-type': 'application/json; charset=utf-8'});
+    }
     final path = r.url.path.replaceFirst('/invest/api/v1/biz', '');
     year = int.tryParse(r.url.queryParameters['year'] ?? '') ?? 1405;
     final key = '${r.method} $path';
@@ -135,6 +143,10 @@ Future<InvestApiClient> _api(FakeBizServer s) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // The phone's year is sent with every fetch; pin it so the fake server's
+  // single year (1405) still matches after Nowruz.
+  BizStore.yearNow = () => 1405;
+
   setUp(() {
     SharedPreferences.setMockInitialValues({
       AppConfig.prefBaseUrl: 'https://vinor.test',
@@ -163,7 +175,8 @@ void main() {
     await store.saveMonth(1405, 1,
         {'staff': 18000000, 'ads': 69600000, 'income': 1109000000});
     expect(s.bodies['PUT /months/1405/1']!.containsKey('pwo'), isFalse);
-    expect(store.snap.months.first.net, 894700000); // as in the sheet
+    // sheet: 894.7M office net + 400M profit of the deal sold in month 1
+    expect(store.snap.months.first.net, 894700000 + 400000000);
 
     // offline: cached snapshot, writes are queued for this account only
     store.debugReset();
@@ -356,7 +369,7 @@ void main() {
     });
   }
 
-  testWidgets('month shows sold-trade profit, flags mismatch, fills only after confirm',
+  testWidgets('deal profit is added to net by sell month; typed duplicate income is not counted twice',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(320, 640);
@@ -367,43 +380,93 @@ void main() {
       {'id': 2, 'buy_date': '1405/01/01', 'sell_date': '1405/01/25', 'buy_amount': 100, 'sell_amount': 600100},
       {'id': 3, 'buy_date': '1405/01/01', 'sell_date': '1405/02/02', 'buy_amount': 100, 'sell_amount': 900},
     ]);
-    s.ops[1] = {'income': 900000, 'staff': 0, 'ads': 0};
+    // Old «پر کردن درآمد»: income typed = the deals' profit.
+    s.ops[1] = {'income': 1000000, 'staff': 0, 'ads': 0};
     final store = BizStore.instance;
     await tester.runAsync(() async => store.bindAccount(BizRemote(await _api(s)), '0912'));
     expect(tradeProfitInMonth(store.snap.trades, 1405, 1), 1000000);
-    expect(incomeMismatch(1000000, 1000000), isFalse);
-    expect(incomeMismatch(1000500, 1000000), isFalse); // within 1,000
+    final m1 = store.snap.months.first;
+    expect(m1.incomeDupTrades, isTrue);
+    expect(m1.net, 1000000); // counted once, not 2,000,000
+    expect(store.snap.months[1].net, 800); // month 2: deal only, no ops row
+    expect(store.snap.months[1].isEmpty, isFalse);
+    expect(bizMismatchMonths(store.snap), 1);
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: BizMonthsPane(store: store))));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('biz-month-flag-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('biz-mismatch-pill')), findsOneWidget);
     await tester.scrollUntilVisible(find.byKey(const ValueKey('biz-month-tp-2')), 200,
         scrollable: find.byType(Scrollable).last);
     expect(find.byKey(const ValueKey('biz-month-tp-2')), findsOneWidget); // profit w/o ops row
+    expect(tester.widget<Text>(find.byKey(const ValueKey('biz-month-net-2'))).data, formatMoney(800));
     await tester.scrollUntilVisible(find.byKey(const ValueKey('biz-month-1')), -200,
         scrollable: find.byType(Scrollable).last);
     await tester.tap(find.byKey(const ValueKey('biz-month-1')));
     await tester.pumpAndSettle();
-    // cancel: nothing changes
-    await tester.tap(find.byKey(const ValueKey('biz-m-fill')));
+    expect(find.byKey(const ValueKey('biz-m-fill')), findsNothing); // no manual fill any more
+    expect(find.byKey(const ValueKey('biz-m-trades-info')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const ValueKey('biz-m-clear-dup')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('انصراف').last);
+    await tester.tap(find.byKey(const ValueKey('biz-m-clear-dup')));
     await tester.pumpAndSettle();
-    expect(tester.widget<TextField>(find.byKey(const ValueKey('biz-m-income'))).controller!.text,
-        formatNumber(900000));
-    expect(s.calls.where((c) => c.startsWith('PUT')), isEmpty);
-    // confirm: field filled, still nothing sent until save
-    await tester.tap(find.byKey(const ValueKey('biz-m-fill')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('biz-m-fill-ok')));
-    await tester.pumpAndSettle();
-    expect(tester.widget<TextField>(find.byKey(const ValueKey('biz-m-income'))).controller!.text,
-        formatNumber(1000000));
-    expect(s.calls.where((c) => c.startsWith('PUT')), isEmpty);
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('biz-m-income'))).controller!.text, '');
+    expect(s.calls.where((c) => c.startsWith('PUT')), isEmpty); // nothing sent before save
+    await tester.ensureVisible(find.byKey(const ValueKey('biz-m-save')));
     await tester.tap(find.byKey(const ValueKey('biz-m-save')));
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await tester.pumpAndSettle();
-    expect(s.ops[1]!['income'], 1000000);
+    expect(s.ops[1]!['income'], 0);
+    expect(store.snap.months.first.net, 1000000);
     expect(find.byKey(const ValueKey('biz-month-flag-1')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('other office income is kept and the deal profit is added on top', () async {
+    final s = FakeBizServer()..pwo.clear();
+    s.trades.add({'id': 1, 'buy_date': '1405/08/01', 'sell_date': '1405/08/20',
+      'buy_amount': 5000000000, 'sell_amount': 6000000000, 'extra_cost': 20000000});
+    s.trades.add({'id': 2, 'buy_date': '1405/08/10', 'sell_date': '', 'buy_amount': 3000000000, 'sell_amount': 0});
+    s.ops[8] = {'income': 50000000, 'staff': 10000000, 'ads': 5000000};
+    final store = BizStore.instance;
+    await store.bindAccount(BizRemote(await _api(s)), '0912');
+    final m8 = store.snap.months[7];
+    expect(m8.tradeProfit, 980000000); // 6,000M − 5,000M − 20M کد و نقشه
+    expect(m8.tradeGross, 1000000000);
+    expect(m8.soldCount, 1);
+    expect(m8.boughtCount, 2);
+    expect(m8.boughtAmount, 8000000000);
+    expect(m8.incomeDupTrades, isFalse);
+    expect(m8.net, 50000000 - 10000000 - 5000000 + 980000000);
+    expect(store.snap.monthTotals['trade_profit'], 980000000);
+    expect(store.snap.monthTotals['net'], m8.net);
+    expect(incomeDuplicatesTrades(1000500, 1000000, 1000000), isTrue); // within 1,000
+    expect(incomeDuplicatesTrades(1002000, 1000000, 1000000), isFalse);
+    expect(incomeDuplicatesTrades(250, 195, 200), isFalse); // small: 0.5% tolerance
+    expect(incomeDuplicatesTrades(0, 195, 200), isFalse);
+  });
+
+  testWidgets('bought-only month 8 counts as active and shows the purchase', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 640);
+    addTearDown(tester.view.reset);
+    final s = FakeBizServer()..pwo.clear();
+    s.trades.add({'id': 1, 'title': 'برج', 'buy_date': '1405/08/10', 'sell_date': '',
+      'buy_amount': 5000000000, 'sell_amount': 0});
+    final store = BizStore.instance;
+    await tester.runAsync(() async => store.bindAccount(BizRemote(await _api(s)), '0912'));
+    final m8 = store.snap.months[7];
+    expect(m8.isEmpty, isFalse);
+    expect(m8.net, 0); // a purchase is not a profit or a cost of the office
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: BizMonthsPane(store: store))));
+    await tester.pumpAndSettle();
+    expect(find.text('فعال (1)'), findsOneWidget);
+    expect(find.byKey(const ValueKey('biz-months-chart')), findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('biz-total-bought'))).data,
+        formatMoney(5000000000));
+    await tester.tap(find.byKey(const ValueKey('biz-months-filter-active')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('biz-month-bought-8')), findsOneWidget);
+    expect(find.byKey(const ValueKey('biz-month-1')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -416,7 +479,7 @@ void main() {
       {'id': 1, 'buy_date': '1405/01/01', 'sell_date': '1405/01/20', 'buy_amount': 100, 'sell_amount': 400100},
       {'id': 2, 'buy_date': '1405/01/01', 'sell_date': '', 'buy_amount': 100, 'sell_amount': 0},
     ]);
-    s.ops[1] = {'income': 900000, 'staff': 0, 'ads': 0};
+    s.ops[1] = {'income': 400000, 'staff': 0, 'ads': 0}; // repeats the deal profit
     final store = BizStore.instance;
     await tester.runAsync(() async => store.bindAccount(BizRemote(await _api(s)), '0912'));
     await tester.pumpWidget(MaterialApp(
@@ -487,7 +550,7 @@ void main() {
     expect(
         tester.widget<Text>(find.descendant(
             of: find.byKey(const ValueKey('biz-f-preview')), matching: find.byType(Text))).data,
-        'مدت نگهداری 10 روز · سود ${formatMoney(25000000)} (20.0٪)');
+        'مدت نگهداری 10 روز · سود خالص ${formatMoney(25000000)} (20.0٪ از مبلغ فروش)');
     await tester.tap(find.byKey(const ValueKey('biz-f-save')));
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await tester.pumpAndSettle();
@@ -579,8 +642,9 @@ void main() {
     expect(find.byKey(const ValueKey('biz-months-chart')), findsOneWidget);
     expect(find.byKey(const ValueKey('biz-month-note-1')), findsOneWidget);
     expect(find.text('یادداشت تست فروردین'), findsOneWidget);
+    // 100M − 20M − 5M + 80M deal profit (added automatically by sell month)
     expect(tester.widget<Text>(find.byKey(const ValueKey('biz-total-net'))).data,
-        formatMoney(75000000));
+        formatMoney(155000000));
 
     // Active filter hides empty months (month 2 has no ops/trades)
     await tester.tap(find.byKey(const ValueKey('biz-months-filter-active')));
@@ -588,10 +652,8 @@ void main() {
     expect(find.byKey(const ValueKey('biz-month-1')), findsOneWidget);
     expect(find.byKey(const ValueKey('biz-month-2')), findsNothing);
 
-    // Mismatch filter keeps month 1 (income 100M vs tradeProfit 80M)
-    await tester.tap(find.byKey(const ValueKey('biz-months-filter-mismatch')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('biz-month-1')), findsOneWidget);
+    // Income 100M is other office income (not the 80M deal profit): no flag
+    expect(find.byKey(const ValueKey('biz-months-filter-mismatch')), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('biz-months-filter-all')));
     await tester.pumpAndSettle();
@@ -655,5 +717,172 @@ void main() {
     expect(store.year, 1404);
     expect(store.snap.year, 1404);
     expect(store.syncing, isFalse);
+  });
+
+  test('validateBizTrade matches the server rules', () {
+    Map<String, dynamic> b(String bd, String sd, num? buy, num sell, [num extra = 0]) =>
+        {'buy_date': bd, 'sell_date': sd, 'buy_amount': buy, 'sell_amount': sell, 'extra_cost': extra};
+    expect(validateBizTrade(b('1405/08/10', '', 100, 0)), isNull);
+    expect(validateBizTrade(b('1405/08/10', '1405/08/20', 100, 120)), isNull);
+    expect(validateBizTrade(b('1405/08/10', '1405/08/10', 100, 120)), isNull); // same day ok
+    expect(validateBizTrade(b('', '', 100, 0)), contains('تاریخ خرید'));
+    expect(validateBizTrade(b('1405/08/10', '', null, 0)), contains('مبلغ خرید'));
+    expect(validateBizTrade(b('1405/08/10', '', 100, 120)), contains('تاریخ فروش لازم'));
+    expect(validateBizTrade(b('1405/08/10', '1405/08/20', 100, 0)), contains('مبلغ فروش لازم'));
+    expect(validateBizTrade(b('1405/08/10', '1405/08/01', 100, 120)), contains('قبل از تاریخ خرید'));
+    expect(validateBizTrade(b('1405/08/10', '1405/13/01', 100, 120)), contains('نامعتبر'));
+    expect(validateBizTrade(b('1405/08/10', '', 100, 0, -1)), contains('منفی'));
+  });
+
+  test('dates are normalized before send/queue; year is always sent', () async {
+    final s = FakeBizServer();
+    final store = BizStore.instance;
+    await store.bindAccount(BizRemote(await _api(s)), '0912');
+    await store.addTrade({'buy_date': '۱۴۰۵/۸/۱', 'sell_date': '20/8/1405',
+      'buy_amount': 100, 'sell_amount': 150});
+    expect(s.bodies['POST /trades']!['buy_date'], '1405/08/01');
+    expect(s.bodies['POST /trades']!['sell_date'], '1405/08/20');
+    expect(s.calls, everyElement(isNot(endsWith('?'))));
+    // offline: the queued body is normalized too, so the overlay and the
+    // annual report put it in month 8
+    store.debugReset();
+    await store.loadOffline();
+    await expectLater(
+        store.addTrade({'buy_date': '1/8/1405', 'sell_date': '۱۴۰۵/۰۸/۲۵', 'buy_amount': 10, 'sell_amount': 30}),
+        throwsA(isA<WriteQueuedException>()));
+    final q = store.queue.items.single.request;
+    expect(q.body!['sell_date'], '1405/08/25');
+    expect(q.path, contains('year=1405'));
+    expect(tradeProfitInMonth(store.snap.trades, 1405, 8), 50 + 20);
+    expect(BizAnnualReport.from(store.snap, year: 1405).tradeProfitByMonth[8], 70);
+  });
+
+  test('fetch names the phone year instead of the server default', () async {
+    final years = <String?>[];
+    final s = FakeBizServer();
+    final session = await SessionStore.load();
+    final api = InvestApiClient(session, client: MockClient((r) {
+      if (r.method == 'GET') years.add(r.url.queryParameters['year']);
+      return s.handle(r);
+    }))..restoreSessionCookie();
+    BizStore.yearNow = () => 1406;
+    addTearDown(() => BizStore.yearNow = () => 1405);
+    await BizStore.instance.bindAccount(BizRemote(api), '0912');
+    expect(years, ['1406']);
+  });
+
+  test('annual report reads unnormalized dates (queued) with parseBizDate', () {
+    final snap = BizSnapshot({
+      'year': 1405,
+      'trades': [
+        {'id': -1, 'buy_date': '۱۴۰۵/۰۳/۰۱', 'sell_date': '10/8/1405', 'buy_amount': 100, 'sell_amount': 160, 'extra_cost': 10},
+        {'id': -2, 'buy_date': '1405/8/2', 'sell_date': '', 'buy_amount': 70, 'sell_amount': 0},
+      ],
+      'months': [for (var m = 1; m <= 12; m++) {'year': 1405, 'month': m}],
+    });
+    final r = BizAnnualReport.from(snap);
+    expect(r.trades.length, 2);
+    expect(r.tradeProfitByMonth, {8: 50.0});
+    expect(r.soldProfit, 50);
+    expect(snap.months[7].boughtCount, 1);
+    expect(snap.months[7].net, 50);
+  });
+
+  testWidgets('trades filter: invalid sell date is not guessed into a month', (tester) async {
+    final s = FakeBizServer();
+    s.trades.add({'id': 1, 'buy_date': '1405/01/01', 'sell_date': '1405/08', 'buy_amount': 1, 'sell_amount': 2});
+    final store = BizStore.instance;
+    await tester.runAsync(() async => store.bindAccount(BizRemote(await _api(s)), '0912'));
+    expect(store.snap.trades.single.sellMonth, isNull);
+    expect(tradeProfitInMonth(store.snap.trades, 1405, 8), 0);
+    await tester.pumpWidget(MaterialApp(home: BizPage(store: store)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('biz-filter-invalid')), findsOneWidget);
+    expect(find.byKey(const ValueKey('biz-filter-1405/08')), findsNothing);
+  });
+
+  testWidgets('trade form blocks a sell date without amount; server refusal keeps the form open',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 640);
+    addTearDown(tester.view.reset);
+    final s = FakeBizServer();
+    final store = BizStore.instance;
+    await tester.runAsync(() async => store.bindAccount(BizRemote(await _api(s)), '0912'));
+    await tester.pumpWidget(MaterialApp(home: BizPage(store: store)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('biz-add-trade')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('biz-f-buy-date')), '1405/08/10');
+    await tester.enterText(find.byKey(const ValueKey('biz-f-buy')), '100');
+    await tester.enterText(find.byKey(const ValueKey('biz-f-sell-date')), '1405/08/12');
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const ValueKey('biz-f-save')));
+    await tester.tap(find.byKey(const ValueKey('biz-f-save')));
+    await tester.pump();
+    expect(find.text('برای تاریخ فروش، مبلغ فروش لازم است.'), findsOneWidget);
+    expect(s.calls.where((c) => c.startsWith('POST')), isEmpty);
+    // server refuses (e.g. older rules): dialog comes back with the reason
+    s.refuse = 'برای تاریخ فروش، مبلغ فروش لازم است.';
+    await tester.enterText(find.byKey(const ValueKey('biz-f-sell')), '150');
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const ValueKey('biz-f-save')));
+    await tester.tap(find.byKey(const ValueKey('biz-f-save')));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('biz-f-save')), findsOneWidget);
+    expect(find.textContaining('سرور معامله را ثبت نکرد'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('biz-f-buy-date'))).controller!.text,
+        '1405/08/10');
+    s.refuse = null;
+    await tester.ensureVisible(find.byKey(const ValueKey('biz-f-save')));
+    await tester.tap(find.byKey(const ValueKey('biz-f-save')));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester.pumpAndSettle();
+    expect(s.trades.single['sell_amount'], 150);
+    expect(find.byKey(const ValueKey('biz-f-save')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a queued deal the server refused stays visible with its reason', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 640);
+    addTearDown(tester.view.reset);
+    final s = FakeBizServer();
+    final store = BizStore.instance;
+    await tester.runAsync(() async {
+      await store.bindAccount(BizRemote(await _api(s)), '0912');
+      s.down = true;
+      await expectLater(store.addTrade({'buy_date': '1405/08/10', 'buy_amount': 100}),
+          throwsA(isA<WriteQueuedException>()));
+      s.down = false;
+      s.refuse = 'معامله تکراری است.';
+      await store.refresh();
+    });
+    expect(store.rejectedWrites, hasLength(1));
+    await tester.pumpWidget(MaterialApp(home: BizPage(store: store)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pending-panel')), findsOneWidget);
+    expect(find.textContaining('معامله تکراری است.'), findsWidgets);
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: BizMonthsPane(store: store))));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pending-panel')), findsOneWidget);
+  });
+
+  test('monthsAllYears reports years it could not fetch', () async {
+    final s = FakeBizServer();
+    final session = await SessionStore.load();
+    final api = InvestApiClient(session, client: MockClient((r) async {
+      if (r.url.queryParameters['year'] == '1404') throw http.ClientException('down');
+      final res = await s.handle(r);
+      final j = jsonDecode(res.body) as Map<String, dynamic>;
+      (j['biz'] as Map)['years'] = [1404, 1405];
+      return http.Response(jsonEncode(j), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+    }))..restoreSessionCookie();
+    final store = BizStore.instance;
+    await store.bindAccount(BizRemote(api), '0912');
+    final months = await store.monthsAllYears();
+    expect(months.length, 12);
+    expect(store.lastFailedYears, [1404]);
   });
 }

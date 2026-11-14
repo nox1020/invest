@@ -7,6 +7,7 @@ import 'package:invest/data/invest_api_client.dart';
 import 'package:invest/data/optimistic.dart';
 import 'package:invest/data/write_queue.dart';
 import 'package:invest/data/account_cache.dart';
+import 'package:invest/domain/utils/biz_dates.dart';
 
 double _d(Object? v) => v is num ? v.toDouble() : double.tryParse('$v') ?? 0;
 double? _dn(Object? v) => v == null ? null : (v is num ? v.toDouble() : double.tryParse('$v'));
@@ -24,9 +25,41 @@ class PropertyTrade {
   double get extraCost => _d(raw['extra_cost']);
   String get note => '${raw['note'] ?? ''}';
   int? get days => (raw['days'] as num?)?.toInt();
-  double? get profit => _dn(raw['profit']);
-  double? get profitPct => _dn(raw['profit_pct']);
-  bool get sold => profit != null;
+
+  /// Sold = has a sell date and a sell amount (same rule as the server).
+  /// Computed here, so an older server's `profit` (without extra cost) or a
+  /// queued edit never disagrees with the monthly table.
+  bool get sold => sellDate.trim().isNotEmpty && sellAmount > 0;
+
+  /// Sell − buy, before extra costs.
+  double? get grossProfit => sold ? sellAmount - buyAmount : null;
+
+  /// Net deal profit: sell − buy − extra cost («هزینه جانبی»).
+  double? get profit => sold ? sellAmount - buyAmount - extraCost : null;
+
+  /// Net profit as a percent of the SELL amount (the sheet's convention).
+  double? get profitPct {
+    final p = profit;
+    return p != null && sellAmount > 0 ? p / sellAmount * 100 : null;
+  }
+
+  /// Jalali 'YYYY/MM' of the buy / sell date (null when empty or invalid).
+  String? get buyMonth => bizMonthKey(buyDate);
+  String? get sellMonth => sold ? bizMonthKey(sellDate) : null;
+}
+
+/// Income that equals the month's sold-deal profit (net or gross, within
+/// 1,000 toman) was typed in by hand from those deals (the old «پر کردن
+/// درآمد»): it is not counted again on top of the automatic deal profit.
+/// Tolerance: 1,000 toman, but never more than 0.5% of the deal profit.
+bool incomeDuplicatesTrades(double income, double tradeProfit, double tradeGross) {
+  if (income == 0) return false;
+  bool near(double ref) {
+    if (ref == 0) return false;
+    final tol = ref.abs() * 0.005 < 1000 ? ref.abs() * 0.005 : 1000.0;
+    return (income - ref).abs() <= tol;
+  }
+  return near(tradeProfit) || near(tradeGross);
 }
 
 class BizMonth {
@@ -37,39 +70,109 @@ class BizMonth {
   double get staff => _d(raw['staff']);
   double get pwo => _d(raw['pwo']);
   double get ads => _d(raw['ads']);
+
+  /// Office income as stored (typed by the user).
   double get income => _d(raw['income']);
+
+  /// Income counted in net: 0 when it only repeats the deal profit.
+  double get incomeEffective =>
+      raw.containsKey('income_effective') ? _d(raw['income_effective']) : income;
+  bool get incomeDupTrades => raw['income_dup_trades'] == true;
+
+  /// Net profit of deals SOLD in this month (added to net automatically).
+  double get tradeProfit => _d(raw['trade_profit']);
+  double get tradeGross => _d(raw['trade_gross']);
+  int get soldCount => (raw['sold_count'] as num?)?.toInt() ?? 0;
+  double get soldAmount => _d(raw['sold_amount']);
+
+  /// Deals BOUGHT in this month (count and total buy amount).
+  int get boughtCount => (raw['bought_count'] as num?)?.toInt() ?? 0;
+  double get boughtAmount => _d(raw['bought_amount']);
+
+  /// income(effective) − staff − PWO − ads + deal profit.
   double get net => _d(raw['net']);
   bool get hasOps => raw['has_ops'] == true;
+  bool get hasDeals => soldCount > 0 || boughtCount > 0;
   String get note => '${raw['note'] ?? ''}';
-  bool get isEmpty => !hasOps && pwo == 0;
+  bool get isEmpty => !hasOps && pwo == 0 && !hasDeals;
 }
+
+/// Adds the deal columns to month rows and recomputes net, so an older
+/// server (net without deals) and the offline overlay show the same numbers
+/// as the current server.
+Map<String, dynamic> deriveBizMonth(Map<String, dynamic> m, Iterable<PropertyTrade> trades) {
+  final out = Map<String, dynamic>.from(m);
+  final y = (m['year'] as num?)?.toInt(), mo = (m['month'] as num?)?.toInt();
+  if (y == null || mo == null) return out;
+  final key = bizMonthKeyOf(y, mo);
+  var tp = 0.0, tg = 0.0, sAmt = 0.0, bAmt = 0.0;
+  var sN = 0, bN = 0;
+  for (final t in trades) {
+    if (t.sellMonth == key) {
+      sN++;
+      tp += t.profit!;
+      tg += t.grossProfit!;
+      sAmt += t.sellAmount;
+    }
+    if (t.buyMonth == key) {
+      bN++;
+      bAmt += t.buyAmount;
+    }
+  }
+  final income = _d(m['income']);
+  final dup = incomeDuplicatesTrades(income, tp, tg);
+  final eff = dup ? 0.0 : income;
+  out
+    ..['trade_profit'] = tp
+    ..['trade_gross'] = tg
+    ..['sold_count'] = sN
+    ..['sold_amount'] = sAmt
+    ..['bought_count'] = bN
+    ..['bought_amount'] = bAmt
+    ..['income_dup_trades'] = dup
+    ..['income_effective'] = eff
+    ..['net'] = eff - _d(m['staff']) - _d(m['pwo']) - _d(m['ads']) + tp;
+  return out;
+}
+
+const bizMonthTotalKeys = [
+  'staff', 'pwo', 'ads', 'income', 'income_effective', 'trade_profit', 'net',
+];
 
 class BizSnapshot {
   BizSnapshot(this.raw);
   final Map<String, dynamic> raw;
   static final empty = BizSnapshot(const {});
 
-  List<PropertyTrade> get trades => [
-        for (final t in (raw['trades'] as List? ?? const []))
-          if (t is Map) PropertyTrade(Map<String, dynamic>.from(t)),
-      ];
+  late final List<PropertyTrade> trades = [
+    for (final t in (raw['trades'] as List? ?? const []))
+      if (t is Map) PropertyTrade(Map<String, dynamic>.from(t)),
+  ];
   Map<String, dynamic> get tradesTotals =>
       Map<String, dynamic>.from(raw['trades_totals'] as Map? ?? const {});
-  double get totalProfit => _d(tradesTotals['profit']);
-  double get totalExtraCost => _d(tradesTotals['extra_cost']);
+
+  /// Net profit of all sold deals (computed from the trades).
+  double get totalProfit =>
+      trades.where((t) => t.sold).fold<double>(0, (a, t) => a + t.profit!);
+  double get totalExtraCost => trades.fold<double>(0, (a, t) => a + t.extraCost);
   int? get year => (raw['year'] as num?)?.toInt();
   List<int> get years => [
         for (final y in (raw['years'] as List? ?? const []))
           if (y is num) y.toInt(),
       ];
-  List<BizMonth> get months => [
-        for (final m in (raw['months'] as List? ?? const []))
-          if (m is Map) BizMonth(Map<String, dynamic>.from(m)),
-      ];
-  Map<String, double> get monthTotals => {
-        for (final e in (raw['months_totals'] as Map? ?? const {}).entries)
-          '${e.key}': _d(e.value),
-      };
+  late final List<BizMonth> months = [
+    for (final m in (raw['months'] as List? ?? const []))
+      if (m is Map) BizMonth(deriveBizMonth(Map<String, dynamic>.from(m), trades)),
+  ];
+  late final Map<String, double> monthTotals = months.isEmpty
+      ? {
+          for (final e in (raw['months_totals'] as Map? ?? const {}).entries)
+            '${e.key}': _d(e.value),
+        }
+      : {
+          for (final k in bizMonthTotalKeys)
+            k: months.fold<double>(0, (a, m) => a + _d(m.raw[k])),
+        };
 }
 
 class BizReadOnlyException implements Exception {
@@ -86,6 +189,10 @@ class BizStore extends ChangeNotifier {
     queue.addListener(notifyListeners);
   }
   static final BizStore instance = BizStore._();
+
+  /// The phone's Jalali year; replaceable in tests.
+  @visibleForTesting
+  static int Function() yearNow = currentJalaliYear;
 
   static String cacheKey(String account, int? year) =>
       'vplus_biz_cache_v1_${account}_${year ?? 'cur'}';
@@ -248,7 +355,9 @@ class BizStore extends ChangeNotifier {
     try {
       await _flush(remote, acc);
       if (_account != acc || _year != reqYear || _refreshSeq != seq) return;
-      final s = await remote.fetch(year: reqYear);
+      // Always name the year: the server's clock/timezone must not decide
+      // which Jalali year is «امسال» (around Nowruz they can differ).
+      final s = await remote.fetch(year: reqYear ?? yearNow());
       if (_account != acc || _year != reqYear || _refreshSeq != seq) return;
       await _apply(acc, s);
     } catch (e) {
@@ -349,26 +458,52 @@ class BizStore extends ChangeNotifier {
     return (res['written'] as num?)?.toInt() ?? 0;
   }
 
+  /// Year sent with trade writes (the snapshot that comes back).
+  int get _reqYear => _year ?? _snap.year ?? yearNow();
+
+  /// Canonical dates before a trade is sent or queued, so the queued view,
+  /// the monthly table and the annual report all read the same month.
+  static Map<String, dynamic> normalizeTradeBody(Map<String, dynamic> body) => {
+        ...body,
+        if (body.containsKey('buy_date')) 'buy_date': normalizeBizDate(body['buy_date']),
+        if (body.containsKey('sell_date')) 'sell_date': normalizeBizDate(body['sell_date']),
+      };
+
+  /// Queued writes the server refused (kept until fixed or discarded).
+  List<QueuedWrite> get rejectedWrites => queue.account == _account
+      ? [for (final w in queue.items) if (w.error != null) w]
+      : const [];
+
+  /// Years whose monthly rows could not be fetched by the last
+  /// [monthsAllYears] (an export then misses them; the UI says so).
+  List<int> lastFailedYears = const [];
+
   static String _t(Map<String, dynamic> b) {
     final s = '${b['title'] ?? ''}'.trim();
     return s.isEmpty ? '${b['buy_date'] ?? ''}' : s;
   }
 
-  Future<void> addTrade(Map<String, dynamic> body) => _write(
-      'ثبت معامله «${_t(body)}»', BizRemote.addTradeReq(body, year: _year));
-  Future<void> updateTrade(int id, Map<String, dynamic> body) => _write(
-      'ویرایش معامله «${_t(body)}»',
-      BizRemote.updateTradeReq(id, body, year: _year));
+  Future<void> addTrade(Map<String, dynamic> body) {
+    final b = normalizeTradeBody(body);
+    return _write('ثبت معامله «${_t(b)}»', BizRemote.addTradeReq(b, year: _reqYear));
+  }
+
+  Future<void> updateTrade(int id, Map<String, dynamic> body) {
+    final b = normalizeTradeBody(body);
+    return _write('ویرایش معامله «${_t(b)}»',
+        BizRemote.updateTradeReq(id, b, year: _reqYear));
+  }
   Future<void> deleteTrade(int id) {
     final t = _snap.trades.where((x) => x.id == id).firstOrNull;
     return _write('حذف معامله «${t == null ? id : _t(t.raw)}»',
-        BizRemote.deleteTradeReq(id, year: _year));
+        BizRemote.deleteTradeReq(id, year: _reqYear));
   }
 
   /// Monthly rows of every year the server knows (read-only fetches; the
   /// selected year is not changed). Falls back to the loaded year offline.
   Future<List<BizMonth>> monthsAllYears() async {
     final out = <int, List<BizMonth>>{};
+    final failed = <int>[];
     final cur = _snap.year;
     if (cur != null) out[cur] = [for (final m in _snap.months) if (m.year == cur) m];
     final r = _remote;
@@ -378,9 +513,12 @@ class BizStore extends ChangeNotifier {
         try {
           final raw = await r.fetch(year: y).timeout(const Duration(seconds: 8));
           out[y] = [for (final m in BizSnapshot(raw).months) if (m.year == y) m];
-        } catch (_) {}
+        } catch (_) {
+          failed.add(y);
+        }
       }
     }
+    lastFailedYears = failed;
     return [for (final y in out.keys.toList()..sort()) ...out[y]!];
   }
 

@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:invest/ui/widgets/pending_sync_mark.dart';
+import 'package:invest/ui/widgets/pending_writes_panel.dart';
+import 'package:invest/domain/utils/biz_dates.dart';
 import 'package:invest/data/bank_sms_store.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/full_export.dart';
@@ -27,6 +29,8 @@ import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:shamsi_date/shamsi_date.dart';
+
+export 'package:invest/domain/utils/biz_dates.dart' show parseBizDate, bizDateText;
 
 /// Binds [store] to the signed-in Vinor account, or shows its cache offline.
 Future<void> ensureBizReady(BuildContext context, BizStore store,
@@ -322,14 +326,11 @@ class _Stat extends StatelessWidget {
 
 // ---------------------------------------------------------------- trades
 
-/// Jalali sell month key 'YYYY/MM' of a trade, or null when unsold.
-String? _sellMonth(PropertyTrade t) {
-  final d = parseBizDate(t.sellDate);
-  if (d != null) {
-    return '${d.year.toString().padLeft(4, '0')}/${d.month.toString().padLeft(2, '0')}';
-  }
-  return t.sellDate.length >= 7 ? t.sellDate.substring(0, 7) : null;
-}
+/// Filter key of a trade: Jalali sell month 'YYYY/MM', 'open' when unsold,
+/// 'invalid' when sold with a date that cannot be read (never a guessed
+/// month from the first 7 characters).
+String _tradeKey(PropertyTrade t) =>
+    t.sellMonth ?? (t.sold ? 'invalid' : 'open');
 
 class _TradesTab extends StatefulWidget {
   const _TradesTab({required this.store});
@@ -352,18 +353,20 @@ class _TradesTabState extends State<_TradesTab>
     super.build(context);
     final store = widget.store;
     final all = store.snap.trades;
-    final keys = <String>{for (final t in all) _sellMonth(t) ?? 'open'}.toList()
-      ..sort((a, b) => a == 'open' ? -1 : b == 'open' ? 1 : b.compareTo(a));
+    int rank(String k) => k == 'open' ? 0 : k == 'invalid' ? 1 : 2;
+    final keys = <String>{for (final t in all) _tradeKey(t)}.toList()
+      ..sort((a, b) => rank(a) != rank(b) ? rank(a) - rank(b) : b.compareTo(a));
     final filter = keys.contains(_filter) ? _filter : null;
     final trades = [
       for (final t in all)
-        if (filter == null || (_sellMonth(t) ?? 'open') == filter) t
+        if (filter == null || _tradeKey(t) == filter) t
     ]..sort((a, b) => (b.sellDate.isEmpty ? '9' : b.sellDate)
         .compareTo(a.sellDate.isEmpty ? '9' : a.sellDate));
     final profit = trades.fold<double>(0, (v, t) => v + (t.profit ?? 0));
     final extra = trades.fold<double>(0, (v, t) => v + t.extraCost);
     String label(String k) {
       if (k == 'open') return 'فروش نرفته';
+      if (k == 'invalid') return 'تاریخ فروش نامعتبر';
       final p = k.split('/');
       final m = int.tryParse(p.last) ?? 1;
       return '${pwoMonthNames[(m - 1).clamp(0, 11)]} ${p.first}';
@@ -374,6 +377,7 @@ class _TradesTabState extends State<_TradesTab>
       child: ListView(
         padding: _listPad(context, fab: !store.readOnly),
         children: [
+          PendingWritesPanel(queue: store.queue, onSendNow: store.refresh),
           if (keys.isNotEmpty) ...[
             SizedBox(
               height: 40,
@@ -481,8 +485,10 @@ class _TradeTile extends StatelessWidget {
                 if (t.area != null) _kv('متراژ', formatNumber(t.area!, decimals: t.area! % 1 == 0 ? 0 : 2)),
                 if (t.days != null) _kv('زمان', '${t.days} روز'),
                 if (t.profitPct != null)
-                  _kv('درصد سود/زیان', '${t.profitPct!.round()}٪'),
+                  _kv('٪ سود/زیان از مبلغ فروش', '${t.profitPct!.round()}٪'),
                 if (t.extraCost > 0) _kv('کد و نقشه', _m(t.extraCost)),
+                if (t.extraCost > 0 && t.grossProfit != null)
+                  _kv('سود پیش از کد و نقشه', _m(t.grossProfit!)),
               ]),
               if (t.note.isNotEmpty) ...[
                 const SizedBox(height: 4),
@@ -581,17 +587,39 @@ String _amountText(double v) => v == 0 ? '' : formatNumber(v);
 
 Future<void> _editTrade(
     BuildContext context, BizStore store, PropertyTrade? t) async {
-  final res = await showDialog<_DialogResult>(
-    context: context,
-    builder: (_) => _TradeDialog(t: t),
-  );
-  if (res == null || !context.mounted) return;
-  if (res.delete && t != null) {
-    await _guard(context, () => store.deleteTrade(t.id));
-  } else if (t == null) {
-    await _guard(context, () => store.addTrade(res.body));
-  } else {
-    await _guard(context, () => store.updateTrade(t.id, res.body));
+  Map<String, dynamic>? draft;
+  String? error;
+  for (;;) {
+    if (!context.mounted) return;
+    final res = await showDialog<_DialogResult>(
+      context: context,
+      builder: (_) => _TradeDialog(t: t, draft: draft, error: error),
+    );
+    if (res == null || !context.mounted) return;
+    if (res.delete && t != null) {
+      await _guard(context, () => store.deleteTrade(t.id));
+      return;
+    }
+    try {
+      if (t == null) {
+        await store.addTrade(res.body);
+      } else {
+        await store.updateTrade(t.id, res.body);
+      }
+      return;
+    } on WriteQueuedException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+      return;
+    } catch (e) {
+      // Refused by the server: reopen the form with what was typed and the
+      // reason, instead of a snackbar that disappears.
+      if (!context.mounted) return;
+      draft = res.body;
+      error = 'سرور معامله را ثبت نکرد: $e';
+    }
   }
 }
 
@@ -601,32 +629,29 @@ class _DialogResult {
   final bool delete;
 }
 
-/// Parses a Jalali date the way vinor biz_api does (Y/M/D or D/M/Y,
-/// Persian digits ok, year 1300–1600). Null when invalid.
-Jalali? parseBizDate(String raw) {
-  const fa = '۰۱۲۳۴۵۶۷۸۹', ar = '٠١٢٣٤٥٦٧٨٩';
-  final b = StringBuffer();
-  for (final r in raw.trim().runes) {
-    final ch = String.fromCharCode(r);
-    final i = fa.indexOf(ch), k = ar.indexOf(ch);
-    b.write(i >= 0 ? '$i' : k >= 0 ? '$k' : ch);
+/// Same checks as vinor `_trade_fields`, so a deal is refused here with a
+/// clear reason instead of failing on the server (or later in the queue).
+/// Null when [b] is valid.
+String? validateBizTrade(Map<String, dynamic> b) {
+  final buyText = '${b['buy_date'] ?? ''}'.trim();
+  final sellText = '${b['sell_date'] ?? ''}'.trim();
+  final buy = b['buy_amount'] is num ? (b['buy_amount'] as num).toDouble() : null;
+  final sell = b['sell_amount'] is num ? (b['sell_amount'] as num).toDouble() : 0.0;
+  if (buyText.isEmpty || buy == null || buy <= 0) return 'تاریخ خرید و مبلغ خرید لازم است.';
+  final bd = parseBizDate(buyText);
+  if (bd == null) return 'تاریخ خرید نامعتبر است.';
+  final sd = sellText.isEmpty ? null : parseBizDate(sellText);
+  if (sellText.isNotEmpty && sd == null) return 'تاریخ فروش نامعتبر است.';
+  if (sell > 0 && sd == null) return 'برای مبلغ فروش، تاریخ فروش لازم است.';
+  if (sd != null && sell <= 0) return 'برای تاریخ فروش، مبلغ فروش لازم است.';
+  if (sd != null && sd.compareTo(bd) < 0) {
+    return 'تاریخ فروش نمی‌تواند قبل از تاریخ خرید باشد.';
   }
-  final m = RegExp(r'^(\d{1,4})[/\-.](\d{1,2})[/\-.](\d{1,4})$').firstMatch(b.toString());
-  if (m == null) return null;
-  final a = int.parse(m.group(1)!), mo = int.parse(m.group(2)!), c = int.parse(m.group(3)!);
-  final y = a > 31 ? a : c, d = a > 31 ? c : a;
-  if (y < 1300 || y > 1600 || mo < 1 || mo > 12 || d < 1) return null;
-  try {
-    final j = Jalali(y, mo, d);
-    if (d > j.monthLength) return null;
-    return j;
-  } catch (_) {
-    return null;
-  }
+  final extra = b['extra_cost'];
+  if (extra is num && extra < 0) return 'کد و نقشه نمی‌تواند منفی باشد.';
+  if (sell < 0) return 'مبلغ فروش نمی‌تواند منفی باشد.';
+  return null;
 }
-
-String bizDateText(Jalali j) =>
-    '${j.year.toString().padLeft(4, '0')}/${j.month.toString().padLeft(2, '0')}/${j.day.toString().padLeft(2, '0')}';
 
 /// Live preview of a trade, same formulas as the server.
 class BizTradePreview {
@@ -635,9 +660,11 @@ class BizTradePreview {
   final double? profit;
   final double? pct;
 
-  static BizTradePreview compute(Jalali? buyD, Jalali? sellD, double buy, double sell) {
+  /// Net profit = sell − buy − extra cost (کد و نقشه); % of the sell amount.
+  static BizTradePreview compute(Jalali? buyD, Jalali? sellD, double buy, double sell,
+      [double extra = 0]) {
     final sold = sellD != null && sell > 0;
-    final profit = sold ? sell - buy : null;
+    final profit = sold ? sell - buy - extra : null;
     final days = (buyD != null && sellD != null)
         ? sellD.toDateTime().difference(buyD.toDateTime()).inDays
         : null;
@@ -647,24 +674,31 @@ class BizTradePreview {
 }
 
 class _TradeDialog extends StatefulWidget {
-  const _TradeDialog({this.t});
+  const _TradeDialog({this.t, this.draft, this.error});
   final PropertyTrade? t;
+
+  /// Values typed before the server refused them (reopened form).
+  final Map<String, dynamic>? draft;
+  final String? error;
 
   @override
   State<_TradeDialog> createState() => _TradeDialogState();
 }
 
 class _TradeDialogState extends State<_TradeDialog> {
-  late final _buyDate = TextEditingController(text: widget.t?.buyDate ?? '');
-  late final _sellDate = TextEditingController(text: widget.t?.sellDate ?? '');
-  late final _buy = TextEditingController(text: _amountText(widget.t?.buyAmount ?? 0));
-  late final _sell = TextEditingController(text: _amountText(widget.t?.sellAmount ?? 0));
+  late final PropertyTrade? _src = widget.draft == null
+      ? widget.t
+      : PropertyTrade({'id': widget.t?.id ?? 0, ...widget.draft!});
+  late final _buyDate = TextEditingController(text: _src?.buyDate ?? '');
+  late final _sellDate = TextEditingController(text: _src?.sellDate ?? '');
+  late final _buy = TextEditingController(text: _amountText(_src?.buyAmount ?? 0));
+  late final _sell = TextEditingController(text: _amountText(_src?.sellAmount ?? 0));
   late final _area = TextEditingController(
-      text: widget.t?.area == null ? '' : formatNumber(widget.t!.area!, decimals: widget.t!.area! % 1 == 0 ? 0 : 2));
-  late final _title = TextEditingController(text: widget.t?.title ?? '');
-  late final _extra = TextEditingController(text: _amountText(widget.t?.extraCost ?? 0));
-  late final _note = TextEditingController(text: widget.t?.note ?? '');
-  String? _err;
+      text: _src?.area == null ? '' : formatNumber(_src!.area!, decimals: _src.area! % 1 == 0 ? 0 : 2));
+  late final _title = TextEditingController(text: _src?.title ?? '');
+  late final _extra = TextEditingController(text: _amountText(_src?.extraCost ?? 0));
+  late final _note = TextEditingController(text: _src?.note ?? '');
+  late String? _err = widget.error;
 
   @override
   void dispose() {
@@ -688,7 +722,7 @@ class _TradeDialogState extends State<_TradeDialog> {
   @override
   void initState() {
     super.initState();
-    for (final c in [_buyDate, _sellDate, _buy, _sell]) {
+    for (final c in [_buyDate, _sellDate, _buy, _sell, _extra]) {
       c.addListener(_changed);
     }
   }
@@ -737,12 +771,12 @@ class _TradeDialogState extends State<_TradeDialog> {
   Widget _preview() {
     final buyD = parseBizDate(_buyDate.text);
     final sellD = _sellDate.text.trim().isEmpty ? null : parseBizDate(_sellDate.text);
-    final p = BizTradePreview.compute(buyD, sellD,
-        parseFlexibleNumber(_buy.text) ?? 0, parseFlexibleNumber(_sell.text) ?? 0);
+    final p = BizTradePreview.compute(buyD, sellD, parseFlexibleNumber(_buy.text) ?? 0,
+        parseFlexibleNumber(_sell.text) ?? 0, parseFlexibleNumber(_extra.text) ?? 0);
     final parts = <String>[
       if (p.days != null) 'مدت نگهداری ${p.days} روز',
       if (p.profit != null)
-        '${p.profit! < 0 ? 'زیان' : 'سود'} ${_m(p.profit!.abs())}${p.pct == null ? '' : ' (${p.pct!.toStringAsFixed(1)}٪)'}',
+        '${p.profit! < 0 ? 'زیان' : 'سود'} خالص ${_m(p.profit!.abs())}${p.pct == null ? '' : ' (${p.pct!.toStringAsFixed(1)}٪ از مبلغ فروش)'}',
       if (p.profit == null) 'هنوز فروش نرفته',
     ];
     final neg = (p.profit ?? 0) < 0 || (p.days ?? 0) < 0;
@@ -763,28 +797,22 @@ class _TradeDialogState extends State<_TradeDialog> {
   }
 
   void _submit() {
-    final buy = parseFlexibleNumber(_buy.text);
-    if (_buyDate.text.trim().isEmpty || buy == null || buy <= 0) {
-      setState(() => _err = 'تاریخ خرید و مبلغ خرید لازم است.');
-      return;
-    }
-    final bd = parseBizDate(_buyDate.text);
-    final sdText = _sellDate.text.trim();
-    final sd = sdText.isEmpty ? null : parseBizDate(sdText);
-    if (bd == null || (sdText.isNotEmpty && sd == null)) {
-      setState(() => _err = 'تاریخ نامعتبر است.');
-      return;
-    }
-    Navigator.of(context).pop(_DialogResult({
-      'buy_date': _buyDate.text.trim(),
-      'sell_date': _sellDate.text.trim(),
-      'buy_amount': buy,
+    final body = <String, dynamic>{
+      'buy_date': _buyDate.text,
+      'sell_date': _sellDate.text,
+      'buy_amount': parseFlexibleNumber(_buy.text),
       'sell_amount': parseFlexibleNumber(_sell.text) ?? 0,
       'area': parseFlexibleNumber(_area.text),
       'title': _title.text.trim(),
       'extra_cost': parseFlexibleNumber(_extra.text) ?? 0,
       'note': _note.text.trim(),
-    }));
+    };
+    final err = validateBizTrade(body);
+    if (err != null) {
+      setState(() => _err = err);
+      return;
+    }
+    Navigator.of(context).pop(_DialogResult(BizStore.normalizeTradeBody(body)));
   }
 
   @override
@@ -862,29 +890,27 @@ class _MonthsTabState extends State<_MonthsTab> {
     // While another year is loading, the rows still belong to the old year:
     // hide them so an edit can never land on the wrong year.
     final stale = year != null && s.year != null && s.year != year;
-    final soldByMonth = <int, double>{
-      for (final m in months) m.month: tradeProfitInMonth(s.trades, m.year, m.month),
-    };
-    final mism = year == null ? 0 : bizMismatchMonths(s);
-    final filter = (_filter == 'mismatch' && mism == 0) ? 'all' : _filter;
+    // Months with office ops, PWO, or a deal bought/sold are «active»
+    // (chart, «فعال» count and the monthly average all use the same list).
+    final dup = bizMismatchMonths(s);
+    final filter = (_filter == 'dup' && dup == 0) ? 'all' : _filter;
+    final activeMonths = [for (final m in months) if (!m.isEmpty) m];
     final visible = [
       for (final m in months)
         if (filter == 'all' ||
-            (filter == 'active' && (!m.isEmpty || (soldByMonth[m.month] ?? 0) != 0)) ||
-            (filter == 'mismatch' &&
-                (!m.isEmpty || (soldByMonth[m.month] ?? 0) != 0) &&
-                incomeMismatch(m.income, soldByMonth[m.month] ?? 0)))
+            (filter == 'active' && !m.isEmpty) ||
+            (filter == 'dup' && m.incomeDupTrades))
           m,
     ];
-    final activeMonths = [for (final m in months) if (!m.isEmpty) m];
     final netTotal = tot['net'] ?? 0;
-    final incomeTotal = tot['income'] ?? 0;
+    final incomeTotal = tot['income_effective'] ?? tot['income'] ?? 0;
+    final yearSoldProfit = tot['trade_profit'] ?? 0;
+    final revenue = incomeTotal + yearSoldProfit;
     final avgNet = activeMonths.isEmpty ? 0.0 : netTotal / activeMonths.length;
-    final marginPct = incomeTotal > 0 ? (netTotal / incomeTotal * 100) : null;
-    final yearSoldProfit = year == null
-        ? s.totalProfit
-        : [for (var mo = 1; mo <= 12; mo++) soldByMonth[mo] ?? tradeProfitInMonth(s.trades, year, mo)]
-            .fold<double>(0, (a, b) => a + b);
+    final marginPct = revenue > 0 ? (netTotal / revenue * 100) : null;
+    final boughtN = months.fold<int>(0, (a, m) => a + m.boughtCount);
+    final boughtAmt = months.fold<double>(0, (a, m) => a + m.boughtAmount);
+    final soldN = months.fold<int>(0, (a, m) => a + m.soldCount);
     final onlineErr = store.lastError != null && store.lastError != offlineQueueNote;
 
     return RefreshIndicator(
@@ -892,6 +918,7 @@ class _MonthsTabState extends State<_MonthsTab> {
       child: ListView(
         padding: _listPad(context),
         children: [
+          PendingWritesPanel(queue: store.queue, onSendNow: store.refresh),
           if (year != null)
             Row(children: [
               IconButton(
@@ -1009,9 +1036,21 @@ class _MonthsTabState extends State<_MonthsTab> {
                       valueKey: const ValueKey('biz-total-net')),
                   const SizedBox(height: 6),
                   Row(children: [
-                    Expanded(child: _CompactMetric('درآمد', _m(incomeTotal))),
+                    Expanded(child: _CompactMetric('درآمد دفتر', _m(incomeTotal))),
                     const SizedBox(width: 6),
+                    Expanded(
+                        child: _CompactMetric(
+                            'سود معاملات ملک ($soldN)', _m(yearSoldProfit),
+                            valueKey: const ValueKey('biz-total-trade-profit'))),
+                  ]),
+                  const SizedBox(height: 4),
+                  Row(children: [
                     Expanded(child: _CompactMetric('کارمندان', _m(tot['staff'] ?? 0))),
+                    const SizedBox(width: 6),
+                    Expanded(
+                        child: _CompactMetric(
+                            'خرید ملک ($boughtN)', _m(boughtAmt),
+                            valueKey: const ValueKey('biz-total-bought'))),
                   ]),
                   const SizedBox(height: 4),
                   Row(children: [
@@ -1019,7 +1058,7 @@ class _MonthsTabState extends State<_MonthsTab> {
                     const SizedBox(width: 6),
                     Expanded(child: _CompactMetric('دیوار - تبلیغات دفتر', _m(tot['ads'] ?? 0))),
                   ]),
-                  if (activeMonths.isNotEmpty || yearSoldProfit != 0 || mism > 0) ...[
+                  if (activeMonths.isNotEmpty || dup > 0) ...[
                     const SizedBox(height: 6),
                     Wrap(spacing: 8, runSpacing: 4, children: [
                       if (activeMonths.isNotEmpty)
@@ -1030,15 +1069,12 @@ class _MonthsTabState extends State<_MonthsTab> {
                           '${formatNumber(marginPct, decimals: 1)}٪',
                           color: _sign(marginPct),
                         ),
-                      if (yearSoldProfit != 0)
-                        _KpiChip('سود معاملات ملک', _m(yearSoldProfit),
-                            color: _sign(yearSoldProfit)),
-                      if (mism > 0)
+                      if (dup > 0)
                         InkWell(
                           key: const ValueKey('biz-mismatch-pill'),
                           borderRadius: BorderRadius.circular(8),
                           onTap: () => setState(() {
-                            _filter = _filter == 'mismatch' ? 'all' : 'mismatch';
+                            _filter = _filter == 'dup' ? 'all' : 'dup';
                           }),
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
@@ -1049,7 +1085,7 @@ class _MonthsTabState extends State<_MonthsTab> {
                                   color: AppTheme.negative.withValues(alpha: 0.45)),
                             ),
                             child: Text(
-                              '$mism ماه مغایرت درآمد',
+                              '$dup ماه درآمد تکراری',
                               style: const TextStyle(
                                   color: AppTheme.negative,
                                   fontSize: 10,
@@ -1061,8 +1097,10 @@ class _MonthsTabState extends State<_MonthsTab> {
                   ],
                   const SizedBox(height: 4),
                   const Text(
-                    'خالص = درآمد − کارمندان − PWO − تبلیغات (PWO خودکار)',
-                    maxLines: 1,
+                    'خالص = درآمد دفتر − کارمندان − PWO − تبلیغات + سود معاملات ملک '
+                    '(PWO و سود معاملات خودکار؛ سود هر معامله در ماه فروش، پس از کد و نقشه)',
+                    key: ValueKey('biz-net-formula'),
+                    maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: AppTheme.muted, fontSize: 10),
                   ),
@@ -1090,13 +1128,13 @@ class _MonthsTabState extends State<_MonthsTab> {
                   selected: filter == 'active',
                   onTap: () => setState(() => _filter = 'active'),
                 ),
-                if (mism > 0)
+                if (dup > 0)
                   _FilterChipBtn(
                     key: const ValueKey('biz-months-filter-mismatch'),
-                    label: 'مغایرت ($mism)',
-                    selected: filter == 'mismatch',
+                    label: 'درآمد تکراری ($dup)',
+                    selected: filter == 'dup',
                     tone: AppTheme.negative,
-                    onTap: () => setState(() => _filter = 'mismatch'),
+                    onTap: () => setState(() => _filter = 'dup'),
                   ),
               ],
             ),
@@ -1127,9 +1165,10 @@ class _MonthsTabState extends State<_MonthsTab> {
 }
 
 class _CompactMetric extends StatelessWidget {
-  const _CompactMetric(this.label, this.value);
+  const _CompactMetric(this.label, this.value, {this.valueKey});
   final String label;
   final String value;
+  final Key? valueKey;
 
   @override
   Widget build(BuildContext context) {
@@ -1151,6 +1190,7 @@ class _CompactMetric extends StatelessWidget {
             fit: BoxFit.scaleDown,
             alignment: AlignmentDirectional.centerStart,
             child: Text(value,
+                key: valueKey,
                 style: const TextStyle(
                     color: AppTheme.title, fontWeight: FontWeight.w700, fontSize: 12.5)),
           ),
@@ -1369,31 +1409,22 @@ class _BizMonthsChartPainter extends CustomPainter {
       old.months != months || old.avgNet != avgNet || old.textColor != textColor;
 }
 
-/// Profit of trades sold in Jalali [year]/[month] (by sell date).
+/// Net profit of deals sold in Jalali [year]/[month] (by sell date, after
+/// کد و نقشه). The same figure is added to that month's net.
 double tradeProfitInMonth(Iterable<PropertyTrade> trades, int year, int month) {
-  final key = '${year.toString().padLeft(4, '0')}/${month.toString().padLeft(2, '0')}';
+  final key = bizMonthKeyOf(year, month);
   var sum = 0.0;
   for (final t in trades) {
-    if (t.profit != null && _sellMonth(t) == key) sum += t.profit!;
+    if (t.sellMonth == key) sum += t.profit!;
   }
   return sum;
 }
 
-/// Months of the snapshot year where income and sold-trade profit differ.
-int bizMismatchMonths(BizSnapshot s) {
-  final y = s.year;
-  if (y == null) return 0;
-  var n = 0;
-  for (final m in s.months) {
-    final tp = tradeProfitInMonth(s.trades, y, m.month);
-    if ((!m.isEmpty || tp != 0) && incomeMismatch(m.income, tp)) n++;
-  }
-  return n;
-}
-
-/// Income and sold-trade profit differ (more than 1,000 toman).
-bool incomeMismatch(double income, double tradeProfit) =>
-    (tradeProfit != 0 || income != 0) && (income - tradeProfit).abs() > 1000;
+/// Months of the snapshot year whose typed income only repeats the deal
+/// profit (old «پر کردن درآمد»). That income is left out of net so the deal
+/// is not counted twice; the user is asked to clear or correct it.
+int bizMismatchMonths(BizSnapshot s) =>
+    s.months.where((m) => m.incomeDupTrades).length;
 
 class _MonthTile extends StatelessWidget {
   const _MonthTile({required this.store, required this.m});
@@ -1402,8 +1433,7 @@ class _MonthTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tp = tradeProfitInMonth(store.snap.trades, m.year, m.month);
-    final flag = (!m.isEmpty || tp != 0) && incomeMismatch(m.income, tp);
+    final flag = m.incomeDupTrades;
     return PendingSyncMark(
       pending: m.raw['pending_sync'] == true,
       child: Card(
@@ -1432,24 +1462,40 @@ class _MonthTile extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 _fit(Text(m.isEmpty ? '—' : _m(m.net),
+                    key: ValueKey('biz-month-net-${m.month}'),
                     style: TextStyle(
                         color: m.isEmpty ? AppTheme.muted : _sign(m.net),
                         fontWeight: FontWeight.w800))),
               ]),
-              if (!m.isEmpty || tp != 0) ...[
+              if (!m.isEmpty) ...[
                 const SizedBox(height: 4),
                 Wrap(spacing: 12, runSpacing: 2, children: [
-                  _t('درآمد ${_m(m.income)}'),
-                  Text('سود معاملات ${_m(tp)}',
-                      key: ValueKey('biz-month-tp-${m.month}'),
-                      style: TextStyle(
-                          color: flag ? AppTheme.negative : AppTheme.muted,
-                          fontSize: 12,
-                          fontWeight: flag ? FontWeight.w700 : null)),
+                  _t(flag
+                      ? 'درآمد ${_m(m.income)} (تکراری، حساب نشد)'
+                      : 'درآمد ${_m(m.income)}'),
+                  if (m.soldCount > 0)
+                    Text('سود معاملات (${m.soldCount} فروش) ${_m(m.tradeProfit)}',
+                        key: ValueKey('biz-month-tp-${m.month}'),
+                        style: TextStyle(
+                            color: _sign(m.tradeProfit),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700)),
                   _t('کارمندان ${_m(m.staff)}'),
                   _t('PWO ${_m(m.pwo)}'),
                   _t('تبلیغات ${_m(m.ads)}'),
                 ]),
+                if (m.boughtCount > 0) ...[
+                  const SizedBox(height: 3),
+                  Row(key: ValueKey('biz-month-bought-${m.month}'), children: [
+                    const Icon(Icons.add_home_work_outlined, size: 13, color: AppTheme.muted),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                          'خرید ملک: ${m.boughtCount} مورد · ${_m(m.boughtAmount)} (در خالص حساب نمی‌شود)',
+                          style: const TextStyle(color: AppTheme.muted, fontSize: 11.5)),
+                    ),
+                  ]),
+                ],
                 if (m.note.isNotEmpty) ...[
                   const SizedBox(height: 5),
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1467,21 +1513,16 @@ class _MonthTile extends StatelessWidget {
                 ],
                 if (flag) ...[
                   const SizedBox(height: 4),
-                  Row(key: ValueKey('biz-month-flag-${m.month}'), children: [
-                    const Icon(Icons.info_outline_rounded, size: 14, color: AppTheme.negative),
-                    const SizedBox(width: 4),
+                  Row(key: ValueKey('biz-month-flag-${m.month}'), children: const [
+                    Icon(Icons.info_outline_rounded, size: 13, color: AppTheme.negative),
+                    SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                          'درآمد با سود معاملات فروخته‌شدهٔ این ماه ${_m((m.income - tp).abs())} فرق دارد',
-                          style: const TextStyle(color: AppTheme.negative, fontSize: 11)),
+                          'درآمد این ماه همان سود معاملات است و دوبار حساب نشد؛ برای اصلاح، ماه را باز کنید.',
+                          style: TextStyle(color: AppTheme.negative, fontSize: 11)),
                     ),
                   ]),
                 ],
-              ] else if (m.note.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(m.note,
-                    key: ValueKey('biz-month-note-${m.month}'),
-                    style: const TextStyle(color: AppTheme.muted, fontSize: 11)),
               ],
             ]),
           ),
@@ -1497,8 +1538,7 @@ class _MonthTile extends StatelessWidget {
 Future<void> _editMonth(BuildContext context, BizStore store, BizMonth m) async {
   final res = await showDialog<_DialogResult>(
     context: context,
-    builder: (_) => _MonthDialog(
-        m: m, tradeProfit: tradeProfitInMonth(store.snap.trades, m.year, m.month)),
+    builder: (_) => _MonthDialog(m: m, tradeProfit: m.tradeProfit),
   );
   if (res == null || !context.mounted) return;
   if (res.delete) {
@@ -1562,7 +1602,10 @@ class _MonthDialogState extends State<_MonthDialog> {
     final inc = parseFlexibleNumber(_income.text) ?? 0;
     final stf = parseFlexibleNumber(_staff.text) ?? 0;
     final ads = parseFlexibleNumber(_ads.text) ?? 0;
-    final previewNet = inc - stf - m.pwo - ads;
+    // Same rule as the table: income equal to the deal profit is not
+    // counted twice; the deal profit itself is always added.
+    final dup = incomeDuplicatesTrades(inc, widget.tradeProfit, m.tradeGross);
+    final previewNet = (dup ? 0 : inc) - stf - m.pwo - ads + widget.tradeProfit;
     final tradeToman = formatMoney(widget.tradeProfit, forceToman: true);
     final pwoToman = formatMoney(m.pwo, forceToman: true);
     final netToman = formatMoney(previewNet, forceToman: true);
@@ -1575,35 +1618,36 @@ class _MonthDialogState extends State<_MonthDialog> {
         content: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             _f(_income, 'درآمد (تومان)', const ValueKey('biz-m-income')),
-            if (widget.tradeProfit > 0)
+            if (m.soldCount > 0 || m.boughtCount > 0)
+              Container(
+                key: const ValueKey('biz-m-trades-info'),
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppTheme.border),
+                ),
+                child: Text(
+                  [
+                    if (m.soldCount > 0)
+                      'سود ${m.soldCount} معاملهٔ فروخته‌شدهٔ این ماه ($tradeToman) خودکار به خالص اضافه می‌شود؛ آن را در «درآمد» وارد نکنید.',
+                    if (m.boughtCount > 0)
+                      'خرید ملک این ماه: ${m.boughtCount} مورد · ${formatMoney(m.boughtAmount, forceToman: true)}',
+                  ].join('\n'),
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+                ),
+              ),
+            if (dup)
               Align(
                 alignment: Alignment.centerRight,
-                child: TextButton(
-                  key: const ValueKey('biz-m-fill'),
-                  onPressed: () async {
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (c) => Directionality(
-                        textDirection: TextDirection.rtl,
-                        child: AlertDialog(
-                          title: const Text('پر کردن درآمد؟'),
-                          content: Text(
-                              'درآمد این ماه با سود معاملات فروخته‌شده ($tradeToman) جایگزین شود؟ تا «ذخیره» را نزنید چیزی ثبت نمی‌شود.'),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')),
-                            FilledButton(
-                                key: const ValueKey('biz-m-fill-ok'),
-                                onPressed: () => Navigator.pop(c, true),
-                                child: const Text('جایگزین کن')),
-                          ],
-                        ),
-                      ),
-                    );
-                    if (ok == true && mounted) {
-                      setState(() => _income.text = formatNumber(widget.tradeProfit));
-                    }
-                  },
-                  child: Text('پر کردن با سود معاملات این ماه: $tradeToman',
+                child: TextButton.icon(
+                  key: const ValueKey('biz-m-clear-dup'),
+                  style: TextButton.styleFrom(foregroundColor: AppTheme.negative),
+                  onPressed: () => setState(() => _income.text = ''),
+                  icon: const Icon(Icons.cleaning_services_outlined, size: 16),
+                  label: const Text('درآمد تکراری است (همان سود معاملات) — صفر کن',
                       textAlign: TextAlign.right),
                 ),
               ),
@@ -1620,7 +1664,7 @@ class _MonthDialogState extends State<_MonthDialog> {
                 border: Border.all(color: AppTheme.border),
               ),
               child: Text(
-                'خالص ماه: $netToman$netUsd',
+                'خالص ماه: $netToman$netUsd${widget.tradeProfit != 0 ? ' (با سود معاملات)' : ''}',
                 textAlign: TextAlign.right,
                 style: TextStyle(
                   color: previewNet < 0 ? AppTheme.negative : AppTheme.positive,
@@ -1851,7 +1895,7 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
                     const SizedBox(height: 8),
                     Row(children: [
                       tile('income', 'درآمد دفتر امسال',
-                          _m(s.monthTotals['income'] ?? 0)),
+                          _m(s.monthTotals['income_effective'] ?? s.monthTotals['income'] ?? 0)),
                       const SizedBox(width: 8),
                       tile('net', 'خالص ماهانه امسال', _m(net),
                           color: net < 0 ? AppTheme.negative : null),
@@ -1870,7 +1914,7 @@ class _BizDashboardCardState extends State<BizDashboardCard> {
                           '${pwoMonths.where((m) => m.pwo <= pwoT).length} از ${pwoMonths.length}'),
                     ],
                     if (mism > 0)
-                      stat('mismatch', 'ماه با مغایرت درآمد', '$mism',
+                      stat('mismatch', 'ماه با درآمد تکراری', '$mism',
                           color: AppTheme.negative),
                     if (store.showingCache)
                       const Padding(
@@ -1912,7 +1956,7 @@ Future<Map<String, List<List<Object?>>>> _fullSheets(BuildContext context, BizSt
     checks: state.checks,
   );
   final now = DateTime.now();
-  final yearKey = '${store.snap.year ?? Jalali.now().year}';
+  final yearKey = '${store.snap.year ?? currentJalaliYear()}';
   final b = state.realizedBreakdown;
   final ps = ProjectsStore.instance;
   final pwo = PwoStore.instance;
@@ -1986,7 +2030,9 @@ Future<void> _exportAnnual(BuildContext context, BizStore store) async {
   if (kind == null || !context.mounted) return;
   final messenger = ScaffoldMessenger.of(context);
   try {
+    store.lastFailedYears = const [];
     final r = BizAnnualReport.from(store.snap, extra: await _fullSheets(context, store));
+    final failed = store.lastFailedYears;
     late Uint8List bytes;
     late String mime;
     if (kind == 'xlsx') {
@@ -2007,6 +2053,13 @@ Future<void> _exportAnnual(BuildContext context, BizStore store) async {
         files: [XFile.fromData(bytes, mimeType: mime, name: name)],
         subject: 'گزارش سالانهٔ ملک و دفتر ${r.year}',
       ));
+    }
+    if (failed.isNotEmpty) {
+      messenger.showSnackBar(SnackBar(
+          key: const ValueKey('biz-export-failed-years'),
+          duration: const Duration(seconds: 8),
+          content: Text(
+              'جدول ماهانهٔ سال ${failed.join('، ')} دریافت نشد و در خروجی نیست؛ با اینترنت دوباره بگیرید.')));
     }
   } catch (e) {
     messenger.showSnackBar(SnackBar(content: Text('ساخت خروجی انجام نشد: $e')));

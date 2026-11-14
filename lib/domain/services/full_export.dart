@@ -1,5 +1,6 @@
 import 'package:invest/data/bank_sms_store.dart';
 import 'package:invest/data/biz_store.dart';
+import 'package:invest/domain/utils/biz_dates.dart';
 import 'package:invest/data/projects_store.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/bank_check.dart';
@@ -65,7 +66,7 @@ Map<String, Sheet> buildFullExport({
   final sold = biz.trades.where((t) => t.sold).toList();
   final propRealized = sold.fold<double>(0, (s, t) => s + (t.profit ?? 0));
   final propYear = sold
-      .where((t) => t.sellDate.startsWith('$yearKey/'))
+      .where((t) => '${parseBizDate(t.sellDate)?.year}' == yearKey)
       .fold<double>(0, (s, t) => s + (t.profit ?? 0));
   final live = projects.where((p) => !p.archived).toList();
   final projRealized = live
@@ -125,10 +126,11 @@ Map<String, Sheet> buildFullExport({
     ],
     ['برداشت سیستم (کل)', sysWithdrawn, null],
     ['برداشت PWO (کل)', pwoAll, 'امسال: ${pwoYear.round()}'],
-    ['درآمد دفتر امسال', sumM((m) => m.income), null],
+    ['درآمد دفتر امسال', sumM((m) => m.incomeEffective), null],
+    ['سود معاملات ملک امسال (در خالص)', sumM((m) => m.tradeProfit), null],
     ['حقوق امسال', sumM((m) => m.staff), null],
     ['تبلیغات امسال', sumM((m) => m.ads), null],
-    ['خالص ماهانه امسال', sumM((m) => m.net), null],
+    ['خالص ماهانه امسال', sumM((m) => m.net), 'با سود معاملات ملک'],
   ];
 
   final assets = <List<Object?>>[
@@ -250,16 +252,17 @@ Map<String, Sheet> buildFullExport({
     }
   }
   final monthsAll = <List<Object?>>[
-    ['سال', 'ماه', 'درآمد', 'حقوق', 'PWO', 'تبلیغات', 'خالص', 'یادداشت'],
+    ['سال', 'ماه', 'درآمد', 'حقوق', 'PWO', 'تبلیغات', 'سود معاملات', 'خالص', 'یادداشت'],
     for (final m in allMonths)
       if (!m.isEmpty)
         [
           m.year,
           pwoMonthNames[m.month - 1],
-          m.income,
+          m.incomeEffective,
           m.staff,
           m.pwo,
           m.ads,
+          m.tradeProfit,
           m.net,
           m.note
         ],

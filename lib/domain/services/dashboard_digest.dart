@@ -189,8 +189,8 @@ List<DashAlert> dashboardAlerts({
     out.add(DashAlert(
       kind: DashAlertKind.bizMismatch,
       severity: 0,
-      title: '$bizMismatchMonths ماه مغایرت در دفتر',
-      sub: 'سود معاملهٔ ملک با درآمد ثبت‌شدهٔ دفتر نمی‌خواند',
+      title: '$bizMismatchMonths ماه درآمد تکراری در دفتر',
+      sub: 'درآمد ثبت‌شده همان سود معاملهٔ ملک است (سود معاملات حالا خودکار در خالص است) — درآمد را اصلاح کنید',
     ));
   }
   out.sort((a, b) => b.severity.compareTo(a.severity));

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:invest/data/biz_store.dart' show PropertyTrade, bizMonthTotalKeys, deriveBizMonth;
 import 'package:invest/data/write_queue.dart';
 
 /// Optimistic view: the last server snapshot with every queued write applied
@@ -123,7 +124,8 @@ void _bizTradeDerived(Map<String, dynamic> t) {
   t['sell_amount'] = sell;
   t['extra_cost'] = _num(t['extra_cost']);
   final sold = '${t['sell_date'] ?? ''}'.isNotEmpty && sell > 0;
-  final profit = sold ? sell - buy : null;
+  // Net of کد و نقشه, as the server and BizSnapshot compute it.
+  final profit = sold ? sell - buy - _num(t['extra_cost']) : null;
   t['profit'] = profit;
   t['profit_pct'] = profit != null && sell > 0 ? profit / sell * 100 : null;
 }
@@ -138,12 +140,16 @@ void _bizTotals(Map<String, dynamic> s) {
     'sell': sold.fold<double>(0, (a, t) => a + _num(t['sell_amount'])),
     'extra_cost': ts.fold<double>(0, (a, t) => a + _num(t['extra_cost'])),
   };
+  // Monthly net (with the automatic deal profit) and totals are derived the
+  // same way as BizSnapshot does, so the overlay never disagrees with it.
+  final trades = [for (final t in ts) PropertyTrade(t)];
   final ms = _list(s, 'months');
   final tot = <String, double>{};
   for (final m in ms) {
-    m['net'] = _num(m['income']) - _num(m['staff']) - _num(m['pwo']) - _num(m['ads']);
-    for (final k in ['staff', 'pwo', 'ads', 'income', 'net']) {
-      tot[k] = (tot[k] ?? 0) + _num(m[k]);
+    final d = deriveBizMonth(m, trades);
+    m.addAll(d);
+    for (final k in bizMonthTotalKeys) {
+      tot[k] = (tot[k] ?? 0) + _num(d[k]);
     }
   }
   if (ms.isNotEmpty) s['months_totals'] = tot;

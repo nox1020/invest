@@ -31,9 +31,11 @@ void main() {
   test('report keeps only trades touching the year; totals per month', () {
     final r = BizAnnualReport.from(_snap());
     expect(r.trades.map((t) => t.id), [1, 2]);
-    expect(r.soldProfit, 200);
-    expect(r.tradeProfitByMonth, {2: 200.0});
-    expect(r.monthRows().last, ['جمع', 10.0, 0.0, 0.0, 250.0, 240.0, 200.0]);
+    // Deal profit is net of کد و نقشه (300 − 100 − 5) and is added to the
+    // sell month's net: 250 − 10 + 195.
+    expect(r.soldProfit, 195);
+    expect(r.tradeProfitByMonth, {2: 195.0});
+    expect(r.monthRows().last, ['جمع', 10.0, 0.0, 0.0, 250.0, 435.0, 195.0]);
   });
 
   test('xlsx is a valid zip with RTL sheets, escaped text and numbers', () {

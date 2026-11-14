@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:invest/data/biz_store.dart';
+import 'package:invest/domain/utils/biz_dates.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
@@ -29,23 +30,25 @@ class BizAnnualReport {
   static BizAnnualReport from(BizSnapshot s,
       {int? year, Map<String, List<List<Object?>>> extra = const {}}) {
     final y = year ?? s.year ?? 0;
-    bool inYear(String d) => d.startsWith('$y/');
+    // parseBizDate (not string prefixes): a queued deal may still carry the
+    // date as typed (Persian digits, D/M/Y, no zero padding).
+    bool inYear(String d) => parseBizDate(d)?.year == y;
     final ts = [
       for (final t in s.trades)
         if (inYear(t.buyDate) || inYear(t.sellDate)) t
     ];
     final tp = <int, double>{};
     for (final t in s.trades) {
-      if (!t.sold || !inYear(t.sellDate)) continue;
-      final m = int.tryParse(t.sellDate.split('/')[1]) ?? 0;
-      tp[m] = (tp[m] ?? 0) + (t.profit ?? 0);
+      final sd = t.sold ? parseBizDate(t.sellDate) : null;
+      if (sd == null || sd.year != y) continue;
+      tp[sd.month] = (tp[sd.month] ?? 0) + t.profit!;
     }
     return BizAnnualReport._(
         y, ts, [for (final m in s.months) if (m.year == y) m], tp, extra);
   }
 
   Iterable<PropertyTrade> get soldInYear =>
-      trades.where((t) => t.sold && t.sellDate.startsWith('$year/'));
+      trades.where((t) => t.sold && parseBizDate(t.sellDate)?.year == year);
   double get soldProfit => soldInYear.fold(0.0, (a, t) => a + (t.profit ?? 0));
 
   double monthSum(double Function(BizMonth) f) =>
@@ -53,10 +56,10 @@ class BizAnnualReport {
 
   static const tradeHeaders = [
     'عنوان', 'تاریخ خرید', 'مبلغ خرید', 'تاریخ فروش', 'مبلغ فروش', 'متراژ',
-    'کد و نقشه', 'روز', 'سود/زیان', 'درصد', 'یادداشت',
+    'کد و نقشه', 'روز', 'سود/زیان خالص (پس از کد و نقشه)', '٪ از مبلغ فروش', 'یادداشت',
   ];
   static const monthHeaders = [
-    'ماه', 'حقوق', 'PWO', 'تبلیغات', 'درآمد', 'خالص', 'سود معاملات فروخته‌شده',
+    'ماه', 'حقوق', 'PWO', 'تبلیغات', 'درآمد دفتر', 'خالص (با سود معاملات)', 'سود معاملات فروخته‌شده',
   ];
 
   List<List<Object?>> tradeRows() => [
@@ -72,12 +75,12 @@ class BizAnnualReport {
   List<List<Object?>> monthRows() => [
         for (final m in months)
           [
-            _monthNames[m.month - 1], m.staff, m.pwo, m.ads, m.income, m.net,
+            _monthNames[m.month - 1], m.staff, m.pwo, m.ads, m.incomeEffective, m.net,
             tradeProfitByMonth[m.month] ?? 0,
           ],
         [
           'جمع', monthSum((m) => m.staff), monthSum((m) => m.pwo),
-          monthSum((m) => m.ads), monthSum((m) => m.income),
+          monthSum((m) => m.ads), monthSum((m) => m.incomeEffective),
           monthSum((m) => m.net), soldProfit,
         ],
       ];
