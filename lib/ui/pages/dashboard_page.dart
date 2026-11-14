@@ -37,8 +37,6 @@ import 'package:invest/domain/services/holding_metrics.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/ui/pages/price_alerts_page.dart';
 import 'package:invest/ui/widgets/dashboard_compact.dart';
-import 'package:invest/domain/services/ai_accountant_controller.dart';
-import 'package:invest/ui/widgets/ai_audit_detail_sheet.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -398,20 +396,6 @@ extension _CompactDash on _DashboardBodyState {
           (a.below != null && a.below! > 0 && v <= a.below!);
     }).length;
     final chips = [
-      TodayChip(
-        id: 'ai-audit',
-        icon: Icons.auto_awesome_rounded,
-        label: 'حسابدار AI',
-        color: AppTheme.positive,
-        onTap: () async {
-          final state = Provider.of<AppState>(context, listen: false);
-          await AiAccountantController.instance.load(state);
-          if (context.mounted &&
-              AiAccountantController.instance.report != null) {
-            showAiAuditDetailSheet(context);
-          }
-        },
-      ),
       if (week.any((u) => u.daysLeft < 0))
         TodayChip(
             id: 'overdue',

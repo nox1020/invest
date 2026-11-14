@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/services/economist_insights.dart';
 import 'package:invest/domain/services/holding_metrics.dart';
+import 'package:invest/domain/services/ai_accountant_controller.dart';
 import 'package:invest/domain/services/index_analytics.dart';
+import 'package:invest/ui/pages/ai_accountant_pane.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/layout/page_padding.dart';
@@ -15,7 +17,9 @@ import 'package:invest/ui/widgets/index_quote_card.dart';
 import 'package:provider/provider.dart';
 
 class CommodityIndexPage extends StatefulWidget {
-  const CommodityIndexPage({super.key});
+  const CommodityIndexPage({super.key, this.initialPage = 0});
+
+  final int initialPage;
 
   @override
   State<CommodityIndexPage> createState() => _CommodityIndexPageState();
@@ -31,7 +35,8 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    _page = widget.initialPage.clamp(0, 4);
+    _pageController = PageController(initialPage: _page);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final state = context.read<AppState>();
       if (state.commodityIndex.isEmpty &&
@@ -109,17 +114,29 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: _IndexHeader(
-            updatedAt: _page == 2
-                ? state.iranInflation?.fetchedAt
-                : state.commodityIndexUpdatedAt,
-            page: _page,
-            wallexCount: state.wallexMarkets.length,
-            inflationPeriod: state.iranInflation?.periodLabel,
-            calendar: state.settings.calendar,
-            pulse: _page == 1 ? wallexPulse : essentialsPulse,
-            anchors: anchors,
-            insightHeadline: briefing.headline,
+          child: ListenableBuilder(
+            listenable: AiAccountantController.instance,
+            builder: (context, _) {
+              final aiReport = AiAccountantController.instance.report;
+              final aiHeadline = aiReport == null
+                  ? null
+                  : 'امتیاز سلامت ${aiReport.healthScore}/100 · ${aiReport.alerts.isEmpty ? 'تراز بدون مغایرت' : '${aiReport.alerts.length} هشدار مالی'}';
+              return _IndexHeader(
+                updatedAt: _page == 2
+                    ? state.iranInflation?.fetchedAt
+                    : _page == 4
+                        ? null
+                        : state.commodityIndexUpdatedAt,
+                page: _page,
+                wallexCount: state.wallexMarkets.length,
+                inflationPeriod: state.iranInflation?.periodLabel,
+                calendar: state.settings.calendar,
+                pulse: _page == 1 ? wallexPulse : essentialsPulse,
+                anchors: anchors,
+                insightHeadline: briefing.headline,
+                accountantHeadline: aiHeadline,
+              );
+            },
           ),
         ),
         Padding(
@@ -203,6 +220,7 @@ class _CommodityIndexPageState extends State<CommodityIndexPage> {
               ),
               const IranInflationPane(),
               const EconomistInsightsPane(),
+              const AiAccountantPane(),
             ],
           ),
         ),
@@ -256,6 +274,14 @@ class _SegmentTabs extends StatelessWidget {
               onTap: () => onChanged(3),
             ),
           ),
+          Expanded(
+            child: _TabChip(
+              key: const ValueKey('index-tab-ai'),
+              label: 'حسابدار',
+              selected: index == 4,
+              onTap: () => onChanged(4),
+            ),
+          ),
         ],
       ),
     );
@@ -264,6 +290,7 @@ class _SegmentTabs extends StatelessWidget {
 
 class _TabChip extends StatelessWidget {
   const _TabChip({
+    super.key,
     required this.label,
     required this.selected,
     required this.onTap,
@@ -282,14 +309,18 @@ class _TabChip extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: selected ? Colors.white : AppTheme.muted,
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: selected ? Colors.white : AppTheme.muted,
+                fontWeight: FontWeight.w700,
+                fontSize: 11.5,
+              ),
             ),
           ),
         ),
@@ -360,6 +391,7 @@ class _IndexHeader extends StatelessWidget {
     required this.pulse,
     required this.anchors,
     this.insightHeadline,
+    this.accountantHeadline,
   });
 
   final DateTime? updatedAt;
@@ -370,15 +402,18 @@ class _IndexHeader extends StatelessWidget {
   final MarketPulse pulse;
   final IndexAnchors anchors;
   final String? insightHeadline;
+  final String? accountantHeadline;
 
   @override
   Widget build(BuildContext context) {
     final inflation = page == 2;
     final insight = page == 3;
+    final accountant = page == 4;
     final title = switch (page) {
       1 => 'دفتر والکس',
       2 => 'تورم رسمی',
       3 => 'اتاق فکر',
+      4 => 'حسابدار هوشمند',
       _ => 'نبض بازار',
     };
     final subtitle = switch (page) {
@@ -390,6 +425,8 @@ class _IndexHeader extends StatelessWidget {
                 : 'CPI مرکز آمار · $inflationPeriod — سبد مصرف، نه دارایی',
             3 => insightHeadline ??
                 'اقتصاددان سبد شما را با طلا، دلار آزاد و تورم رسمی می‌سنجد',
+            4 => accountantHeadline ??
+                'حسابرسی تراز نقدینگی، چک‌ها، ودیعه‌ها و پرسش‌وپاسخ دفاتر',
             _ => pulse.isEmpty
                 ? 'دلار آزاد، طلای ۱۸ عیار و دارایی‌های ریسکی'
                 : pulse.headline,
@@ -405,9 +442,11 @@ class _IndexHeader extends StatelessWidget {
               ? const [Color(0xFF3D1A1A), Color(0xFF241212)]
               : insight
                   ? const [Color(0xFF1A2C3D), Color(0xFF122018)]
-                  : pulse.isRed
-                      ? const [Color(0xFF3A1E1E), Color(0xFF1A241C)]
-                      : const [Color(0xFF1A3D2E), Color(0xFF122820)],
+                  : accountant
+                      ? const [Color(0xFF1E263D), Color(0xFF141B2B)]
+                      : pulse.isRed
+                          ? const [Color(0xFF3A1E1E), Color(0xFF1A241C)]
+                          : const [Color(0xFF1A3D2E), Color(0xFF122820)],
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.border),
@@ -417,7 +456,12 @@ class _IndexHeader extends StatelessWidget {
         children: [
           Row(
             children: [
-              _PageDots(active: page, alert: inflation, insight: insight),
+              _PageDots(
+                active: page,
+                alert: inflation,
+                insight: insight,
+                accountant: accountant,
+              ),
               const Spacer(),
               Text(
                 title,
@@ -433,15 +477,18 @@ class _IndexHeader extends StatelessWidget {
                   1 => Icons.currency_exchange_rounded,
                   2 => Icons.trending_up_rounded,
                   3 => Icons.psychology_outlined,
+                  4 => Icons.auto_awesome_rounded,
                   _ => Icons.monitor_heart_outlined,
                 },
                 color: inflation
                     ? const Color(0xFFFF8A80)
                     : insight
                         ? const Color(0xFF7EB6FF)
-                        : pulse.isRed
-                            ? AppTheme.negative
-                            : AppTheme.positive,
+                        : accountant
+                            ? const Color(0xFF9C9EFF)
+                            : pulse.isRed
+                                ? AppTheme.negative
+                                : AppTheme.positive,
                 size: 22,
               ),
             ],
@@ -457,7 +504,7 @@ class _IndexHeader extends StatelessWidget {
               height: 1.45,
             ),
           ),
-          if (!inflation && !insight && !pulse.isEmpty) ...[
+          if (!inflation && !insight && !accountant && !pulse.isEmpty) ...[
             const SizedBox(height: 10),
             Wrap(
               spacing: 6,
@@ -552,16 +599,18 @@ class _PageDots extends StatelessWidget {
     required this.active,
     this.alert = false,
     this.insight = false,
+    this.accountant = false,
   });
 
   final int active;
   final bool alert;
   final bool insight;
+  final bool accountant;
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: List.generate(4, (i) {
+      children: List.generate(5, (i) {
         final on = i == active;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -574,7 +623,9 @@ class _PageDots extends StatelessWidget {
                     ? const Color(0xFFFF8A80)
                     : insight
                         ? const Color(0xFF7EB6FF)
-                        : AppTheme.positive)
+                        : accountant
+                            ? const Color(0xFF9C9EFF)
+                            : AppTheme.positive)
                 : Colors.white.withValues(alpha: 0.35),
             borderRadius: BorderRadius.circular(8),
           ),
@@ -772,7 +823,7 @@ class _QuoteListPane extends StatelessWidget {
 
 /// Full «شاخص» (market index, inflation, economist view) as its own page,
 /// opened from the dashboard's «شاخص بازار» section.
-void openCommodityIndexPage(BuildContext context) {
+void openCommodityIndexPage(BuildContext context, {int initialPage = 0}) {
   context.read<AppState>().refreshCommodityIndex(force: false);
   Navigator.of(context).push(MaterialPageRoute<void>(
     builder: (context) {
@@ -790,7 +841,10 @@ void openCommodityIndexPage(BuildContext context) {
                   state.iranInflationError != null,
             ),
           ),
-          body: SafeArea(top: false, child: const CommodityIndexPage()),
+          body: SafeArea(
+            top: false,
+            child: CommodityIndexPage(initialPage: initialPage),
+          ),
         ),
       );
     },

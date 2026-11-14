@@ -7,6 +7,7 @@ import 'package:invest/domain/services/ai_accountant_service.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/checks_page.dart';
+import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/ai_health_style.dart';
 import 'package:invest/ui/widgets/bank_sms_ui.dart';
@@ -82,6 +83,7 @@ class AiAuditDetailSheet extends StatefulWidget {
     this.onRefresh,
     this.onAlert,
     this.onRephrase,
+    this.inline = false,
   });
 
   final AiAuditReport report;
@@ -91,6 +93,7 @@ class AiAuditDetailSheet extends StatefulWidget {
   final Future<void> Function()? onRefresh;
   final void Function(AiAuditAlert alert)? onAlert;
   final Future<String?> Function(String redacted)? onRephrase;
+  final bool inline;
 
   @override
   State<AiAuditDetailSheet> createState() => _AiAuditDetailSheetState();
@@ -141,7 +144,7 @@ class _AiAuditDetailSheetState extends State<AiAuditDetailSheet> {
       buffer.writeln('• ${alert.title}: ${alert.detail}');
     }
     Clipboard.setData(ClipboardData(text: buffer.toString()));
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       const SnackBar(content: Text('متن گزارش در کلیپ‌بورد کپی شد.')),
     );
   }
@@ -232,21 +235,15 @@ class _AiAuditDetailSheetState extends State<AiAuditDetailSheet> {
     final color = aiHealthColor(report.healthScore);
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
 
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Padding(
-        padding: EdgeInsets.only(bottom: bottom),
-        child: DraggableScrollableSheet(
-          key: const Key('ai-audit-sheet'),
-          initialChildSize: 0.88,
-          minChildSize: 0.45,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (context, scrollController) {
-            return ListView(
-              controller: scrollController,
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-              children: [
+    Widget buildList(ScrollController? scrollController) => ListView(
+          controller: scrollController,
+          physics: widget.inline
+              ? const AlwaysScrollableScrollPhysics()
+              : null,
+          padding: widget.inline
+              ? shellPagePadding()
+              : const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          children: [
                 Row(
                   children: [
                     const Expanded(
@@ -472,8 +469,29 @@ class _AiAuditDetailSheetState extends State<AiAuditDetailSheet> {
                     ),
                 ],
               ],
-            );
-          },
+        );
+
+    if (widget.inline) {
+      return Directionality(
+        textDirection: TextDirection.rtl,
+        child: RefreshIndicator(
+          onRefresh: widget.onRefresh ?? () async {},
+          child: buildList(null),
+        ),
+      );
+    }
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: bottom),
+        child: DraggableScrollableSheet(
+          key: const Key('ai-audit-sheet'),
+          initialChildSize: 0.88,
+          minChildSize: 0.45,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) => buildList(scrollController),
         ),
       ),
     );

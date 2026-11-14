@@ -17,7 +17,10 @@ import 'package:invest/domain/services/pwo_ledger.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/domain/models/commodity_quote.dart';
+import 'package:invest/ui/pages/commodity_index_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:provider/provider.dart';
 import 'package:invest/ui/widgets/ai_audit_detail_sheet.dart';
 import 'package:invest/ui/widgets/ai_health_style.dart';
 import 'package:shamsi_date/shamsi_date.dart';
@@ -723,6 +726,55 @@ void main() {
     );
     expect(find.byKey(const Key('ai-qa-answer')), findsOneWidget);
     expect(find.textContaining('ودیعه'), findsWidgets);
+  });
+
+  testWidgets('index page exposes AI Accountant fifth tab cleanly at 320px',
+      (tester) async {
+    final state = AppState()
+      ..loading = false
+      ..authenticated = true
+      ..commodityIndex = const [
+        CommodityQuote(
+          id: 'usdt',
+          name: 'تتر',
+          symbol: 'USDT',
+          unit: 'TMN',
+          price: 84000,
+          change24h: 0.4,
+        ),
+      ]
+      ..checks = [
+        cheque(id: 1, due: '2026-11-16', amount: 1000000),
+      ];
+
+    tester.view.physicalSize = const Size(320, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: state,
+        child: const MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Scaffold(body: CommodityIndexPage()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('index-tab-ai')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('index-tab-ai')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('حسابدار هوشمند'), findsOneWidget);
+    expect(find.byKey(const ValueKey('ai-accountant-inline')), findsOneWidget);
+    expect(find.byKey(const Key('ai-health-score')), findsOneWidget);
+    expect(find.text('چک پرداختی'), findsOneWidget);
+    expect(find.byKey(const Key('ai-qa-field')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
 
