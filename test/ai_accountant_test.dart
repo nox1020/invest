@@ -773,6 +773,15 @@ void main() {
     expect(find.byKey(const ValueKey('ai-accountant-inline')), findsOneWidget);
     expect(find.byKey(const Key('ai-health-score')), findsOneWidget);
     expect(find.text('چک پرداختی'), findsOneWidget);
+    final aiScrollable = find.descendant(
+      of: find.byKey(const ValueKey('ai-accountant-inline')),
+      matching: find.byType(Scrollable),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('ai-qa-field')),
+      300,
+      scrollable: aiScrollable,
+    );
     expect(find.byKey(const Key('ai-qa-field')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

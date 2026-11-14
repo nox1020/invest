@@ -462,13 +462,20 @@ class _IndexHeader extends StatelessWidget {
                 insight: insight,
                 accountant: accountant,
               ),
-              const Spacer(),
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+              const SizedBox(width: 8),
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
