@@ -8,6 +8,7 @@ import 'package:invest/domain/models/commodity_quote.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/pages/capital_chart_page.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -119,7 +120,7 @@ void main() {
     expect(find.text('قابل برداشت'), findsOneWidget);
   });
 
-  testWidgets('dashboard hero names the open-cheque contribution', (tester) async {
+  testWidgets('compact value card: no cheque line; tap opens the value page with it', (tester) async {
     resetDashboardExpandCache();
     SharedPreferences.setMockInitialValues({'dash_open_v1': ['value', 'pnl', 'pwo', 'cheques', 'mix', 'alerts', 'gold']});
     final state = AppState()
@@ -166,12 +167,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // One line on the card: assets · cheques in · cheques out (signs kept
-    // in front of their numbers in right-to-left text).
-    final line = tester.widget<Text>(find.byKey(const ValueKey('pv-cheque-line'))).data!;
-    expect(line, contains('چک دریافتی \u2066+۴۰۰'));
-    expect(line, contains('پرداختی \u2066−۱۵۰'));
+    // The card stays compact: NAV (cheques included) but no breakdown.
+    expect(find.byKey(const ValueKey('pv-cheque-line')), findsNothing);
     expect(find.text('۱٬۲۵۰ تومان'), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('pv-card')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CapitalChartPage), findsOneWidget);
+    expect(find.byKey(const ValueKey('vp-title')), findsOneWidget);
+    expect(find.text('میز سرمایه'), findsOneWidget);
+    expect(find.text('چک‌های باز'), findsOneWidget);
+    expect(find.textContaining('دریافتی 400 تومان'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('redesigned dashboard fits 320 px with large text', (tester) async {
@@ -229,13 +235,12 @@ void main() {
     expect(find.byKey(const ValueKey('cd-sec-gold-body')), findsOneWidget);
     expect(find.byKey(const ValueKey('cd-updated')), findsOneWidget);
     expect(find.byKey(const ValueKey('dash-mode-full')), findsNothing);
-    expect(find.byKey(const ValueKey('pv-gold-chip')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pv-gold-chip')), findsNothing);
     expect(find.byKey(const ValueKey('pv-unpriced')), findsOneWidget);
     expect(find.byKey(const ValueKey('dash-upcoming')), findsOneWidget);
     expect(find.byKey(const ValueKey('dash-withdrawable')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('pv-toggle')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('pv-gold-section')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pv-toggle')), findsNothing);
+    expect(find.byKey(const ValueKey('pv-gold-section')), findsNothing);
     await tester.ensureVisible(find.byKey(const ValueKey('cd-sec-gold-head')));
     await tester.tap(find.byKey(const ValueKey('cd-sec-gold-head')));
     await tester.pumpAndSettle();

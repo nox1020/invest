@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:invest/data/projects_store.dart';
 import 'package:invest/domain/models/year_nav_entry.dart';
+import 'package:invest/domain/services/connection_status.dart';
+import 'package:invest/domain/services/portfolio_trend.dart';
+import 'package:invest/domain/services/portfolio_valuation.dart';
 import 'package:invest/domain/services/dashboard_pnl.dart';
 import 'package:invest/domain/services/dashboard_snapshot.dart';
 import 'package:invest/domain/services/withdrawal_allowance.dart';
@@ -8,12 +12,17 @@ import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
+import 'package:invest/ui/widgets/dashboard_kit.dart';
 import 'package:invest/ui/widgets/dual_currency_chart.dart';
-import 'package:invest/ui/widgets/sparkline.dart';
+import 'package:invest/ui/widgets/portfolio_value_breakdown.dart';
+import 'package:invest/ui/widgets/sparkline.dart' show sparkDeltaPct;
 import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 
-/// Economist capital desk — opened from the dashboard NAV hero.
+/// «ارزش پورتفو» (formerly «میز سرمایه») — opened from the compact dashboard
+/// value card. Holds every value detail: connection/rate/freshness, the
+/// hero, «ترکیب ارزش», the balance sheet (with contracting kept outside the
+/// total), charts and past year-ends.
 class CapitalChartPage extends StatefulWidget {
   const CapitalChartPage({super.key});
 
@@ -72,110 +81,173 @@ class _CapitalChartPageState extends State<CapitalChartPage>
       openTrades: state.openTrades,
       closedTrades: state.closedTrades,
     );
-    final usdNav = snap.marketValueUsd;
-    final usdYear =
-        tomanToUsd(snap.yearRealizedPnl, usdt);
+    final usdYear = tomanToUsd(snap.yearRealizedPnl, usdt);
+    // Same 30-day number as the dashboard card (one trend in the app).
+    final trend = portfolioTrend30(
+      snap: snap,
+      growthSeries: state.metrics?.growthSeries ?? const [],
+      openTrades: state.openTrades,
+      closedTrades: state.closedTrades,
+    );
+    final projStore = ProjectsStore.instance;
 
     return Scaffold(
       backgroundColor: AppTheme.bg,
       appBar: AppBar(
-        title: const Text('میز سرمایه'),
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('ارزش پورتفو', key: ValueKey('vp-title')),
+            Text('میز سرمایه',
+                style: TextStyle(color: AppTheme.muted, fontSize: 11, fontWeight: FontWeight.w600)),
+          ],
+        ),
+        bottom: state.refreshing
+            ? const PreferredSize(
+                preferredSize: Size.fromHeight(2),
+                child: LinearProgressIndicator(
+                  key: ValueKey('vp-loading'),
+                  minHeight: 2,
+                  backgroundColor: Colors.transparent,
+                  color: AppTheme.positive,
+                ),
+              )
+            : null,
       ),
       body: FadeTransition(
         opacity: _fade,
         child: SlideTransition(
           position: _slide,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 36),
-            children: [
-              _StatusRibbon(
-                offline: false, // connection state lives in the header line
-                holdings: snap.holdingCount,
-                openLots: snap.openLotCount,
-                yearLabel: WithdrawalAllowance.yearCaption(
-                  snap.yearKey,
-                  calendar,
+          child: RefreshIndicator(
+            key: const ValueKey('vp-refresh'),
+            onRefresh: () => state.refreshAll(),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 36),
+              children: [
+                _StatusRibbon(
+                  status: state.connectionStatus,
+                  lastSyncedAt: state.lastSyncedAt,
+                  usdt: snap.usdtTmn,
+                  usdIsLive: state.usdtIsLive && !state.offline,
+                  pricesAsOf: state.pricesAsOf,
+                  holdings: snap.holdingCount,
+                  openLots: snap.openLotCount,
+                  yearLabel: WithdrawalAllowance.yearCaption(
+                    snap.yearKey,
+                    calendar,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              _NavHero(
-                snap: snap,
-                usdNav: usdNav,
-                spark: spark,
-                sparkPct: sparkPct,
-                lifetimePct: lifetimePct,
-              ),
-              const SizedBox(height: 20),
-              const _SectionLabel(
-                eyebrow: 'ترازنامه',
-                title: 'ارزش و سود',
-              ),
-              const SizedBox(height: 10),
-              _BalanceSheet(snap: snap, lifetimePct: lifetimePct),
-              const SizedBox(height: 20),
-              const _SectionLabel(
-                eyebrow: 'روند',
-                title: 'مسیر سرمایه',
-              ),
-              const SizedBox(height: 10),
-              _ChartCard(
-                title: 'ارزش دارایی‌ها · بدون چک',
-                caption: spark.length >= 2
-                    ? 'تغییر دوره ${formatPct(sparkPct)}'
-                    : 'سری روزانه از اسنپ‌شات‌های معتبر',
-                child: DualCurrencyChart(
-                  points: growth,
-                  calendar: calendar,
-                  usdtRate: usdt,
+                const SizedBox(height: 12),
+                if (snap.holdingCount == 0 && !snap.chequeNav.affectsNav)
+                  const Padding(
+                    key: ValueKey('vp-empty'),
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'هنوز دارایی ثبت نشده — از تب معاملات دارایی اضافه کنید تا ارزش و ترکیب اینجا دیده شود.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppTheme.muted, fontSize: 12.5),
+                    ),
+                  ),
+                _NavHero(
+                  snap: snap,
+                  trend: trend,
+                  lifetimePct: lifetimePct,
                 ),
-              ),
-              const SizedBox(height: 16),
-              _ChartCard(
-                title: 'سود تحقق‌یافته سال',
-                caption: [
-                  if (snap.yearKey.isNotEmpty)
-                    WithdrawalAllowance.yearCaption(snap.yearKey, calendar),
-                  if (usdYear != null) formatUsd(usdYear, showSign: true),
-                ].join(' · '),
-                child: year.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 36),
-                        child: Text(
-                          'در این سال معامله بسته‌شده‌ای نیست',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: AppTheme.muted),
+                if (snap.holdingCount > 0) ...[
+                  const SizedBox(height: 20),
+                  const _SectionLabel(
+                    eyebrow: 'ترکیب',
+                    title: 'ترکیب ارزش',
+                  ),
+                  const SizedBox(height: 10),
+                  PortfolioValueBreakdown(snap: snap),
+                ],
+                const SizedBox(height: 20),
+                const _SectionLabel(
+                  eyebrow: 'ترازنامه',
+                  title: 'ارزش و سود',
+                ),
+                const SizedBox(height: 10),
+                ListenableBuilder(
+                  listenable: projStore,
+                  builder: (context, _) => _BalanceSheet(
+                    snap: snap,
+                    lifetimePct: lifetimePct,
+                    trend: trend,
+                    projects: projStore.loaded && projStore.snap.hasData
+                        ? projStore.snap.totals
+                        : null,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const _SectionLabel(
+                  eyebrow: 'روند',
+                  title: 'مسیر سرمایه',
+                ),
+                const SizedBox(height: 10),
+                _ChartCard(
+                  title: 'ارزش دارایی‌ها · بدون چک',
+                  // Whole chart period (raw values), labelled apart from the
+                  // like-for-like «روند ۳۰ روز» in the hero.
+                  caption: spark.length >= 2
+                      ? 'تغییر کل دورهٔ نمودار ${formatPct(sparkPct)} · با خرید و فروش'
+                      : 'سری روزانه از اسنپ‌شات‌های معتبر',
+                  child: DualCurrencyChart(
+                    points: growth,
+                    calendar: calendar,
+                    usdtRate: usdt,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _ChartCard(
+                  title: 'سود تحقق‌یافته سال',
+                  caption: [
+                    if (snap.yearKey.isNotEmpty)
+                      WithdrawalAllowance.yearCaption(snap.yearKey, calendar),
+                    if (usdYear != null) formatUsd(usdYear, showSign: true),
+                  ].join(' · '),
+                  child: year.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 36),
+                          child: Text(
+                            'در این سال معامله بسته‌شده‌ای نیست',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: AppTheme.muted),
+                          ),
+                        )
+                      : DualCurrencyChart(
+                          points: year,
+                          calendar: calendar,
+                          usdtRate: usdt,
+                          lineColor: const Color(0xFF5B8DEF),
                         ),
-                      )
-                    : DualCurrencyChart(
-                        points: year,
-                        calendar: calendar,
-                        usdtRate: usdt,
-                        lineColor: const Color(0xFF5B8DEF),
-                      ),
-              ),
-              const SizedBox(height: 20),
-              const _SectionLabel(
-                eyebrow: 'مقایسه',
-                title: 'پایان سال‌های گذشته',
-              ),
-              const SizedBox(height: 10),
-              _YearNavDesk(
-                history: state.settings.yearNavHistory,
-                currentNav: snap.marketValue,
-                currentYearKey: snap.yearKey,
-                calendar: calendar,
-                usdt: usdt,
-                readOnly: state.readOnlyOffline,
-              ),
-              const SizedBox(height: 16),
-              const _Footnote(
-                text:
-                    'NAV از موجودی زنده به‌اضافهٔ چک دریافتی باز و منهای چک پرداختی باز '
-                    'محاسبه می‌شود. برای مقایسهٔ سالانه، ارزش '
-                    'پایان‌سال (تومان) و در صورت نیاز دلار دستی را ثبت کنید؛ نمودار '
-                    'رشد سالانه هر دو ارز را نشان می‌دهد. تخصیص در تب معاملات است.',
-              ),
-            ],
+                ),
+                const SizedBox(height: 20),
+                const _SectionLabel(
+                  eyebrow: 'مقایسه',
+                  title: 'پایان سال‌های گذشته',
+                ),
+                const SizedBox(height: 10),
+                _YearNavDesk(
+                  history: state.settings.yearNavHistory,
+                  currentNav: snap.marketValue,
+                  currentYearKey: snap.yearKey,
+                  calendar: calendar,
+                  usdt: usdt,
+                  readOnly: state.readOnlyOffline,
+                ),
+                const SizedBox(height: 16),
+                const _Footnote(
+                  text:
+                      'NAV از موجودی زنده به‌اضافهٔ چک دریافتی باز و منهای چک پرداختی باز '
+                      'محاسبه می‌شود. «روند ۳۰ روز» ارزش دارایی‌ها (بدون چک) را با کسر خرید و فروش '
+                      'همان ۳۰ روز می‌سنجد؛ نمودار، تغییر خام کل دوره را نشان می‌دهد. برای مقایسهٔ سالانه، ارزش '
+                      'پایان‌سال (تومان) و در صورت نیاز دلار دستی را ثبت کنید. تخصیص در تب معاملات است.',
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -183,46 +255,66 @@ class _CapitalChartPageState extends State<CapitalChartPage>
   }
 }
 
+/// Connection, last sync, USDT rate (live/stored) and price freshness.
 class _StatusRibbon extends StatelessWidget {
   const _StatusRibbon({
-    required this.offline,
+    required this.status,
+    required this.lastSyncedAt,
+    required this.usdt,
+    required this.usdIsLive,
+    required this.pricesAsOf,
     required this.holdings,
     required this.openLots,
     required this.yearLabel,
   });
 
-  final bool offline;
+  final AppConnectionStatus status;
+  final DateTime? lastSyncedAt;
+  final double? usdt;
+  final bool usdIsLive;
+  final DateTime? pricesAsOf;
   final int holdings;
   final int openLots;
   final String yearLabel;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final stale = pricesAsOf == null ||
+        DateTime.now().difference(pricesAsOf!) > const Duration(hours: 1);
+    final conn = [
+      status.label,
+      if (lastSyncedAt != null) 'همگام ${agoFa(lastSyncedAt!)}',
+    ].join(' · ');
+    return Column(
+      key: const ValueKey('vp-status'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Icon(
-          offline ? Icons.cloud_off_outlined : Icons.insights_outlined,
-          size: 14,
-          color: offline
-              ? context.watch<AppState>().connectionStatus.color
-              : AppTheme.muted,
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            DashTag(conn,
+                key: const ValueKey('vp-conn'),
+                color: status.color,
+                icon: status.isOnline ? Icons.circle : Icons.cloud_off_outlined),
+            if (usdt != null)
+              DashTag(
+                fa('${usdIsLive ? 'نرخ زندهٔ تتر' : 'نرخ ذخیره‌شدهٔ تتر'} ${formatNumber(usdt!)}'),
+                key: const ValueKey('pv-rate'),
+                color: usdIsLive ? kUsd : AppTheme.muted,
+              ),
+            DashTag(
+              pricesAsOf == null ? 'قیمت‌ها: نامعلوم' : 'قیمت‌ها: ${agoFa(pricesAsOf!)}',
+              key: const ValueKey('pv-fresh'),
+              color: stale ? kAmber : AppTheme.muted,
+            ),
+          ],
         ),
-        const SizedBox(width: 6),
+        const SizedBox(height: 6),
         Text(
-          offline
-              ? context.watch<AppState>().connectionStatus.short
-              : 'میز سرمایه',
-          style: TextStyle(
-            color: offline
-                ? context.watch<AppState>().connectionStatus.color
-                : AppTheme.muted,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const Spacer(),
-        Text(
-          '$yearLabel · $holdings دارایی · $openLots لات',
+          fa('$yearLabel · $holdings دارایی · $openLots لات باز'),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: AppTheme.muted,
             fontSize: 11,
@@ -271,23 +363,24 @@ class _SectionLabel extends StatelessWidget {
 class _NavHero extends StatelessWidget {
   const _NavHero({
     required this.snap,
-    required this.usdNav,
-    required this.spark,
-    required this.sparkPct,
+    required this.trend,
     required this.lifetimePct,
   });
 
   final DashboardSnapshot snap;
-  final double? usdNav;
-  final List<double> spark;
-  final double sparkPct;
+  final PortfolioTrend trend;
   final double lifetimePct;
 
   @override
   Widget build(BuildContext context) {
     final up = snap.totalPnl >= 0;
     final tone = up ? AppTheme.positive : AppTheme.negative;
+    final usdNav = snap.marketValueUsd;
+    final usdPnl = snap.unrealizedUsd;
+    final trendPct = trend.pct;
+    final unpriced = snap.valuation?.unpriced ?? const [];
     return Container(
+      key: const ValueKey('vp-hero'),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         gradient: const LinearGradient(
@@ -302,124 +395,152 @@ class _NavHero extends StatelessWidget {
         ),
         border: Border.all(color: AppTheme.border),
       ),
-      child: Stack(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (spark.length >= 2)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Opacity(
-                  opacity: 0.18,
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 48),
-                    child: Sparkline(
-                      values: spark,
-                      color: tone,
-                      height: 110,
-                    ),
+          const Row(
+            children: [
+              _Pill(text: 'NAV'),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'ارزش کل · با چک‌های باز',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    color: AppTheme.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              fa(formatMoney(snap.marketValue)),
+              key: const ValueKey('vp-nav'),
+              maxLines: 1,
+              style: const TextStyle(
+                color: AppTheme.title,
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                height: 1.1,
+              ),
             ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Row(
-                  children: [
-                    _Pill(text: 'NAV'),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'ارزش پورتفو',
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          color: AppTheme.muted,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  formatMoney(snap.marketValue),
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    color: AppTheme.title,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    height: 1.1,
-                  ),
-                ),
-                if (usdNav != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    formatUsd(usdNav!),
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      color: Color(0xFFE8C547),
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
+          ),
+          if (CurrencyMode.isUsd) ...[
+            const SizedBox(height: 4),
+            Text(
+              fa(formatMoney(snap.marketValue, forceToman: true)),
+              key: const ValueKey('vp-nav-toman'),
+              textAlign: TextAlign.right,
+              style: mutedStyle(13, FontWeight.w700),
+            ),
+          ] else if (usdNav != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              '≈ ${formatUsd(usdNav)}',
+              key: const ValueKey('vp-nav-usd'),
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: kUsd,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          _statBox([
+            _HeroStat(
+              key: const ValueKey('vp-open-pnl'),
+              label: 'سود باز',
+              value: faSigned(formatCompactToman(snap.unrealizedPnl, showSign: true)),
+              sub: faSigned(formatPct(snap.unrealizedPct)),
+              tone: toneOf(snap.unrealizedPnl),
+            ),
+            _HeroStat(
+              key: const ValueKey('vp-usd-pnl'),
+              label: 'سود دلاری',
+              value: usdPnl == null ? '—' : signFix(formatUsd(usdPnl, showSign: true)),
+              sub: usdPnl == null ? 'نرخ تتر نامعلوم' : 'با نرخ روز خرید',
+              tone: usdPnl == null ? AppTheme.muted : toneOf(usdPnl),
+            ),
+            _HeroStat(
+              key: const ValueKey('vp-trend'),
+              label: fa('روند ${trend.days} روز'),
+              value: trendPct == null ? '—' : faSigned(formatPct(trendPct)),
+              sub: trendPct == null
+                  ? 'دادهٔ کافی نیست'
+                  : fa('از ${formatCompactToman(trend.baseValue!)}'),
+              tone: trendPct == null ? AppTheme.muted : toneOf(trendPct),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          _statBox([
+            _HeroStat(
+              key: const ValueKey('vp-total-pnl'),
+              label: 'سود کل',
+              value: faSigned(formatCompactToman(snap.totalPnl, showSign: true)),
+              tone: tone,
+            ),
+            _HeroStat(
+              key: const ValueKey('vp-lifetime'),
+              label: 'بازده عمر',
+              value: faSigned(formatPct(lifetimePct)),
+              tone: tone,
+            ),
+          ]),
+          if (unpriced.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              key: const ValueKey('vp-unpriced'),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: kAmber.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: kAmber.withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.warning_amber_rounded, size: 16, color: kAmber),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      fa('${unpriced.length} دارایی بدون قیمت زنده و خارج از جمع: '
+                          '${unpriced.map((a) => a.name).join('، ')}'),
+                      style: const TextStyle(color: kAmber, fontSize: 11.5, height: 1.4),
                     ),
                   ),
                 ],
-                const SizedBox(height: 14),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: AppTheme.bg.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppTheme.border.withValues(alpha: 0.85),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _HeroStat(
-                          label: 'سود کل',
-                          value: formatCompactToman(
-                            snap.totalPnl,
-                            showSign: true,
-                          ),
-                          tone: tone,
-                        ),
-                      ),
-                      _VRule(),
-                      Expanded(
-                        child: _HeroStat(
-                          label: 'بازده عمر',
-                          value: formatPct(lifetimePct),
-                          tone: tone,
-                        ),
-                      ),
-                      _VRule(),
-                      Expanded(
-                        child: _HeroStat(
-                          label: 'روند',
-                          value: spark.length >= 2
-                              ? formatPct(sparkPct)
-                              : '—',
-                          tone: spark.length < 2
-                              ? AppTheme.muted
-                              : (sparkPct >= 0
-                                  ? AppTheme.positive
-                                  : AppTheme.negative),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
   }
+
+  Widget _statBox(List<Widget> stats) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.bg.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.border.withValues(alpha: 0.85)),
+        ),
+        child: Row(
+          children: [
+            for (var i = 0; i < stats.length; i++) ...[
+              if (i > 0) _VRule(),
+              Expanded(child: stats[i]),
+            ],
+          ],
+        ),
+      );
 }
 
 class _Pill extends StatelessWidget {
@@ -450,14 +571,17 @@ class _Pill extends StatelessWidget {
 
 class _HeroStat extends StatelessWidget {
   const _HeroStat({
+    super.key,
     required this.label,
     required this.value,
     required this.tone,
+    this.sub,
   });
 
   final String label;
   final String value;
   final Color tone;
+  final String? sub;
 
   @override
   Widget build(BuildContext context) {
@@ -465,6 +589,8 @@ class _HeroStat extends StatelessWidget {
       children: [
         Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: AppTheme.muted,
             fontSize: 10,
@@ -472,17 +598,29 @@ class _HeroStat extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 3),
-        Text(
-          value,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: tone,
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            value,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            style: TextStyle(
+              color: tone,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
+        if (sub != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            sub!,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppTheme.muted, fontSize: 9.5),
+          ),
+        ],
       ],
     );
   }
@@ -501,10 +639,19 @@ class _VRule extends StatelessWidget {
 }
 
 class _BalanceSheet extends StatelessWidget {
-  const _BalanceSheet({required this.snap, required this.lifetimePct});
+  const _BalanceSheet({
+    required this.snap,
+    required this.lifetimePct,
+    required this.trend,
+    this.projects,
+  });
 
   final DashboardSnapshot snap;
   final double lifetimePct;
+  final PortfolioTrend trend;
+
+  /// Contracting totals — shown under the sheet, never added to NAV.
+  final ProjectTotals? projects;
 
   @override
   Widget build(BuildContext context) {
@@ -514,7 +661,9 @@ class _BalanceSheet extends StatelessWidget {
         snap.realizedPnl >= 0 ? AppTheme.positive : AppTheme.negative;
     final totalTone =
         snap.totalPnl >= 0 ? AppTheme.positive : AppTheme.negative;
+    final showFlows = trend.pct != null && trend.netFlows.abs() >= 1;
     return Container(
+      key: const ValueKey('vp-balance'),
       decoration: BoxDecoration(
         color: AppTheme.card,
         borderRadius: BorderRadius.circular(16),
@@ -573,7 +722,67 @@ class _BalanceSheet extends StatelessWidget {
             value: formatMoney(snap.totalPnl, showSign: true),
             caption: 'بازده ${formatPct(lifetimePct)} روی سرمایه طول عمر',
             tone: totalTone,
+            showDivider: showFlows || projects != null,
+          ),
+          if (showFlows)
+            _LedgerRow(
+              key: const ValueKey('vp-net-flows'),
+              label: 'خرید/فروش خالص در ${trend.days} روز',
+              value: formatMoney(trend.netFlows, showSign: true),
+              caption: trend.netFlows > 0
+                  ? 'خرید بیشتر از فروش · از «روند ${trend.days} روز» کسر شده'
+                  : 'فروش بیشتر از خرید · به «روند ${trend.days} روز» افزوده شده',
+              tone: AppTheme.muted,
+              showDivider: projects != null,
+            ),
+          if (projects != null) _ProjectsBlock(totals: projects!),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProjectsBlock extends StatelessWidget {
+  const _ProjectsBlock({required this.totals});
+  final ProjectTotals totals;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('vp-projects'),
+      color: AppTheme.bg.withValues(alpha: 0.35),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(14, 10, 14, 0),
+            child: Text(
+              'پیمانکاری (خارج از جمع ارزش)',
+              textAlign: TextAlign.right,
+              style: TextStyle(color: kGold, fontSize: 12, fontWeight: FontWeight.w800),
+            ),
+          ),
+          _LedgerRow(
+            label: 'سود تحقق‌یافتهٔ پروژه‌ها',
+            value: formatMoney(totals.realized, showSign: true),
+            caption: fa('${totals.finishedCount} پروژهٔ تمام‌شده'),
+            tone: toneOf(totals.realized),
+            showDivider: true,
+          ),
+          _LedgerRow(
+            label: 'سود مورد انتظار',
+            value: formatMoney(totals.expected, showSign: true),
+            caption: fa('${totals.activeCount} پروژهٔ فعال'),
+            tone: AppTheme.muted,
             showDivider: false,
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(14, 0, 14, 10),
+            child: Text(
+              'سود پیمانکاری جدا گزارش می‌شود و به NAV یا سود کل اضافه نمی‌شود.',
+              textAlign: TextAlign.right,
+              style: TextStyle(color: AppTheme.muted, fontSize: 10),
+            ),
           ),
         ],
       ),
@@ -583,6 +792,7 @@ class _BalanceSheet extends StatelessWidget {
 
 class _LedgerRow extends StatelessWidget {
   const _LedgerRow({
+    super.key,
     required this.label,
     required this.value,
     required this.caption,
@@ -628,13 +838,15 @@ class _LedgerRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          Text(
-            label,
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: AppTheme.title,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              label,
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: AppTheme.title,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],

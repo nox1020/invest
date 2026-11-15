@@ -12,6 +12,9 @@ import 'package:invest/domain/services/portfolio_valuation.dart';
 import 'package:invest/domain/services/pwo_ledger.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/dashboard_kit.dart';
+import 'package:invest/domain/services/portfolio_trend.dart';
+import 'package:invest/ui/widgets/portfolio_value_breakdown.dart';
+import 'package:invest/ui/widgets/sparkline.dart';
 import 'package:invest/ui/widgets/portfolio_value_card.dart';
 
 Trade lot(int asset, double qty, double buy, {String date = '2026-01-01', String? sold, double? sellPrice, String name = 'x'}) => Trade(
@@ -236,48 +239,176 @@ void main() {
     }
 
     final now = DateTime(2026, 10, 23, 9, 30);
-    PortfolioValueCard card({bool live = true, bool offline = false, bool expanded = false}) => PortfolioValueCard(
-          snap: snap(),
-          trend: PortfolioTrend.window(
-            series: const [SeriesPoint(date: '2026-09-20', value: 1200)],
-            todayValue: snap().holdingsValue,
-            today: '2026-10-23',
-          ),
-          usdIsLive: live,
-          pricesAsOf: now.subtract(const Duration(minutes: 5)),
-          offline: offline,
-          lastSyncedAt: DateTime(2026, 10, 23, 8, 42),
-          initiallyExpanded: expanded,
-          now: now,
-        );
+    PortfolioValueCard card({
+      bool live = true,
+      bool offline = false,
+      bool refreshing = false,
+      DateTime? pricesAsOf,
+      DashboardSnapshot? s,
+      PortfolioTrend? trend,
+      VoidCallback? onOpen,
+    }) {
+      final sn = s ?? snap();
+      return PortfolioValueCard(
+        snap: sn,
+        trend: trend ??
+            portfolioTrend30(
+              snap: sn,
+              growthSeries: const [SeriesPoint(date: '2026-09-20', value: 1200)],
+              today: '2026-10-23',
+            ),
+        usdIsLive: live,
+        pricesAsOf: pricesAsOf ?? now.subtract(const Duration(minutes: 5)),
+        offline: offline,
+        refreshing: refreshing,
+        onOpenCharts: onOpen,
+        now: now,
+      );
+    }
 
-    testWidgets('collapsed: live tag, rate, freshness, gold chip, trend, unpriced', (t) async {
+    testWidgets('compact: header, NAV, trend + open profit, one warning chip', (t) async {
       await pump(t, card());
+      expect(find.text('ارزش پورتفو'), findsOneWidget);
       expect(find.byKey(const ValueKey('pv-live')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pv-stored')), findsNothing);
+      expect(find.byKey(const ValueKey('pv-details')), findsOneWidget);
       expect(find.text('۱٬۴۵۰ تومان'), findsOneWidget); // 1000+400+0 + 70 − 20
-      expect(find.textContaining('نرخ زنده'), findsOneWidget);
-      expect(find.text('قیمت‌ها: ۵ دقیقه پیش'), findsOneWidget);
-      expect(find.byKey(const ValueKey('pv-gold-chip')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pv-trend')), findsOneWidget);
       expect(find.text('روند ۳۰ روز'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pv-pnl')), findsOneWidget);
       expect(find.byKey(const ValueKey('pv-unpriced')), findsOneWidget);
-      expect(find.text('سود دلاری'), findsOneWidget);
-      expect(find.byKey(const ValueKey('pv-breakdown')), findsNothing);
-      await t.tap(find.byKey(const ValueKey('pv-toggle')));
-      await t.pumpAndSettle();
-      expect(find.byKey(const ValueKey('pv-gold-section')), findsOneWidget);
-      expect(find.text('موجودی طلا · پوشش تورم'), findsOneWidget);
-      expect(find.text('جزو جمع ارزش پورتفو حساب شده است'), findsOneWidget);
+      expect(find.text('۱ دارایی بدون قیمت زنده'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pv-stale')), findsNothing); // one chip max
+      expect(find.byKey(const ValueKey('pv-loading')), findsNothing);
     });
 
-    testWidgets('offline: last sync tag and stored rate', (t) async {
+    testWidgets('compact: every detail moved off the card', (t) async {
+      await pump(t, card());
+      for (final k in ['pv-breakdown', 'pv-toggle', 'pv-gold-chip', 'pv-gold-section', 'pv-rate', 'pv-fresh', 'pv-cheque-line']) {
+        expect(find.byKey(ValueKey(k)), findsNothing, reason: k);
+      }
+      expect(find.byType(Sparkline), findsNothing);
+      expect(find.textContaining('نرخ زنده'), findsNothing);
+      expect(find.text('سود دلاری'), findsNothing);
+      expect(find.textContaining('چک'), findsNothing);
+    });
+
+    testWidgets('tap opens details', (t) async {
+      var opened = 0;
+      await pump(t, card(onOpen: () => opened++));
+      await t.tap(find.byKey(const ValueKey('pv-card')));
+      expect(opened, 1);
+    });
+
+    testWidgets('offline or not live: stored tag instead of live', (t) async {
       await pump(t, card(live: false, offline: true));
-      expect(find.byKey(const ValueKey('pv-offline')), findsNothing); // header only
-      expect(find.textContaining('نرخ ذخیره‌شده'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pv-offline')), findsNothing);
       expect(find.byKey(const ValueKey('pv-live')), findsNothing);
+      expect(find.byKey(const ValueKey('pv-stored')), findsOneWidget);
+      await pump(t, card(live: false));
+      expect(find.byKey(const ValueKey('pv-stored')), findsOneWidget);
+    });
+
+    testWidgets('stale chip only when every asset is priced', (t) async {
+      final priced = DashboardSnapshot.compute(
+        assets: [gold, btc],
+        openTrades: [lot(1, 10, 90, name: 'طلای ۱۸'), lot(2, 1, 300)],
+        closedTrades: const [],
+        usdtTmn: 50,
+        calendar: AppConfig.calendarGregorian,
+      );
+      await pump(t, card(s: priced, pricesAsOf: now.subtract(const Duration(hours: 3))));
+      expect(find.byKey(const ValueKey('pv-stale')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pv-unpriced')), findsNothing);
+      await pump(t, card(s: priced));
+      expect(find.byKey(const ValueKey('pv-stale')), findsNothing);
+    });
+
+    testWidgets('no trend history: open profit only', (t) async {
+      final sn = snap();
+      await pump(t, card(trend: portfolioTrend30(snap: sn, growthSeries: const [], today: '2026-10-23')));
+      expect(find.byKey(const ValueKey('pv-trend')), findsNothing);
+      expect(find.byKey(const ValueKey('pv-pnl')), findsOneWidget);
+    });
+
+    testWidgets('refreshing shows thin loading bar', (t) async {
+      t.view.physicalSize = const Size(390, 1400);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(t.view.resetDevicePixelRatio);
+      await t.pumpWidget(MaterialApp(
+        theme: AppTheme.dark(),
+        home: Directionality(textDirection: TextDirection.rtl, child: Scaffold(body: card(refreshing: true))),
+      ));
+      await t.pump();
+      expect(find.byKey(const ValueKey('pv-loading')), findsOneWidget);
     });
 
     testWidgets('no overflow at 320 px with large text', (t) async {
-      await pump(t, card(expanded: true), width: 320, scale: 1.6);
+      await pump(t, card(), width: 320, scale: 1.6);
+      expect(t.takeException(), isNull);
+    });
+  });
+
+  test('portfolioTrend30 is the one shared 30-day window on holdings value', () {
+    final sn = DashboardSnapshot.compute(
+      assets: [gold, btc],
+      openTrades: [lot(1, 10, 90, name: 'طلای ۱۸'), lot(2, 1, 300)],
+      closedTrades: const [],
+      usdtTmn: 50,
+      calendar: AppConfig.calendarGregorian,
+      checks: [chq(checkDirectionReceivable, 70, '2026-11-01')],
+    );
+    const series = [SeriesPoint(date: '2026-09-20', value: 1200)];
+    final shared = portfolioTrend30(snap: sn, growthSeries: series, today: '2026-10-23');
+    final direct = PortfolioTrend.window(series: series, todayValue: sn.holdingsValue, today: '2026-10-23');
+    expect(shared.days, 30);
+    expect(shared.endValue, sn.holdingsValue); // cheques never move the trend
+    expect(shared.pct, direct.pct);
+    expect(shared.baseValue, direct.baseValue);
+  });
+
+  group('PortfolioValueBreakdown', () {
+    DashboardSnapshot snap() => DashboardSnapshot.compute(
+          assets: [gold, btc, noPrice],
+          openTrades: [lot(1, 10, 90, name: 'طلای ۱۸'), lot(2, 1, 300)],
+          closedTrades: const [],
+          usdtTmn: 50,
+          calendar: AppConfig.calendarGregorian,
+          checks: [chq(checkDirectionReceivable, 70, '2026-11-01')],
+        );
+
+    Future<void> pump(WidgetTester t, {double width = 390, double scale = 1}) async {
+      t.view.physicalSize = Size(width, 1400);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(t.view.resetDevicePixelRatio);
+      await t.pumpWidget(MaterialApp(
+        theme: AppTheme.dark(),
+        home: MediaQuery(
+          data: MediaQueryData(size: Size(width, 1400), textScaler: TextScaler.linear(scale)),
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Scaffold(body: SingleChildScrollView(child: PortfolioValueBreakdown(snap: snap()))),
+          ),
+        ),
+      ));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('gold block, per-kind bars, holdings total and cheque note', (t) async {
+      await pump(t);
+      expect(find.byKey(const ValueKey('pv-gold-section')), findsOneWidget);
+      expect(find.text('موجودی طلا · پوشش تورم'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pv-gold-share')), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsWidgets);
+      expect(find.byKey(const ValueKey('pv-holdings-total')), findsOneWidget);
+      expect(find.text('چک‌های باز در ترازنامه آمده و جزو این جمع نیست.'), findsOneWidget);
+      expect(find.text('بهای تمام‌شده'), findsNothing); // lives in the balance sheet only
+    });
+
+    testWidgets('no overflow at 320 px with large text', (t) async {
+      await pump(t, width: 320, scale: 1.6);
       expect(t.takeException(), isNull);
     });
   });

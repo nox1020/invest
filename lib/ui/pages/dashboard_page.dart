@@ -19,6 +19,7 @@ import 'package:invest/data/projects_store.dart';
 import 'package:invest/ui/pages/projects_page.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/domain/services/dashboard_digest.dart';
+import 'package:invest/domain/services/portfolio_trend.dart';
 import 'package:invest/domain/services/portfolio_valuation.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/ui/pages/pwo_page.dart';
@@ -163,9 +164,9 @@ class _DashboardBodyState extends State<_DashboardBody>
     );
     final valuation = snap.valuation!;
     final today = todayIso();
-    final trend = PortfolioTrend.window(
-      series: state.metrics?.growthSeries ?? const [],
-      todayValue: snap.holdingsValue,
+    final trend = portfolioTrend30(
+      snap: snap,
+      growthSeries: state.metrics?.growthSeries ?? const [],
       today: today,
       openTrades: state.openTrades,
       closedTrades: state.closedTrades,
@@ -520,8 +521,6 @@ extension _CompactDash on _DashboardBodyState {
           usdIsLive: state.usdtIsLive,
           pricesAsOf: state.pricesAsOf,
           offline: offline,
-          lastSyncedAt: state.lastSyncedAt,
-          projects: projects,
           refreshing: state.refreshing,
           onOpenCharts: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
