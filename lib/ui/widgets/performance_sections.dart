@@ -29,13 +29,25 @@ IconData perfDomainIcon(PerfDomain d) => switch (d) {
       PerfDomain.other => Icons.category_outlined,
     };
 
-Color _perfSign(double v) =>
+Color perfSignColor(double v) =>
     v < 0 ? AppTheme.negative : (v > 0 ? AppTheme.positive : AppTheme.title);
 
-String _signedMoney(double v) {
+String signedPerfMoney(double v) {
   if (v == 0) return formatMoney(0);
   return '${v > 0 ? '+' : '-'}${formatMoney(v.abs())}';
 }
+
+/// Trailing amount in a tight Row: shrinks instead of overflowing on a small phone.
+Widget perfFitEnd(Widget child) => Flexible(
+      child: Align(
+        alignment: AlignmentDirectional.centerEnd,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerEnd,
+          child: child,
+        ),
+      ),
+    );
 
 String _signedCompact(double v) {
   if (v == 0) return formatCompactToman(0);
@@ -155,9 +167,7 @@ class PerfDomainBreakdownCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rows = [
-      for (final d in summary.activeDomains) summary.byDomain[d]!,
-    ];
+    final rows = [for (final d in summary.activeDomains) summary.byDomain[d]!];
     if (rows.isEmpty) return const SizedBox.shrink();
 
     final totalAbs = rows.fold<double>(0, (s, r) => s + r.net.abs());
@@ -176,8 +186,11 @@ class PerfDomainBreakdownCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.pie_chart_outline_rounded,
-                    size: 16, color: AppTheme.accent),
+                const Icon(
+                  Icons.pie_chart_outline_rounded,
+                  size: 16,
+                  color: AppTheme.accent,
+                ),
                 const SizedBox(width: 6),
                 const Expanded(
                   child: Text(
@@ -303,7 +316,7 @@ class _DomainBreakdownRow extends StatelessWidget {
                     Text(
                       _signedCompact(row.net),
                       style: TextStyle(
-                        color: _perfSign(row.net),
+                        color: perfSignColor(row.net),
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
                       ),
@@ -380,8 +393,11 @@ class _PerfOpenExposureCardState extends State<PerfOpenExposureCard> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.timelapse_rounded,
-                      size: 16, color: AppTheme.accent),
+                  const Icon(
+                    Icons.timelapse_rounded,
+                    size: 16,
+                    color: AppTheme.accent,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Column(
@@ -405,7 +421,7 @@ class _PerfOpenExposureCardState extends State<PerfOpenExposureCard> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: s.totalOpenUnrealizedPnl != 0
-                                ? _perfSign(s.totalOpenUnrealizedPnl)
+                                ? perfSignColor(s.totalOpenUnrealizedPnl)
                                 : AppTheme.muted,
                             fontSize: 10.5,
                             fontWeight: FontWeight.w600,
@@ -438,7 +454,7 @@ class _PerfOpenExposureCardState extends State<PerfOpenExposureCard> {
                       child: _OpenMetricPill(
                         label: 'سود/زیان باز (تحقق‌نیافته)',
                         value: _signedCompact(s.totalOpenUnrealizedPnl),
-                        color: _perfSign(s.totalOpenUnrealizedPnl),
+                        color: perfSignColor(s.totalOpenUnrealizedPnl),
                       ),
                     ),
                   ],
@@ -463,11 +479,7 @@ class _PerfOpenExposureCardState extends State<PerfOpenExposureCard> {
 }
 
 class _OpenMetricPill extends StatelessWidget {
-  const _OpenMetricPill({
-    required this.label,
-    required this.value,
-    this.color,
-  });
+  const _OpenMetricPill({required this.label, required this.value, this.color});
 
   final String label;
   final String value;
@@ -556,7 +568,7 @@ class _OpenDomainRow extends StatelessWidget {
                 Text(
                   _signedCompact(row.openUnrealizedPnl),
                   style: TextStyle(
-                    color: _perfSign(row.openUnrealizedPnl),
+                    color: perfSignColor(row.openUnrealizedPnl),
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
                   ),
@@ -652,12 +664,17 @@ Future<void> showPerfMonthDealsSheet(
                               children: [
                                 Row(
                                   children: [
-                                    Icon(perfDomainIcon(item.domain),
-                                        size: 15, color: c),
+                                    Icon(
+                                      perfDomainIcon(item.domain),
+                                      size: 15,
+                                      color: c,
+                                    ),
                                     const SizedBox(width: 6),
                                     Container(
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 6, vertical: 1),
+                                        horizontal: 6,
+                                        vertical: 1,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: c.withValues(alpha: 0.14),
                                         borderRadius: BorderRadius.circular(6),
@@ -687,9 +704,9 @@ Future<void> showPerfMonthDealsSheet(
                                     const SizedBox(width: 8),
                                     if (item.isSold && item.profit != null)
                                       Text(
-                                        _signedMoney(item.profit!),
+                                        signedPerfMoney(item.profit!),
                                         style: TextStyle(
-                                          color: _perfSign(item.profit!),
+                                          color: perfSignColor(item.profit!),
                                           fontSize: 12,
                                           fontWeight: FontWeight.w800,
                                         ),
@@ -714,18 +731,24 @@ Future<void> showPerfMonthDealsSheet(
                                       Text(
                                         item.dateLabel,
                                         style: const TextStyle(
-                                            color: AppTheme.muted, fontSize: 11),
+                                          color: AppTheme.muted,
+                                          fontSize: 11,
+                                        ),
                                       ),
                                     Text(
                                       'بهای تمام‌شده: ${formatMoney(item.buyAmount)}',
                                       style: const TextStyle(
-                                          color: AppTheme.muted, fontSize: 11),
+                                        color: AppTheme.muted,
+                                        fontSize: 11,
+                                      ),
                                     ),
                                     if (item.isSold && item.sellAmount > 0)
                                       Text(
                                         'فروش/قرارداد: ${formatMoney(item.sellAmount)}',
                                         style: const TextStyle(
-                                            color: AppTheme.muted, fontSize: 11),
+                                          color: AppTheme.muted,
+                                          fontSize: 11,
+                                        ),
                                       ),
                                   ],
                                 ),
