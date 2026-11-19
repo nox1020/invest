@@ -359,10 +359,10 @@ void main() {
     await tester.pump();
 
     expect(find.byType(DashboardPage), findsOneWidget);
-    expect(find.byType(WithdrawalsPage), findsNothing);
-    expect(find.byType(TradesHubPage), findsNothing);
-    expect(find.byType(PerformancePage), findsNothing);
-    expect(find.byType(SettingsPage), findsNothing);
+    expect(find.byType(WithdrawalsPage, skipOffstage: false), findsNothing);
+    expect(find.byType(TradesHubPage, skipOffstage: false), findsNothing);
+    expect(find.byType(PerformancePage, skipOffstage: false), findsNothing);
+    expect(find.byType(SettingsPage, skipOffstage: false), findsNothing);
 
     final nav = find.byType(BottomNavigationBar);
     await tester.tap(find.descendant(of: nav, matching: find.text('عملکرد')));
@@ -370,13 +370,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.byType(PerformancePage), findsOneWidget);
-    expect(find.byType(WithdrawalsPage), findsNothing);
-    expect(find.byType(SettingsPage), findsNothing);
+    expect(find.byType(WithdrawalsPage, skipOffstage: false), findsNothing);
+    expect(find.byType(SettingsPage, skipOffstage: false), findsNothing);
 
     await tester.tap(find.descendant(of: nav, matching: find.text('داشبورد')));
     await tester.pump();
     expect(find.byType(DashboardPage), findsOneWidget);
-    // Preserved inside IndexedStack after first visit.
-    expect(find.byType(PerformancePage), findsOneWidget);
+    // Preserved offstage inside IndexedStack after first visit.
+    expect(find.byType(PerformancePage, skipOffstage: false), findsOneWidget);
   });
 }

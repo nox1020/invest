@@ -81,8 +81,8 @@ extension AppStatePortfolio on AppState {
       });
     }
     var dash = await dashF;
-    if (settings.calendar != initialCalendar) {
-      dash = await guard('dashboard', () => svc.fetchDashboard(settings.calendar));
+    if (dash != null && settings.calendar != initialCalendar) {
+      dash = dash.copyWith(yearKey: yearPeriodKey(todayIso(), settings.calendar));
     }
     if (dash != null && svc.growthSeriesError != null) {
       failures.add(_StepFailure('snapshots', svc.growthSeriesError!));

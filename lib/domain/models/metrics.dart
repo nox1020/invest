@@ -83,4 +83,18 @@ class DashboardMetrics {
   final String yearKey;
   final GoldFundMetrics goldFund;
   final List<SeriesPoint> growthSeries;
+
+  DashboardMetrics copyWith({String? yearKey}) => DashboardMetrics(
+        totalValue: totalValue,
+        totalPnl: totalPnl,
+        totalPnlPct: totalPnlPct,
+        realizedPnl: realizedPnl,
+        unrealizedPnl: unrealizedPnl,
+        openCount: openCount,
+        closedCount: closedCount,
+        yearRealizedPnl: yearRealizedPnl,
+        yearKey: yearKey ?? this.yearKey,
+        goldFund: goldFund,
+        growthSeries: growthSeries,
+      );
 }
