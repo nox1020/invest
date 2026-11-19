@@ -15,6 +15,8 @@ import 'package:invest/data/write_queue.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:invest/domain/services/biz_annual_report.dart';
+import 'package:invest/domain/services/performance_aggregator.dart';
+import 'package:invest/ui/widgets/performance_sections.dart';
 import 'package:invest/ui/widgets/header_status.dart';
 import 'package:provider/provider.dart';
 
@@ -235,6 +237,7 @@ class BizMonthsPane extends StatefulWidget {
 
 class _BizMonthsPaneState extends State<BizMonthsPane> with _BizPwoSync<BizMonthsPane> {
   late final BizStore _store = widget.store ?? BizStore.instance;
+  final ProjectsStore _projects = ProjectsStore.instance;
   @override
   BizStore get bizStore => _store;
 
@@ -253,46 +256,63 @@ class _BizMonthsPaneState extends State<BizMonthsPane> with _BizPwoSync<BizMonth
       );
     }
     return ListenableBuilder(
-      listenable: _store,
-      builder: (context, _) => _bizBody(
-        context,
-        _store,
-        () => Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 4, 0),
-            child: Row(children: [
-              const Icon(Icons.table_chart_outlined, size: 18, color: AppTheme.positive),
-              const SizedBox(width: 6),
-              const Expanded(
-                child: Text('جدول ماهانه دفتر',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: AppTheme.title, fontWeight: FontWeight.w800, fontSize: 15)),
+      listenable: Listenable.merge([_store, _projects]),
+      builder: (context, _) {
+        final hasExternal = (app != null &&
+                (app.openTrades.isNotEmpty ||
+                    app.closedTrades.isNotEmpty ||
+                    app.assets.isNotEmpty)) ||
+            (_projects.loaded && _projects.snap.hasData);
+
+        Widget content() => Column(children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 4, 0),
+                child: Row(children: [
+                  const Icon(Icons.table_chart_outlined, size: 18, color: AppTheme.positive),
+                  const SizedBox(width: 6),
+                  const Expanded(
+                    child: Text('عملکرد یکپارچه و دفتر',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: AppTheme.title, fontWeight: FontWeight.w800, fontSize: 15)),
+                  ),
+                  TextButton.icon(
+                    key: const ValueKey('perf-open-biz'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.positive,
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    onPressed: () => Navigator.of(context)
+                        .push(MaterialPageRoute<void>(builder: (_) => BizPage(store: widget.store))),
+                    icon: const Icon(Icons.home_work_outlined, size: 17),
+                    label: const Text('ملک و دفتر', style: TextStyle(fontSize: 12.5)),
+                  ),
+                  IconButton(
+                    key: const ValueKey('perf-export'),
+                    tooltip: 'خروجی سالانه (Excel / PDF)',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.ios_share_rounded, size: 20),
+                    onPressed: (_store.snap.raw.isNotEmpty || hasExternal)
+                        ? () => _exportAnnual(context, _store)
+                        : null,
+                  ),
+                ]),
               ),
-              TextButton.icon(
-                key: const ValueKey('perf-open-biz'),
-                style: TextButton.styleFrom(
-                  foregroundColor: AppTheme.positive,
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
+              Expanded(
+                child: _MonthsTab(
+                  store: _store,
+                  app: app,
+                  projectsStore: _projects,
                 ),
-                onPressed: () => Navigator.of(context)
-                    .push(MaterialPageRoute<void>(builder: (_) => BizPage(store: widget.store))),
-                icon: const Icon(Icons.home_work_outlined, size: 17),
-                label: const Text('معاملات ملک', style: TextStyle(fontSize: 12.5)),
               ),
-              IconButton(
-                key: const ValueKey('perf-export'),
-                tooltip: 'خروجی سالانه (Excel / PDF)',
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.ios_share_rounded, size: 20),
-                onPressed: _store.snap.raw.isNotEmpty ? () => _exportAnnual(context, _store) : null,
-              ),
-            ]),
-          ),
-          Expanded(child: _MonthsTab(store: _store)),
-        ]),
-      ),
+            ]);
+
+        if (_store.loaded || hasExternal) {
+          return content();
+        }
+        return _bizBody(context, _store, content);
+      },
     );
   }
 }
@@ -870,93 +890,164 @@ class _TradeDialogState extends State<_TradeDialog> {
 // ---------------------------------------------------------------- months
 
 class _MonthsTab extends StatefulWidget {
-  const _MonthsTab({required this.store});
+  const _MonthsTab({
+    required this.store,
+    this.app,
+    this.projectsStore,
+  });
   final BizStore store;
+  final AppState? app;
+  final ProjectsStore? projectsStore;
 
   @override
   State<_MonthsTab> createState() => _MonthsTabState();
 }
 
 class _MonthsTabState extends State<_MonthsTab> {
-  String _filter = 'all'; // 'all', 'active', 'mismatch'
+  String _filter = 'all'; // 'all', 'active', 'dup'
+  final Set<PerfDomain> _selectedDomains = {};
+  late int _localYear = currentJalaliYear();
+
+  Future<void> _selectYear(BizStore store, int nextYear) async {
+    setState(() => _localYear = nextYear);
+    if (store.loaded || store.isRemote) {
+      await store.selectYear(nextYear);
+    }
+  }
+
+  void _toggleDomain(PerfDomain d, List<PerfDomain> activeDomains) {
+    setState(() {
+      if (_selectedDomains.contains(d)) {
+        _selectedDomains.remove(d);
+      } else {
+        _selectedDomains.add(d);
+        if (activeDomains.isNotEmpty &&
+            activeDomains.every(_selectedDomains.contains)) {
+          _selectedDomains.clear();
+        }
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final store = widget.store;
     final s = store.snap;
-    final months = s.months;
-    final tot = s.monthTotals;
-    final year = store.year ?? s.year;
+    final app = widget.app;
+    final ps = widget.projectsStore ?? ProjectsStore.instance;
+    final year = store.year ?? s.year ?? _localYear;
     // While another year is loading, the rows still belong to the old year:
     // hide them so an edit can never land on the wrong year.
-    final stale = year != null && s.year != null && s.year != year;
-    // Months with office ops, PWO, or a deal bought/sold are «active»
-    // (chart, «فعال» count and the monthly average all use the same list).
-    final dup = bizMismatchMonths(s);
+    final stale =
+        store.loaded && store.year != null && s.year != null && s.year != year;
+
+    final useBizForYear = store.loaded && (s.year == null || s.year == year);
+    final summary = PerformanceAggregator.build(
+      year: year,
+      biz: useBizForYear ? s : BizSnapshot.empty,
+      assets: app?.assets ?? const [],
+      openTrades: app?.openTrades ?? const [],
+      closedTrades: app?.closedTrades ?? const [],
+      projects: ps.loaded ? ps.snap.items : const [],
+      useBizMonthsForYear: useBizForYear && s.months.isNotEmpty,
+    );
+
+    final effectiveFilter =
+        _selectedDomains.where(summary.activeDomains.contains).toSet();
+    final months = summary.months;
+    final dup = summary.mismatchCountFor(effectiveFilter);
     final filter = (_filter == 'dup' && dup == 0) ? 'all' : _filter;
-    final activeMonths = [for (final m in months) if (!m.isEmpty) m];
+    final activeMonths = summary.activeMonthsFor(effectiveFilter);
     final visible = [
       for (final m in months)
         if (filter == 'all' ||
-            (filter == 'active' && !m.isEmpty) ||
+            (filter == 'active' && !m.isEmptyFor(effectiveFilter)) ||
             (filter == 'dup' && m.incomeDupTrades))
           m,
     ];
-    final netTotal = tot['net'] ?? 0;
-    final incomeTotal = tot['income_effective'] ?? tot['income'] ?? 0;
-    final yearSoldProfit = tot['trade_profit'] ?? 0;
-    final revenue = incomeTotal + yearSoldProfit;
-    final avgNet = activeMonths.isEmpty ? 0.0 : netTotal / activeMonths.length;
-    final marginPct = revenue > 0 ? (netTotal / revenue * 100) : null;
-    final boughtN = months.fold<int>(0, (a, m) => a + m.boughtCount);
-    final boughtAmt = months.fold<double>(0, (a, m) => a + m.boughtAmount);
-    final soldN = months.fold<int>(0, (a, m) => a + m.soldCount);
-    final onlineErr = store.lastError != null && store.lastError != offlineQueueNote;
+
+    final netTotal = summary.totalNetFor(effectiveFilter);
+    final incomeTotal = summary.totalIncomeEffectiveFor(effectiveFilter);
+    final yearSoldProfit = summary.totalTradeProfitFor(effectiveFilter);
+    final staffTotal = summary.totalStaffFor(effectiveFilter);
+    final pwoTotal = summary.totalPwoFor(effectiveFilter);
+    final adsTotal = summary.totalAdsFor(effectiveFilter);
+    final avgNet = summary.avgNetFor(effectiveFilter);
+    final marginPct = summary.marginPctFor(effectiveFilter);
+    final boughtN = summary.totalBoughtCountFor(effectiveFilter);
+    final boughtAmt = summary.totalBoughtAmountFor(effectiveFilter);
+    final soldN = summary.totalSoldCountFor(effectiveFilter);
+    final showOfficeMetrics =
+        summary.hasOfficeData && summary.includesOffice(effectiveFilter);
+    final showMultiDomains = summary.activeDomains.length > 1;
+    final showBreakdownCard = summary.activeDomains.length >= 2 ||
+        (summary.activeDomains.isNotEmpty &&
+            !summary.activeDomains.contains(PerfDomain.office));
+    final emptyState =
+        !summary.hasAnyYearData && !summary.hasAnyOpen && s.months.isEmpty;
+
+    final onlineErr =
+        store.lastError != null && store.lastError != offlineQueueNote;
 
     return RefreshIndicator(
-      onRefresh: store.refresh,
+      onRefresh: () async {
+        final futures = <Future<void>>[];
+        if (store.isRemote || !store.loaded) {
+          futures.add(store.refresh());
+        }
+        if (app != null) {
+          futures.add(app.refreshAll());
+        }
+        if (ps.isRemote) {
+          futures.add(ps.refresh());
+        }
+        await Future.wait(futures);
+      },
       child: ListView(
         padding: _listPad(context),
         children: [
           PendingWritesPanel(queue: store.queue, onSendNow: store.refresh),
-          if (year != null)
-            Row(children: [
-              IconButton(
-                key: const ValueKey('biz-year-prev'),
-                tooltip: 'سال قبل',
-                visualDensity: VisualDensity.compact,
-                onPressed: year > 1300 ? () => store.selectYear(year - 1) : null,
-                icon: const Icon(Icons.chevron_right_rounded),
-              ),
-              Expanded(
-                child: Text('سال $year',
-                    key: const ValueKey('biz-year'),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-              ),
-              IconButton(
-                key: const ValueKey('biz-year-next'),
-                tooltip: 'سال بعد',
-                visualDensity: VisualDensity.compact,
-                onPressed: year < 1600 ? () => store.selectYear(year + 1) : null,
-                icon: const Icon(Icons.chevron_left_rounded),
-              ),
-            ]),
+          Row(children: [
+            IconButton(
+              key: const ValueKey('biz-year-prev'),
+              tooltip: 'سال قبل',
+              visualDensity: VisualDensity.compact,
+              onPressed: year > 1300 ? () => _selectYear(store, year - 1) : null,
+              icon: const Icon(Icons.chevron_right_rounded),
+            ),
+            Expanded(
+              child: Text('سال $year',
+                  key: const ValueKey('biz-year'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+            ),
+            IconButton(
+              key: const ValueKey('biz-year-next'),
+              tooltip: 'سال بعد',
+              visualDensity: VisualDensity.compact,
+              onPressed: year < 1600 ? () => _selectYear(store, year + 1) : null,
+              icon: const Icon(Icons.chevron_left_rounded),
+            ),
+          ]),
           if (onlineErr || store.showingCache) ...[
             const SizedBox(height: 4),
             Container(
               key: const ValueKey('perf-status-banner'),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: (onlineErr ? AppTheme.negative : AppTheme.muted).withValues(alpha: 0.1),
+                color: (onlineErr ? AppTheme.negative : AppTheme.muted)
+                    .withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: (onlineErr ? AppTheme.negative : AppTheme.border).withValues(alpha: 0.5),
+                  color: (onlineErr ? AppTheme.negative : AppTheme.border)
+                      .withValues(alpha: 0.5),
                 ),
               ),
               child: Row(children: [
                 Icon(
-                  onlineErr ? Icons.cloud_off_rounded : Icons.offline_bolt_outlined,
+                  onlineErr
+                      ? Icons.cloud_off_rounded
+                      : Icons.offline_bolt_outlined,
                   size: 15,
                   color: onlineErr ? AppTheme.negative : AppTheme.muted,
                 ),
@@ -1000,18 +1091,20 @@ class _MonthsTabState extends State<_MonthsTab> {
                       : const Text('دادهٔ این سال در دسترس نیست',
                           style: TextStyle(color: AppTheme.muted))),
             )
-          else if (months.isEmpty)
+          else if (emptyState)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
               child: Column(children: [
-                const Icon(Icons.table_rows_outlined, size: 40, color: AppTheme.muted),
+                const Icon(Icons.table_rows_outlined,
+                    size: 40, color: AppTheme.muted),
                 const SizedBox(height: 10),
-                const Text('داده‌ای برای جدول ماهانه ثبت نشده است',
+                const Text('داده‌ای برای عملکرد این سال ثبت نشده است',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: AppTheme.title, fontWeight: FontWeight.w700)),
+                    style: TextStyle(
+                        color: AppTheme.title, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 const Text(
-                  'پس از اتصال به حساب وینور یا همگام‌سازی، عملکرد ۱۲ ماهه اینجا نمایش داده می‌شود.',
+                  'تمام معاملات دارایی‌ها، ملک و دفتر و پروژه‌های پیمانکاری به محض ثبت یا همگام‌سازی اینجا جمع‌بندی می‌شوند.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppTheme.muted, fontSize: 12),
                 ),
@@ -1026,90 +1119,137 @@ class _MonthsTabState extends State<_MonthsTab> {
               ]),
             )
           else ...[
+            if (showMultiDomains) ...[
+              PerfDomainFilterBar(
+                activeDomains: summary.activeDomains,
+                selected: effectiveFilter,
+                onClear: () => setState(() => _selectedDomains.clear()),
+                onToggle: (d) => _toggleDomain(d, summary.activeDomains),
+              ),
+              const SizedBox(height: 6),
+            ],
             Card(
               margin: EdgeInsets.zero,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  _Stat('جمع خالص ${year ?? ''}', _m(netTotal),
-                      color: _sign(netTotal),
-                      valueKey: const ValueKey('biz-total-net')),
-                  const SizedBox(height: 6),
-                  Row(children: [
-                    Expanded(child: _CompactMetric('درآمد دفتر', _m(incomeTotal))),
-                    const SizedBox(width: 6),
-                    Expanded(
-                        child: _CompactMetric(
-                            'سود معاملات ملک ($soldN)', _m(yearSoldProfit),
-                            valueKey: const ValueKey('biz-total-trade-profit'))),
-                  ]),
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    Expanded(child: _CompactMetric('کارمندان', _m(tot['staff'] ?? 0))),
-                    const SizedBox(width: 6),
-                    Expanded(
-                        child: _CompactMetric(
-                            'خرید ملک ($boughtN)', _m(boughtAmt),
-                            valueKey: const ValueKey('biz-total-bought'))),
-                  ]),
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    Expanded(child: _CompactMetric('PWO', _m(tot['pwo'] ?? 0))),
-                    const SizedBox(width: 6),
-                    Expanded(child: _CompactMetric('دیوار - تبلیغات دفتر', _m(tot['ads'] ?? 0))),
-                  ]),
-                  if (activeMonths.isNotEmpty || dup > 0) ...[
-                    const SizedBox(height: 6),
-                    Wrap(spacing: 8, runSpacing: 4, children: [
-                      if (activeMonths.isNotEmpty)
-                        _KpiChip('میانگین خالص ماهانه', _m(avgNet), color: _sign(avgNet)),
-                      if (marginPct != null)
-                        _KpiChip(
-                          'حاشیه خالص',
-                          '${formatNumber(marginPct, decimals: 1)}٪',
-                          color: _sign(marginPct),
-                        ),
-                      if (dup > 0)
-                        InkWell(
-                          key: const ValueKey('biz-mismatch-pill'),
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: () => setState(() {
-                            _filter = _filter == 'dup' ? 'all' : 'dup';
-                          }),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: AppTheme.negative.withValues(alpha: 0.14),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _Stat(
+                        effectiveFilter.isEmpty
+                            ? 'جمع کل خالص $year'
+                            : 'خالص ${effectiveFilter.map((d) => d.shortLabel).join('، ')} · $year',
+                        _m(netTotal),
+                        color: _sign(netTotal),
+                        valueKey: const ValueKey('biz-total-net'),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(children: [
+                        Expanded(
+                            child: _CompactMetric(
+                                'سود معاملات ($soldN)', _m(yearSoldProfit),
+                                valueKey:
+                                    const ValueKey('biz-total-trade-profit'))),
+                        const SizedBox(width: 6),
+                        Expanded(
+                            child: _CompactMetric(
+                                'خرید / سرمایه‌گذاری ($boughtN)', _m(boughtAmt),
+                                valueKey: const ValueKey('biz-total-bought'))),
+                      ]),
+                      if (showOfficeMetrics) ...[
+                        const SizedBox(height: 4),
+                        Row(children: [
+                          Expanded(
+                              child: _CompactMetric(
+                                  'درآمد دفتر', _m(incomeTotal))),
+                          const SizedBox(width: 6),
+                          Expanded(
+                              child:
+                                  _CompactMetric('کارمندان', _m(staffTotal))),
+                        ]),
+                        const SizedBox(height: 4),
+                        Row(children: [
+                          Expanded(child: _CompactMetric('PWO', _m(pwoTotal))),
+                          const SizedBox(width: 6),
+                          Expanded(
+                              child: _CompactMetric(
+                                  'دیوار - تبلیغات دفتر', _m(adsTotal))),
+                        ]),
+                      ],
+                      if (activeMonths.isNotEmpty || dup > 0) ...[
+                        const SizedBox(height: 6),
+                        Wrap(spacing: 8, runSpacing: 4, children: [
+                          if (activeMonths.isNotEmpty)
+                            _KpiChip('میانگین خالص ماهانه', _m(avgNet),
+                                color: _sign(avgNet)),
+                          if (marginPct != null)
+                            _KpiChip(
+                              'حاشیه خالص',
+                              '${formatNumber(marginPct, decimals: 1)}٪',
+                              color: _sign(marginPct),
+                            ),
+                          if (dup > 0)
+                            InkWell(
+                              key: const ValueKey('biz-mismatch-pill'),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                  color: AppTheme.negative.withValues(alpha: 0.45)),
+                              onTap: () => setState(() {
+                                _filter = _filter == 'dup' ? 'all' : 'dup';
+                              }),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color:
+                                      AppTheme.negative.withValues(alpha: 0.14),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                      color: AppTheme.negative
+                                          .withValues(alpha: 0.45)),
+                                ),
+                                child: Text(
+                                  '$dup ماه درآمد تکراری',
+                                  style: const TextStyle(
+                                      color: AppTheme.negative,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700),
+                                ),
+                              ),
                             ),
-                            child: Text(
-                              '$dup ماه درآمد تکراری',
-                              style: const TextStyle(
-                                  color: AppTheme.negative,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ),
+                        ]),
+                      ],
+                      const SizedBox(height: 4),
+                      Text(
+                        effectiveFilter.isEmpty
+                            ? 'خالص کل = عملکرد دفتر + سود قطعی تمام معاملات بسته‌شده (ملک، طلا، ارز، رمزارز، بورس، خودرو، پیمانکاری و سایر) در ماه تحقق'
+                            : 'مقادیر بر اساس زمینه‌های انتخاب‌شده محاسبه شده‌اند؛ سود هر معامله در ماه فروش/پایان لحاظ می‌شود.',
+                        key: const ValueKey('biz-net-formula'),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: AppTheme.muted, fontSize: 10),
+                      ),
                     ]),
-                  ],
-                  const SizedBox(height: 4),
-                  const Text(
-                    'خالص = درآمد دفتر − کارمندان − PWO − تبلیغات + سود معاملات ملک '
-                    '(PWO و سود معاملات خودکار؛ سود هر معامله در ماه فروش، پس از کد و نقشه)',
-                    key: ValueKey('biz-net-formula'),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: AppTheme.muted, fontSize: 10),
-                  ),
-                ]),
               ),
             ),
+            if (showBreakdownCard) ...[
+              const SizedBox(height: 6),
+              PerfDomainBreakdownCard(
+                summary: summary,
+                selected: effectiveFilter,
+                onToggleDomain: (d) => _toggleDomain(d, summary.activeDomains),
+              ),
+            ],
+            if (summary.hasAnyOpen) ...[
+              const SizedBox(height: 6),
+              PerfOpenExposureCard(summary: summary),
+            ],
             if (activeMonths.isNotEmpty) ...[
               const SizedBox(height: 6),
-              _BizMonthsChart(months: months, avgNet: avgNet),
+              _BizMonthsChart(
+                months: months,
+                filter: effectiveFilter,
+                avgNet: avgNet,
+              ),
             ],
             const SizedBox(height: 6),
             Wrap(
@@ -1154,7 +1294,11 @@ class _MonthsTabState extends State<_MonthsTab> {
               )
             else
               for (final m in visible) ...[
-                _MonthTile(store: store, m: m),
+                _MonthTile(
+                  store: store,
+                  m: m,
+                  filter: effectiveFilter,
+                ),
                 const SizedBox(height: 6),
               ],
           ],
@@ -1264,8 +1408,13 @@ class _FilterChipBtn extends StatelessWidget {
 }
 
 class _BizMonthsChart extends StatelessWidget {
-  const _BizMonthsChart({required this.months, required this.avgNet});
-  final List<BizMonth> months;
+  const _BizMonthsChart({
+    required this.months,
+    required this.filter,
+    required this.avgNet,
+  });
+  final List<PerfMonthSummary> months;
+  final Set<PerfDomain> filter;
   final double avgNet;
 
   @override
@@ -1299,6 +1448,7 @@ class _BizMonthsChart extends StatelessWidget {
               key: const ValueKey('biz-months-chart'),
               painter: _BizMonthsChartPainter(
                 months: months,
+                filter: filter,
                 avgNet: avgNet,
                 textColor: AppTheme.muted,
               ),
@@ -1313,10 +1463,12 @@ class _BizMonthsChart extends StatelessWidget {
 class _BizMonthsChartPainter extends CustomPainter {
   _BizMonthsChartPainter({
     required this.months,
+    required this.filter,
     required this.avgNet,
     required this.textColor,
   });
-  final List<BizMonth> months;
+  final List<PerfMonthSummary> months;
+  final Set<PerfDomain> filter;
   final double avgNet;
   final Color textColor;
 
@@ -1330,9 +1482,10 @@ class _BizMonthsChartPainter extends CustomPainter {
     var maxPos = 0.0;
     var maxNeg = 0.0;
     for (final m in months) {
-      if (m.isEmpty) continue;
-      if (m.net > maxPos) maxPos = m.net;
-      if (m.net < 0 && m.net.abs() > maxNeg) maxNeg = m.net.abs();
+      if (m.isEmptyFor(filter)) continue;
+      final n = m.netFor(filter);
+      if (n > maxPos) maxPos = n;
+      if (n < 0 && n.abs() > maxNeg) maxNeg = n.abs();
     }
     if (avgNet > maxPos) maxPos = avgNet;
     if (avgNet < 0 && avgNet.abs() > maxNeg) maxNeg = avgNet.abs();
@@ -1355,9 +1508,10 @@ class _BizMonthsChartPainter extends CustomPainter {
       final m = months[i];
       // RTL: month 1 on the right.
       final cx = size.width - slot * (i + 0.5);
-      if (!m.isEmpty) {
-        final bh = math.max(2.0, h * (m.net.abs() / span));
-        final isPos = m.net >= 0;
+      if (!m.isEmptyFor(filter)) {
+        final net = m.netFor(filter);
+        final bh = math.max(2.0, h * (net.abs() / span));
+        final isPos = net >= 0;
         final rect = isPos
             ? RRect.fromRectAndCorners(
                 Rect.fromLTWH(cx - barW / 2, zeroY - bh, barW, bh),
@@ -1406,7 +1560,10 @@ class _BizMonthsChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BizMonthsChartPainter old) =>
-      old.months != months || old.avgNet != avgNet || old.textColor != textColor;
+      old.months != months ||
+      old.filter != filter ||
+      old.avgNet != avgNet ||
+      old.textColor != textColor;
 }
 
 /// Net profit of deals sold in Jalali [year]/[month] (by sell date, after
@@ -1427,21 +1584,45 @@ int bizMismatchMonths(BizSnapshot s) =>
     s.months.where((m) => m.incomeDupTrades).length;
 
 class _MonthTile extends StatelessWidget {
-  const _MonthTile({required this.store, required this.m});
+  const _MonthTile({
+    required this.store,
+    required this.m,
+    required this.filter,
+  });
   final BizStore store;
-  final BizMonth m;
+  final PerfMonthSummary m;
+  final Set<PerfDomain> filter;
 
   @override
   Widget build(BuildContext context) {
-    final flag = m.incomeDupTrades;
+    final bm = m.bizMonth;
+    final canEditOffice = !store.readOnly && m.includesOffice(filter);
+    final flag = m.includesOffice(filter) && m.incomeDupTrades;
+    final empty = m.isEmptyFor(filter);
+    final net = m.netFor(filter);
+    final soldCount = m.soldCountFor(filter);
+    final tradeProfit = m.tradeProfitFor(filter);
+    final boughtCount = m.boughtCountFor(filter);
+    final boughtAmount = m.boughtAmountFor(filter);
+    final dealDomains = m.activeDealDomainsFor(filter);
+    final monthDeals = m.dealsFor(filter);
+
     return PendingSyncMark(
-      pending: m.raw['pending_sync'] == true,
+      pending: bm?.raw['pending_sync'] == true,
       child: Card(
         margin: EdgeInsets.zero,
         child: InkWell(
           key: ValueKey('biz-month-${m.month}'),
           borderRadius: BorderRadius.circular(12),
-          onTap: store.readOnly ? null : () => _editMonth(context, store, m),
+          onTap: canEditOffice
+              ? () => _editMonth(
+                    context,
+                    store,
+                    bm ?? placeholderBizMonth(m.year, m.month),
+                  )
+              : (monthDeals.isNotEmpty
+                  ? () => showPerfMonthDealsSheet(context, month: m, filter: filter)
+                  : null),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -1454,49 +1635,83 @@ class _MonthTile extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontWeight: FontWeight.w800)),
                     ),
-                    if (!store.readOnly) ...[
+                    if (canEditOffice) ...[
                       const SizedBox(width: 5),
                       const Icon(Icons.edit_outlined, size: 13, color: AppTheme.muted),
                     ],
                   ]),
                 ),
                 const SizedBox(width: 8),
-                _fit(Text(m.isEmpty ? '—' : _m(m.net),
+                _fit(Text(empty ? '—' : _m(net),
                     key: ValueKey('biz-month-net-${m.month}'),
                     style: TextStyle(
-                        color: m.isEmpty ? AppTheme.muted : _sign(m.net),
+                        color: empty ? AppTheme.muted : _sign(net),
                         fontWeight: FontWeight.w800))),
               ]),
-              if (!m.isEmpty) ...[
+              if (!empty) ...[
                 const SizedBox(height: 4),
                 Wrap(spacing: 12, runSpacing: 2, children: [
-                  _t(flag
-                      ? 'درآمد ${_m(m.income)} (تکراری، حساب نشد)'
-                      : 'درآمد ${_m(m.income)}'),
-                  if (m.soldCount > 0)
-                    Text('سود معاملات (${m.soldCount} فروش) ${_m(m.tradeProfit)}',
+                  if (m.hasOfficeActivityFor(filter))
+                    _t(flag
+                        ? 'درآمد ${_m(m.income)} (تکراری، حساب نشد)'
+                        : 'درآمد ${_m(m.income)}'),
+                  if (soldCount > 0)
+                    Text('سود معاملات ($soldCount مورد) ${_m(tradeProfit)}',
                         key: ValueKey('biz-month-tp-${m.month}'),
                         style: TextStyle(
-                            color: _sign(m.tradeProfit),
+                            color: _sign(tradeProfit),
                             fontSize: 12,
                             fontWeight: FontWeight.w700)),
-                  _t('کارمندان ${_m(m.staff)}'),
-                  _t('PWO ${_m(m.pwo)}'),
-                  _t('تبلیغات ${_m(m.ads)}'),
+                  if (m.hasOfficeActivityFor(filter)) ...[
+                    _t('کارمندان ${_m(m.staff)}'),
+                    _t('PWO ${_m(m.pwo)}'),
+                    _t('تبلیغات ${_m(m.ads)}'),
+                  ],
                 ]),
-                if (m.boughtCount > 0) ...[
+                if (dealDomains.length > 1 ||
+                    (dealDomains.length == 1 &&
+                        dealDomains.single != PerfDomain.property)) ...[
+                  const SizedBox(height: 5),
+                  Wrap(spacing: 6, runSpacing: 4, children: [
+                    for (final d in dealDomains)
+                      if ((m.profitByDomain[d] ?? 0) != 0 ||
+                          (m.soldCountByDomain[d] ?? 0) > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: perfDomainColor(d).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: perfDomainColor(d).withValues(alpha: 0.35),
+                              width: 0.7,
+                            ),
+                          ),
+                          child: Text(
+                            '${d.shortLabel}: ${(m.profitByDomain[d] ?? 0) >= 0 ? '+' : '-'}${formatCompactToman((m.profitByDomain[d] ?? 0).abs())}',
+                            style: TextStyle(
+                              color: _sign(m.profitByDomain[d] ?? 0),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                  ]),
+                ],
+                if (boughtCount > 0) ...[
                   const SizedBox(height: 3),
                   Row(key: ValueKey('biz-month-bought-${m.month}'), children: [
-                    const Icon(Icons.add_home_work_outlined, size: 13, color: AppTheme.muted),
+                    const Icon(Icons.shopping_bag_outlined,
+                        size: 13, color: AppTheme.muted),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                          'خرید ملک: ${m.boughtCount} مورد · ${_m(m.boughtAmount)} (در خالص حساب نمی‌شود)',
+                          'خرید / سرمایه‌گذاری: $boughtCount مورد · ${_m(boughtAmount)} (در خالص حساب نمی‌شود)',
                           style: const TextStyle(color: AppTheme.muted, fontSize: 11.5)),
                     ),
                   ]),
                 ],
-                if (m.note.isNotEmpty) ...[
+                if (m.note.isNotEmpty && m.includesOffice(filter)) ...[
                   const SizedBox(height: 5),
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     const Padding(
@@ -1522,6 +1737,41 @@ class _MonthTile extends StatelessWidget {
                           style: TextStyle(color: AppTheme.negative, fontSize: 11)),
                     ),
                   ]),
+                ],
+                if (monthDeals.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: InkWell(
+                      key: ValueKey('biz-month-deals-${m.month}'),
+                      borderRadius: BorderRadius.circular(6),
+                      onTap: () => showPerfMonthDealsSheet(
+                        context,
+                        month: m,
+                        filter: filter,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.receipt_long_outlined,
+                                size: 13, color: AppTheme.accent),
+                            const SizedBox(width: 4),
+                            Text(
+                              'جزئیات ${monthDeals.length} معامله',
+                              style: const TextStyle(
+                                color: AppTheme.accent,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ],
             ]),
@@ -2031,7 +2281,7 @@ Future<void> _exportAnnual(BuildContext context, BizStore store) async {
   final messenger = ScaffoldMessenger.of(context);
   try {
     store.lastFailedYears = const [];
-    final r = BizAnnualReport.from(store.snap, extra: await _fullSheets(context, store));
+    final r = BizAnnualReport.from(store.snap, year: store.snap.year ?? currentJalaliYear(), extra: await _fullSheets(context, store));
     final failed = store.lastFailedYears;
     late Uint8List bytes;
     late String mime;
