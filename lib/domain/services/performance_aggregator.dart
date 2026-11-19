@@ -24,41 +24,41 @@ extension PerfDomainX on PerfDomain {
   String get id => name;
 
   String get label => switch (this) {
-        PerfDomain.office => 'عملیات دفتر',
-        PerfDomain.property => 'ملک و مستغلات',
-        PerfDomain.gold => 'طلا و سکه',
-        PerfDomain.cash => 'ارز و نقد',
-        PerfDomain.crypto => 'ارز دیجیتال',
-        PerfDomain.stock => 'سهام و صندوق',
-        PerfDomain.vehicle => 'خودرو',
-        PerfDomain.projects => 'پیمانکاری',
-        PerfDomain.other => 'سایر زمینه‌ها',
-      };
+    PerfDomain.office => 'عملیات دفتر',
+    PerfDomain.property => 'ملک و مستغلات',
+    PerfDomain.gold => 'طلا و سکه',
+    PerfDomain.cash => 'ارز و نقد',
+    PerfDomain.crypto => 'ارز دیجیتال',
+    PerfDomain.stock => 'سهام و صندوق',
+    PerfDomain.vehicle => 'خودرو',
+    PerfDomain.projects => 'پیمانکاری',
+    PerfDomain.other => 'سایر زمینه‌ها',
+  };
 
   String get shortLabel => switch (this) {
-        PerfDomain.office => 'دفتر',
-        PerfDomain.property => 'ملک',
-        PerfDomain.gold => 'طلا',
-        PerfDomain.cash => 'ارز',
-        PerfDomain.crypto => 'رمزارز',
-        PerfDomain.stock => 'بورس',
-        PerfDomain.vehicle => 'خودرو',
-        PerfDomain.projects => 'پروژه',
-        PerfDomain.other => 'سایر',
-      };
+    PerfDomain.office => 'دفتر',
+    PerfDomain.property => 'ملک',
+    PerfDomain.gold => 'طلا',
+    PerfDomain.cash => 'ارز',
+    PerfDomain.crypto => 'رمزارز',
+    PerfDomain.stock => 'بورس',
+    PerfDomain.vehicle => 'خودرو',
+    PerfDomain.projects => 'پروژه',
+    PerfDomain.other => 'سایر',
+  };
 
   bool get isOffice => this == PerfDomain.office;
 }
 
 PerfDomain perfDomainFromAssetKind(AssetKind kind) => switch (kind) {
-      AssetKind.property => PerfDomain.property,
-      AssetKind.gold => PerfDomain.gold,
-      AssetKind.cash => PerfDomain.cash,
-      AssetKind.crypto => PerfDomain.crypto,
-      AssetKind.stock => PerfDomain.stock,
-      AssetKind.vehicle => PerfDomain.vehicle,
-      AssetKind.other => PerfDomain.other,
-    };
+  AssetKind.property => PerfDomain.property,
+  AssetKind.gold => PerfDomain.gold,
+  AssetKind.cash => PerfDomain.cash,
+  AssetKind.crypto => PerfDomain.crypto,
+  AssetKind.stock => PerfDomain.stock,
+  AssetKind.vehicle => PerfDomain.vehicle,
+  AssetKind.other => PerfDomain.other,
+};
 
 /// Parses a Jalali (`YYYY/MM/DD`, `D/M/YYYY`) or Gregorian ISO (`YYYY-MM-DD`)
 /// date string into its Jalali `(year, month)` pair, or `null` when invalid.
@@ -88,6 +88,55 @@ String _safeDateLabel(String? raw) {
     }
   }
   return null;
+}
+
+/// Like [perfJalaliMonthOf] but also returns the Jalali day, for deal matching.
+({int year, int month, int day})? perfJalaliDateOf(String? raw) {
+  final text = raw?.trim() ?? '';
+  if (text.isEmpty) return null;
+
+  final j = parseBizDate(text);
+  if (j != null) return (year: j.year, month: j.month, day: j.day);
+
+  final iso = tryNormalizeToIso(text);
+  if (iso != null) {
+    final dt = DateTime.tryParse(iso);
+    if (dt != null) {
+      final gj = Jalali.fromDateTime(dt);
+      return (year: gj.year, month: gj.month, day: gj.day);
+    }
+  }
+  return null;
+}
+
+bool _sameJalaliDay(String? a, String? b) {
+  final da = perfJalaliDateOf(a);
+  final db = perfJalaliDateOf(b);
+  if (da == null || db == null) return false;
+  return da.year == db.year && da.month == db.month && da.day == db.day;
+}
+
+/// True when a portfolio property [Trade] is the same deal already recorded
+/// as a [PropertyTrade] in the office book (same buy/sell day and amounts).
+bool portfolioPropertyMatchesBiz(Trade t, PropertyTrade pt) {
+  if (!_sameJalaliDay(t.buyDate, pt.buyDate)) return false;
+  final buyCost = t.buyCost;
+  if (buyCost <= 0 || pt.buyAmount <= 0) return false;
+  if (!bizAmountsNear(buyCost, pt.buyAmount) &&
+      !bizAmountsNear(t.quantity * t.buyPrice, pt.buyAmount)) {
+    return false;
+  }
+  final tradeSold = t.isClosed && (t.sellDate ?? '').trim().isNotEmpty;
+  if (tradeSold != pt.sold) return false;
+  if (tradeSold && pt.sold) {
+    if (!_sameJalaliDay(t.sellDate, pt.sellDate)) return false;
+    final sellProceeds = t.quantity * (t.sellPrice ?? t.markPrice) - t.sellFee;
+    if (!bizAmountsNear(sellProceeds, pt.sellAmount) &&
+        !bizAmountsNear(t.quantity * (t.sellPrice ?? 0), pt.sellAmount)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /// Auditable deal entry attached to a Jalali month inside Performance.
@@ -161,16 +210,24 @@ class PerfMonthSummary {
     required Map<PerfDomain, int> boughtCountByDomain,
     required Map<PerfDomain, double> boughtAmountByDomain,
     required List<PerfDealItem> deals,
-  })  : profitByDomain = Map.unmodifiable(profitByDomain),
-        soldCountByDomain = Map.unmodifiable(soldCountByDomain),
-        soldAmountByDomain = Map.unmodifiable(soldAmountByDomain),
-        boughtCountByDomain = Map.unmodifiable(boughtCountByDomain),
-        boughtAmountByDomain = Map.unmodifiable(boughtAmountByDomain),
-        deals = List.unmodifiable(deals);
+    double? incomeEffective,
+    bool? incomeDupTrades,
+    this.skippedOverlappingPropertyTrades = 0,
+  }) : profitByDomain = Map.unmodifiable(profitByDomain),
+       soldCountByDomain = Map.unmodifiable(soldCountByDomain),
+       soldAmountByDomain = Map.unmodifiable(soldAmountByDomain),
+       boughtCountByDomain = Map.unmodifiable(boughtCountByDomain),
+       boughtAmountByDomain = Map.unmodifiable(boughtAmountByDomain),
+       deals = List.unmodifiable(deals),
+       _incomeEffective = incomeEffective,
+       _incomeDupTrades = incomeDupTrades;
 
   final int year;
   final int month;
   final BizMonth? bizMonth;
+  final double? _incomeEffective;
+  final bool? _incomeDupTrades;
+  final int skippedOverlappingPropertyTrades;
   final Map<PerfDomain, double> profitByDomain;
   final Map<PerfDomain, int> soldCountByDomain;
   final Map<PerfDomain, double> soldAmountByDomain;
@@ -188,8 +245,10 @@ class PerfMonthSummary {
   double get pwo => bizMonth?.pwo ?? 0;
   double get ads => bizMonth?.ads ?? 0;
   double get income => bizMonth?.income ?? 0;
-  double get incomeEffective => bizMonth?.incomeEffective ?? 0;
-  bool get incomeDupTrades => bizMonth?.incomeDupTrades ?? false;
+  double get incomeEffective =>
+      _incomeEffective ?? bizMonth?.incomeEffective ?? 0;
+  bool get incomeDupTrades =>
+      _incomeDupTrades ?? bizMonth?.incomeDupTrades ?? false;
   bool get hasOps => bizMonth?.hasOps ?? false;
   String get note => bizMonth?.note ?? '';
 
@@ -299,6 +358,7 @@ class PerfYearSummary {
     required this.totalOpenUnrealizedPnl,
     required this.hasOfficeData,
     required this.hasAnyDealData,
+    this.skippedOverlappingPropertyTrades = 0,
   });
 
   final int year;
@@ -312,6 +372,7 @@ class PerfYearSummary {
   final double totalOpenUnrealizedPnl;
   final bool hasOfficeData;
   final bool hasAnyDealData;
+  final int skippedOverlappingPropertyTrades;
 
   bool get hasAnyOpen => totalOpenCount > 0;
   bool get hasAnyYearData =>
@@ -326,9 +387,9 @@ class PerfYearSummary {
       _includes(PerfDomain.office, filter);
 
   List<PerfMonthSummary> activeMonthsFor(Set<PerfDomain> filter) => [
-        for (final m in months)
-          if (!m.isEmptyFor(filter)) m,
-      ];
+    for (final m in months)
+      if (!m.isEmptyFor(filter)) m,
+  ];
 
   double totalNetFor(Set<PerfDomain> filter) =>
       months.fold<double>(0, (s, m) => s + m.netFor(filter));
@@ -385,6 +446,9 @@ class PerfYearSummary {
 
 class _MonthAcc {
   BizMonth? bizMonth;
+  double? incomeEffective;
+  bool? incomeDupTrades;
+  int skippedOverlappingPropertyTrades = 0;
   final Map<PerfDomain, double> profit = {};
   final Map<PerfDomain, int> soldCount = {};
   final Map<PerfDomain, double> soldAmount = {};
@@ -429,7 +493,10 @@ class _DomainAcc {
 }
 
 class PerformanceAggregator {
-  static PerfDomain resolveTradeDomain(Trade trade, Map<int, Asset> assetsById) {
+  static PerfDomain resolveTradeDomain(
+    Trade trade,
+    Map<int, Asset> assetsById,
+  ) {
     final asset = assetsById[trade.assetId];
     final kind = asset != null
         ? detectAssetKind(
@@ -437,10 +504,7 @@ class PerformanceAggregator {
             symbol: asset.symbol,
             notes: asset.notes,
           )
-        : detectAssetKind(
-            name: trade.assetName,
-            symbol: trade.assetSymbol,
-          );
+        : detectAssetKind(name: trade.assetName, symbol: trade.assetSymbol);
     return perfDomainFromAssetKind(kind);
   }
 
@@ -474,34 +538,27 @@ class PerformanceAggregator {
     var hasOfficeData = false;
     var hasAnyDealData = false;
 
-    // 1. Office monthly ops (when BizSnapshot matches the requested year)
     final bizSnap = biz ?? BizSnapshot.empty;
-    if (useBizMonthsForYear && bizSnap.months.isNotEmpty) {
-      for (final bm in bizSnap.months) {
-        if (bm.year != year || bm.month < 1 || bm.month > 12) continue;
-        final ma = monthsAcc[bm.month]!;
-        ma.bizMonth = bm;
-        final officeNet = bm.incomeEffective - bm.staff - bm.pwo - bm.ads;
-        ma.profit[PerfDomain.office] = officeNet;
-        domAcc[PerfDomain.office]!.net += officeNet;
-        domAcc[PerfDomain.office]!.revenue += bm.incomeEffective;
-        if (bm.hasOps || bm.pwo != 0 || bm.staff != 0 || bm.ads != 0 || bm.income != 0) {
-          hasOfficeData = true;
-        }
-      }
-    }
+    // Property trades already booked in /biz. Portfolio property trades that
+    // match one of these (same buy/sell day and amounts) are skipped later
+    // so the same deal is not counted twice.
+    final matchedBizPropertyIds = <int>{};
 
-    // 2. Real estate & office deals from BizStore
+    // 1. Real estate deals from the office book (BizStore /biz)
     for (final pt in bizSnap.trades) {
       final buyM = perfJalaliMonthOf(pt.buyDate);
       final sellM = pt.sold ? perfJalaliMonthOf(pt.sellDate) : null;
       final title = pt.title.trim().isEmpty ? 'معامله ملک' : pt.title.trim();
 
-      if (buyM != null && buyM.year == year && buyM.month >= 1 && buyM.month <= 12) {
+      if (buyM != null &&
+          buyM.year == year &&
+          buyM.month >= 1 &&
+          buyM.month <= 12) {
         hasAnyDealData = true;
         // Only add separate deal item if it isn't also sold in the exact same month
         // (avoids listing the same property twice inside a single month's sheet).
-        final sameMonthSold = sellM != null && sellM.year == year && sellM.month == buyM.month;
+        final sameMonthSold =
+            sellM != null && sellM.year == year && sellM.month == buyM.month;
         monthsAcc[buyM.month]!.addBought(
           domain: PerfDomain.property,
           buyAmount: pt.buyAmount,
@@ -522,7 +579,11 @@ class PerformanceAggregator {
         domAcc[PerfDomain.property]!.boughtAmount += pt.buyAmount;
       }
 
-      if (pt.sold && sellM != null && sellM.year == year && sellM.month >= 1 && sellM.month <= 12) {
+      if (pt.sold &&
+          sellM != null &&
+          sellM.year == year &&
+          sellM.month >= 1 &&
+          sellM.month <= 12) {
         hasAnyDealData = true;
         final p = pt.profit ?? (pt.sellAmount - pt.buyAmount - pt.extraCost);
         monthsAcc[sellM.month]!.addSold(
@@ -555,22 +616,39 @@ class PerformanceAggregator {
       }
     }
 
-    // 3. Closed portfolio/asset trades (gold, cash/USDT, crypto, stock, property, vehicle, other)
+    // 2. Closed portfolio/asset trades (gold, cash/USDT, crypto, stock, property, vehicle, other)
     for (final t in closedTrades) {
       final dom = resolveTradeDomain(t, assetsById);
+      if (dom == PerfDomain.property &&
+          _skipOverlappingPropertyTrade(
+            t,
+            bizSnap.trades,
+            matchedBizPropertyIds,
+            monthsAcc,
+            year,
+          )) {
+        continue;
+      }
       final asset = assetsById[t.assetId];
       final title = t.assetName.trim().isNotEmpty
           ? t.assetName.trim()
-          : (asset?.name.trim().isNotEmpty == true ? asset!.name.trim() : dom.label);
+          : (asset?.name.trim().isNotEmpty == true
+                ? asset!.name.trim()
+                : dom.label);
       final buyM = perfJalaliMonthOf(t.buyDate);
       final sellM = perfJalaliMonthOf(t.sellDate) ?? buyM;
       final buyCost = t.buyCost;
-      final sellProceeds = t.quantity * (t.sellPrice ?? t.markPrice) - t.sellFee;
+      final sellProceeds =
+          t.quantity * (t.sellPrice ?? t.markPrice) - t.sellFee;
       final p = realizedProfitOfTrade(t);
 
-      if (buyM != null && buyM.year == year && buyM.month >= 1 && buyM.month <= 12) {
+      if (buyM != null &&
+          buyM.year == year &&
+          buyM.month >= 1 &&
+          buyM.month <= 12) {
         hasAnyDealData = true;
-        final sameMonthSold = sellM != null && sellM.year == year && sellM.month == buyM.month;
+        final sameMonthSold =
+            sellM != null && sellM.year == year && sellM.month == buyM.month;
         monthsAcc[buyM.month]!.addBought(
           domain: dom,
           buyAmount: buyCost,
@@ -591,7 +669,10 @@ class PerformanceAggregator {
         domAcc[dom]!.boughtAmount += buyCost;
       }
 
-      if (sellM != null && sellM.year == year && sellM.month >= 1 && sellM.month <= 12) {
+      if (sellM != null &&
+          sellM.year == year &&
+          sellM.month >= 1 &&
+          sellM.month <= 12) {
         hasAnyDealData = true;
         monthsAcc[sellM.month]!.addSold(
           domain: dom,
@@ -604,7 +685,9 @@ class PerformanceAggregator {
             buyAmount: buyCost,
             sellAmount: sellProceeds,
             profit: p,
-            dateLabel: _safeDateLabel((t.sellDate ?? '').trim().isNotEmpty ? t.sellDate : t.buyDate),
+            dateLabel: _safeDateLabel(
+              (t.sellDate ?? '').trim().isNotEmpty ? t.sellDate : t.buyDate,
+            ),
             subtitle: t.sellNoteDisplay,
           ),
         );
@@ -616,18 +699,33 @@ class PerformanceAggregator {
       }
     }
 
-    // 4. Open portfolio/asset trades -> buy activity in buy month + Open Exposure
+    // 3. Open portfolio/asset trades -> buy activity in buy month + Open Exposure
     for (final t in openTrades) {
       if (t.quantity <= 1e-9) continue;
       final dom = resolveTradeDomain(t, assetsById);
+      if (dom == PerfDomain.property &&
+          _skipOverlappingPropertyTrade(
+            t,
+            bizSnap.trades,
+            matchedBizPropertyIds,
+            monthsAcc,
+            year,
+          )) {
+        continue;
+      }
       final asset = assetsById[t.assetId];
       final title = t.assetName.trim().isNotEmpty
           ? t.assetName.trim()
-          : (asset?.name.trim().isNotEmpty == true ? asset!.name.trim() : dom.label);
+          : (asset?.name.trim().isNotEmpty == true
+                ? asset!.name.trim()
+                : dom.label);
       final buyM = perfJalaliMonthOf(t.buyDate);
       final buyCost = t.buyCost;
 
-      if (buyM != null && buyM.year == year && buyM.month >= 1 && buyM.month <= 12) {
+      if (buyM != null &&
+          buyM.year == year &&
+          buyM.month >= 1 &&
+          buyM.month <= 12) {
         hasAnyDealData = true;
         monthsAcc[buyM.month]!.addBought(
           domain: dom,
@@ -654,16 +752,23 @@ class PerformanceAggregator {
       da.openUnrealizedPnl += t.unrealizedPnl;
     }
 
-    // 5. Contracting / Investment projects (non-archived)
+    // 4. Contracting / Investment projects (non-archived)
     for (final p in projects) {
       if (p.archived) continue;
-      final title = p.description.trim().isEmpty ? 'پروژه پیمانکاری' : p.description.trim();
+      final title = p.description.trim().isEmpty
+          ? 'پروژه پیمانکاری'
+          : p.description.trim();
       final startM = perfJalaliMonthOf(p.startDate);
       final endM = perfJalaliMonthOf(p.endDate) ?? startM;
 
-      if (p.cost > 0 && startM != null && startM.year == year && startM.month >= 1 && startM.month <= 12) {
+      if (p.cost > 0 &&
+          startM != null &&
+          startM.year == year &&
+          startM.month >= 1 &&
+          startM.month <= 12) {
         hasAnyDealData = true;
-        final sameMonthDone = p.status == ProjectStatus.finished &&
+        final sameMonthDone =
+            p.status == ProjectStatus.finished &&
             endM != null &&
             endM.year == year &&
             endM.month == startM.month;
@@ -688,9 +793,13 @@ class PerformanceAggregator {
       }
 
       if (p.status == ProjectStatus.finished) {
-        if (endM != null && endM.year == year && endM.month >= 1 && endM.month <= 12) {
+        if (endM != null &&
+            endM.year == year &&
+            endM.month >= 1 &&
+            endM.month <= 12) {
           hasAnyDealData = true;
-          final profitVal = p.profit ?? (p.contract > 0 ? p.contract - p.cost : 0.0);
+          final profitVal =
+              p.profit ?? (p.contract > 0 ? p.contract - p.cost : 0.0);
           monthsAcc[endM.month]!.addSold(
             domain: PerfDomain.projects,
             profitVal: profitVal,
@@ -717,10 +826,52 @@ class PerformanceAggregator {
         final da = domAcc[PerfDomain.projects]!;
         da.openCount++;
         da.openInvested += p.cost;
-        final expectedProfit = p.status == ProjectStatus.active ? (p.profit ?? 0) : 0.0;
+        final expectedProfit = p.status == ProjectStatus.active
+            ? (p.profit ?? 0)
+            : 0.0;
         da.openCurrentValue += p.cost + expectedProfit;
         da.openUnrealizedPnl += expectedProfit;
       }
+    }
+
+    // 5. Office monthly ops, after deals, so «درآمد تکراری» can compare
+    // typed income to the month's realized profit across every category.
+    if (useBizMonthsForYear && bizSnap.months.isNotEmpty) {
+      for (final bm in bizSnap.months) {
+        if (bm.year != year || bm.month < 1 || bm.month > 12) continue;
+        final ma = monthsAcc[bm.month]!;
+        ma.bizMonth = bm;
+        var realized = 0.0;
+        for (final e in ma.profit.entries) {
+          if (e.key == PerfDomain.office) continue;
+          realized += e.value;
+        }
+        final dup = incomeDuplicatesTrades(
+          bm.income,
+          bm.tradeProfit,
+          bm.tradeGross,
+          allRealizedProfit: realized,
+        );
+        final eff = dup ? 0.0 : bm.income;
+        ma.incomeEffective = eff;
+        ma.incomeDupTrades = dup;
+        final officeNet = eff - bm.staff - bm.pwo - bm.ads;
+        ma.profit[PerfDomain.office] = officeNet;
+        domAcc[PerfDomain.office]!.net += officeNet;
+        domAcc[PerfDomain.office]!.revenue += eff;
+        if (bm.hasOps ||
+            bm.pwo != 0 ||
+            bm.staff != 0 ||
+            bm.ads != 0 ||
+            bm.income != 0) {
+          hasOfficeData = true;
+        }
+      }
+    }
+
+    var skippedProperty = 0;
+    for (final ma in monthsAcc.values) {
+      skippedProperty += ma.skippedOverlappingPropertyTrades;
     }
 
     final months = [
@@ -735,6 +886,10 @@ class PerformanceAggregator {
           boughtCountByDomain: monthsAcc[m]!.boughtCount,
           boughtAmountByDomain: monthsAcc[m]!.boughtAmount,
           deals: monthsAcc[m]!.deals,
+          incomeEffective: monthsAcc[m]!.incomeEffective,
+          incomeDupTrades: monthsAcc[m]!.incomeDupTrades,
+          skippedOverlappingPropertyTrades:
+              monthsAcc[m]!.skippedOverlappingPropertyTrades,
         ),
     ];
 
@@ -755,16 +910,17 @@ class PerformanceAggregator {
         ),
     };
 
-    final activeDomains = [
-      for (final d in PerfDomain.values)
-        if (byDomain[d]!.hasActivity) d,
-    ]..sort((a, b) {
-        final sa = byDomain[a]!;
-        final sb = byDomain[b]!;
-        final cmp = sb.net.abs().compareTo(sa.net.abs());
-        if (cmp != 0) return cmp;
-        return a.index.compareTo(b.index);
-      });
+    final activeDomains =
+        [
+          for (final d in PerfDomain.values)
+            if (byDomain[d]!.hasActivity) d,
+        ]..sort((a, b) {
+          final sa = byDomain[a]!;
+          final sb = byDomain[b]!;
+          final cmp = sb.net.abs().compareTo(sa.net.abs());
+          if (cmp != 0) return cmp;
+          return a.index.compareTo(b.index);
+        });
 
     final openDomains = [
       for (final d in PerfDomain.values)
@@ -794,6 +950,64 @@ class PerformanceAggregator {
       totalOpenUnrealizedPnl: openUnrealized,
       hasOfficeData: hasOfficeData,
       hasAnyDealData: hasAnyDealData,
+      skippedOverlappingPropertyTrades: skippedProperty,
     );
+  }
+
+  /// Builds a year summary from the live stores (office book, portfolio, projects).
+  static PerfYearSummary fromStores({
+    required int year,
+    required BizStore store,
+    Iterable<Asset> assets = const [],
+    Iterable<Trade> openTrades = const [],
+    Iterable<Trade> closedTrades = const [],
+    Iterable<Project> projects = const [],
+  }) {
+    final s = store.snap;
+    final useBizForYear = store.loaded && (s.year == null || s.year == year);
+    return build(
+      year: year,
+      biz: useBizForYear ? s : BizSnapshot.empty,
+      assets: assets,
+      openTrades: openTrades,
+      closedTrades: closedTrades,
+      projects: projects,
+      useBizMonthsForYear: useBizForYear && s.months.isNotEmpty,
+    );
+  }
+
+  /// Skip a portfolio property trade that is already in the office book.
+  /// Counts the skip on the buy (and sell, when different) month accumulator.
+  static bool _skipOverlappingPropertyTrade(
+    Trade t,
+    Iterable<PropertyTrade> bizTrades,
+    Set<int> matchedIds,
+    Map<int, _MonthAcc> monthsAcc,
+    int year,
+  ) {
+    for (final pt in bizTrades) {
+      if (matchedIds.contains(pt.id)) continue;
+      if (!portfolioPropertyMatchesBiz(t, pt)) continue;
+      matchedIds.add(pt.id);
+      final buyM = perfJalaliMonthOf(t.buyDate);
+      if (buyM != null &&
+          buyM.year == year &&
+          buyM.month >= 1 &&
+          buyM.month <= 12) {
+        monthsAcc[buyM.month]!.skippedOverlappingPropertyTrades++;
+      }
+      final sellM = t.isClosed ? perfJalaliMonthOf(t.sellDate) : null;
+      if (sellM != null &&
+          sellM.year == year &&
+          sellM.month >= 1 &&
+          sellM.month <= 12 &&
+          (buyM == null ||
+              sellM.month != buyM.month ||
+              sellM.year != buyM.year)) {
+        monthsAcc[sellM.month]!.skippedOverlappingPropertyTrades++;
+      }
+      return true;
+    }
+    return false;
   }
 }
