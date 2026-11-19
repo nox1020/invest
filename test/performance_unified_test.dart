@@ -5,7 +5,6 @@ import 'package:invest/data/biz_store.dart';
 import 'package:invest/data/projects_store.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/asset.dart';
-import 'package:invest/domain/models/asset_kind.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/performance_aggregator.dart';
 import 'package:invest/domain/utils/biz_dates.dart';
