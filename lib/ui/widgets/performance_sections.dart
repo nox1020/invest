@@ -458,8 +458,8 @@ class _PerfOpenExposureCardState extends State<PerfOpenExposureCard> {
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _OpenMetricPill extends StatelessWidget {
@@ -751,8 +751,8 @@ Future<void> showPerfMonthDealsSheet(
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
 }
 
 /// Safe helper for tests/callers where [BizStore] is absent or offline.
