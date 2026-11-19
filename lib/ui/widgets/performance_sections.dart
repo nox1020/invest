@@ -458,8 +458,8 @@ class _PerfOpenExposureCardState extends State<PerfOpenExposureCard> {
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _OpenMetricPill extends StatelessWidget {
