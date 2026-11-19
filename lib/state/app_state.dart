@@ -272,6 +272,7 @@ class AppState extends ChangeNotifier {
   bool biometricDeviceSupported = false;
   bool biometricAvailable = false;
   String biometricLabel = 'بیومتریک';
+  Future<void>? _biometricProbe;
 
   final RefreshCoordinator _refreshCoordinator = RefreshCoordinator();
   final ResumeRefreshDebouncer _resumeDebouncer = ResumeRefreshDebouncer();
@@ -442,27 +443,99 @@ class AppState extends ChangeNotifier {
     loading = true;
     error = null;
     notifyListeners();
+    PriceAlertSnapshot? cachedAlerts;
+    var alertsHandled = false;
     try {
-      // The login screen only needs this client. App lock, biometrics, and
-      // local storage must not run first: if they throw, OTP used to fail
-      // with «API آماده نیست» because the client was never created.
-      await _ensureRemoteClient();
-      try {
-        await _loadAppLock();
-      } catch (_) {}
-
       if (testDb != null) {
+        await _ensureRemoteClient();
+        try {
+          await _loadAppLock();
+        } catch (_) {}
         await _bootLocalWorkspace(testDb);
         return;
       }
 
-      await _ensureRemoteClient();
+      // Stage 1: hydrate session, lock, portfolio snapshot, commodity index,
+      // alerts, and notification badge concurrently with zero network blocking.
+      final clientF = _ensureRemoteClient();
+      final lockF = _loadAppLock(refreshBiometrics: false).catchError((_) {});
+      final portfolioF =
+          OfflineCacheStore.loadPortfolio().catchError((_) => null);
+      final commoditiesF =
+          OfflineCacheStore.loadCommodities().catchError((_) => null);
+      final inflationF =
+          OfflineCacheStore.loadIranInflation().catchError((_) => null);
+      final alertsF =
+          PriceAlertPrefs.loadSnapshot().catchError((_) => null);
+      final inboxF =
+          NotificationInboxStore.ensureHydrated().catchError((_) {});
+
+      await Future.wait<void>([clientF, lockF, inboxF]);
+      final cachedPortfolio = await portfolioF;
+      final cachedCommodities = await commoditiesF;
+      final cachedInflation = await inflationF;
+      cachedAlerts = await alertsF;
+
       commodityIndexService = CommodityIndexService();
       iranInflationService = IranInflationService();
-      quotes = QuoteClients();
+      quotes ??= QuoteClients();
       _api!.restoreSessionCookie();
       userPhone = _session!.phone;
 
+      if (cachedCommodities != null) {
+        commodityIndex =
+            CommodityIndexService.alignDerivedQuotes(cachedCommodities.quotes);
+        wallexMarkets = cachedCommodities.wallexMarkets;
+        commodityIndexUpdatedAt = cachedCommodities.savedAt;
+      }
+      if (cachedInflation != null) {
+        iranInflation = cachedInflation;
+      }
+
+      final hasCookie = (_session?.sessionCookie ?? '').trim().isNotEmpty;
+      if (!hasCookie) {
+        authenticated = false;
+        reauthRequired = false;
+        offline = false;
+        alertsHandled = true;
+        if (cachedAlerts != null) {
+          unawaited(
+            _loadPriceAlertRuntime(
+              preloadedSnap: cachedAlerts,
+              syncWorker: true,
+            ),
+          );
+        }
+        return;
+      }
+
+      // If cached portfolio exists, reveal HomeShell or AppLockPage immediately
+      // while server auth and live data sync run in parallel in the background.
+      var hydratedCache = false;
+      if (cachedPortfolio != null) {
+        _holdUiNotifications = true;
+        try {
+          await _applyPortfolioSnapshot(
+            cachedPortfolio,
+            loadCommodities: false,
+            loadAlerts: false,
+            persistChecks: false,
+          );
+        } finally {
+          _holdUiNotifications = false;
+        }
+        hydratedCache = true;
+        authenticated = true;
+        useRemote = true;
+        offline = false;
+        readOnlyOffline = false;
+        reauthRequired = false;
+        refreshing = true;
+        loading = false;
+        notifyListeners();
+      }
+
+      // Stage 2: server auth + sync.
       final auth = await _api!.checkAuthDetailed();
       await _noteServerPhone(auth.phone);
       switch (auth.status) {
@@ -478,24 +551,47 @@ class AppState extends ChangeNotifier {
           } on InvestApiException catch (e) {
             if (e.errorCode == 'network_error' || e.statusCode == null) {
               offlineCause = OfflineCause.network;
-              await _bootOfflineWithSession();
-              _startAutoRefreshTimer();
+              if (!hydratedCache || metrics == null) {
+                await _bootOfflineWithSession();
+              } else {
+                offline = true;
+                readOnlyOffline = true;
+                useRemote = true;
+                authenticated = true;
+              }
+              _startAutoRefreshTimer(immediate: false);
             } else {
               rethrow;
             }
           }
         case AuthCheckStatus.offline:
           offlineCause = auth.cause;
-          await _bootOfflineWithSession();
+          if (hydratedCache && metrics != null) {
+            offline = true;
+            authenticated = true;
+            useRemote = true;
+            readOnlyOffline = true;
+            userPhone = _session?.phone;
+            _startAutoRefreshTimer(immediate: false);
+          } else {
+            await _bootOfflineWithSession();
+          }
         case AuthCheckStatus.unauthenticated:
           if ((_session?.sessionCookie ?? '').trim().isNotEmpty) {
             reauthRequired = true;
-            await _bootOfflineWithSession();
+            if (hydratedCache && metrics != null) {
+              offline = true;
+              authenticated = true;
+              useRemote = true;
+              readOnlyOffline = true;
+              userPhone = _session?.phone;
+            } else {
+              await _bootOfflineWithSession();
+            }
           } else {
             authenticated = false;
             reauthRequired = false;
             offline = false;
-            await _loadCommodityCacheQuietly();
           }
       }
     } catch (e) {
@@ -508,20 +604,38 @@ class AppState extends ChangeNotifier {
       }
     } finally {
       loading = false;
-      await _loadPriceAlertRuntime();
+      refreshing = false;
+      if (!alertsHandled) {
+        unawaited(
+          _loadPriceAlertRuntime(
+            preloadedSnap: cachedAlerts,
+            syncWorker: true,
+          ),
+        );
+      }
       notifyListeners();
     }
   }
 
-  Future<void> _loadAppLock() async {
-    appLockHash = await AppLockStore.loadHash();
+  Future<void> _loadAppLock({bool refreshBiometrics = true}) async {
+    final results = await Future.wait<Object?>([
+      AppLockStore.loadHash(),
+      AppLockStore.loadBiometricEnabled(),
+    ]);
+    appLockHash = results[0] as String?;
     appLockEnabled = isAppLockEnabled(appLockHash);
     appUnlocked = !appLockEnabled;
-    biometricUnlockEnabled = await AppLockStore.loadBiometricEnabled();
-    await refreshBiometricCapability();
+    biometricUnlockEnabled = results[1]! as bool;
     if (!appLockEnabled && biometricUnlockEnabled) {
       biometricUnlockEnabled = false;
-      await AppLockStore.saveBiometricEnabled(false);
+      unawaited(AppLockStore.saveBiometricEnabled(false));
+    }
+    if (refreshBiometrics) {
+      if (appLockEnabled && biometricUnlockEnabled) {
+      unawaited(refreshBiometricCapability());
+    }
+    } else if (appLockEnabled && biometricUnlockEnabled) {
+      unawaited(refreshBiometricCapability());
     }
   }
 
@@ -574,6 +688,17 @@ class AppState extends ChangeNotifier {
   Future<bool> _applyPortfolioCache() async {
     final snap = await OfflineCacheStore.loadPortfolio();
     if (snap == null) return false;
+    await _applyPortfolioSnapshot(snap);
+    return true;
+  }
+
+  Future<void> _applyPortfolioSnapshot(
+    OfflinePortfolioSnapshot snap, {
+    bool loadCommodities = true,
+    bool loadAlerts = true,
+    bool syncWorker = false,
+    bool persistChecks = true,
+  }) async {
     settings = snap.settings;
     if (settings.wallexUrl.isEmpty) {
       settings.wallexUrl = AppConfig.defaultWallexUrl;
@@ -590,17 +715,23 @@ class AppState extends ChangeNotifier {
     checks = List<BankCheck>.from(snap.checks);
     if (checks.isEmpty) {
       await _loadLocalChecks();
-    } else {
+    } else if (persistChecks) {
       await _persistChecksLocal();
+    } else {
+      unawaited(_persistChecksLocal());
     }
     _withdrawalsHydrated = true;
     _checksHydrated = true;
     liveUsdt = snap.liveUsdt ?? settings.usdtTmnRate;
     liveGold = snap.liveGold ?? settings.goldTmnPerGram;
     lastSyncedAt = snap.savedAt;
-    await _loadCommodityCacheQuietly();
-    await _loadPriceAlertRuntime();
-    return true;
+    if (loadCommodities) {
+      await _loadCommodityCacheQuietly();
+    }
+    await _overlayLiveMarks();
+    if (loadAlerts) {
+      await _loadPriceAlertRuntime(syncWorker: syncWorker);
+    }
   }
 
   Future<void> _loadCommodityCacheQuietly() async {
@@ -857,9 +988,10 @@ class AppState extends ChangeNotifier {
     _autoRefreshTimer = Timer.periodic(settings.autoRefreshInterval, (_) {
       unawaited(_tickAutoRefresh());
     });
-    if (immediate) {
-      // Run after the current boot/login `finally` so `loading` is already false.
-      Timer.run(() => unawaited(_tickAutoRefresh(forceIndex: true)));
+    if (immediate && settings.livePricesEnabled) {
+      // Boot & login already fetched the full portfolio + quotes; only kick off
+      // the market index board without triggering a duplicate full refresh.
+      Timer.run(() => unawaited(refreshCommodityIndex(force: true)));
     }
   }
 
@@ -877,8 +1009,8 @@ class AppState extends ChangeNotifier {
         await _syncLiveQuotes();
         await refreshCommodityIndex(force: forceIndex);
       }
-      // Full portfolio every ~30s (or on the first forced tick).
-      final full = forceIndex || _autoRefreshTicks % 6 == 1;
+      // Full portfolio every ~30s (never duplicate right after initial boot).
+      final full = forceIndex || _autoRefreshTicks % 6 == 0;
       if (full) {
         await refreshAll(
           includeQuotes: false,
@@ -899,9 +1031,11 @@ class AppState extends ChangeNotifier {
     super.dispose();
   }
 
-  Future<void> _loadRemoteData() async {
-    await refresh();
-  }
+  Future<void> _loadRemoteData() => refreshAll(
+        includeQuotes: settings.livePricesEnabled,
+        fetchSettings: true,
+        checkApiVersion: true,
+      );
 
   /// Updates settings when backend API version changes (no nested refresh).
   Future<void> _syncApiVersion() async {
@@ -1248,10 +1382,13 @@ class AppState extends ChangeNotifier {
       'settings-lock',
       () => _applyRemoteLockFromBundle(bundle, migrateLocal: migrate),
     );
-    await _local('settings-persist', () => _persistSettingsLocal(settings));
-    await _local(
-        'settings-prefs-save', () => PriceAlertPrefs.saveFrom(settings));
-    await _local('settings-worker', () => BackgroundPriceWorker.sync(settings));
+    await Future.wait([
+      _local('settings-persist', () => _persistSettingsLocal(settings)),
+      _local('settings-prefs-save', () => PriceAlertPrefs.saveFrom(settings)),
+    ]);
+    unawaited(
+      _local('settings-worker', () => BackgroundPriceWorker.sync(settings)),
+    );
 
     final shouldMigrateLock = migrate &&
         bundle.appLockHash == null &&

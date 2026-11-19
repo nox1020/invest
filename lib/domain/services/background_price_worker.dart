@@ -40,6 +40,7 @@ class BackgroundPriceWorker {
   BackgroundPriceWorker._();
 
   static bool _initialized = false;
+  static bool? _lastSyncedArmed;
 
   static Future<void> initialize() async {
     if (_initialized || kIsWeb) return;
@@ -68,10 +69,12 @@ class BackgroundPriceWorker {
         settings.profitAlerts.any((e) => e.isArmed);
     final armed =
         settings.notifyBackground && (armedPrices || armedProfit);
+    if (_lastSyncedArmed == armed) return;
     try {
       if (!armed) {
         await Workmanager().cancelByUniqueName(priceAlertPeriodicUniqueName);
         await Workmanager().cancelByUniqueName(priceAlertOneOffUniqueName);
+        _lastSyncedArmed = false;
         return;
       }
       await Workmanager().registerPeriodicTask(
@@ -91,6 +94,7 @@ class BackgroundPriceWorker {
         initialDelay: const Duration(seconds: 20),
         constraints: Constraints(networkType: NetworkType.connected),
       );
+      _lastSyncedArmed = true;
     } catch (_) {}
   }
 }

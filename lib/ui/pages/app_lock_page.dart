@@ -33,7 +33,11 @@ class _AppLockPageState extends State<AppLockPage> {
 
   Future<void> _tryBiometric() async {
     final state = context.read<AppState>();
-    if (!state.biometricUnlockEnabled || !state.biometricAvailable) return;
+    if (!state.biometricUnlockEnabled) return;
+    if (!state.biometricAvailable) {
+      await state.refreshBiometricCapability();
+      if (!mounted || !state.biometricAvailable) return;
+    }
     setState(() {
       _busy = true;
       _error = null;

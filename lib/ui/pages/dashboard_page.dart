@@ -63,10 +63,8 @@ class _DashboardBody extends StatefulWidget {
   State<_DashboardBody> createState() => _DashboardBodyState();
 }
 
-class _DashboardBodyState extends State<_DashboardBody>
-    with SingleTickerProviderStateMixin {
+class _DashboardBodyState extends State<_DashboardBody> {
   bool _usd = false;
-  late final AnimationController _enter;
 
   static const _kOpen = 'dash_open_v1';
 
@@ -102,35 +100,6 @@ class _DashboardBodyState extends State<_DashboardBody>
   void initState() {
     super.initState();
     _loadOpen();
-    _enter = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 780),
-    )..forward();
-  }
-
-  @override
-  void dispose() {
-    _enter.dispose();
-    super.dispose();
-  }
-
-  Animation<double> _fade(double begin, double end) {
-    return CurvedAnimation(
-      parent: _enter,
-      curve: Interval(begin, end, curve: Curves.easeOutCubic),
-    );
-  }
-
-  Animation<Offset> _slide(double begin, double end) {
-    return Tween<Offset>(
-      begin: const Offset(0, 0.04),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _enter,
-        curve: Interval(begin, end, curve: Curves.easeOutCubic),
-      ),
-    );
   }
 
   @override
@@ -208,17 +177,6 @@ class _DashboardBodyState extends State<_DashboardBody>
     );
     final calendar = state.settings.calendar;
 
-    Widget stage({
-      required double a,
-      required double b,
-      required Widget child,
-    }) {
-      return FadeTransition(
-        opacity: _fade(a, b),
-        child: SlideTransition(position: _slide(a, b), child: child),
-      );
-    }
-
     void openPwo() => Navigator.of(context)
         .push(MaterialPageRoute<void>(builder: (_) => const PwoPage()));
 
@@ -292,10 +250,7 @@ class _DashboardBodyState extends State<_DashboardBody>
             padding: shellPagePadding().copyWith(
                 bottom: kShellListBottomPadding + DashSpeedDial.reserve),
             children: [
-              stage(
-                a: 0,
-                b: 0.35,
-                child: Padding(
+              Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: SizedBox(
                     height: 32,
@@ -334,7 +289,6 @@ class _DashboardBodyState extends State<_DashboardBody>
                     ),
                   ),
                 ),
-              ),
               const SizedBox(height: 12),
               ..._compactChildren(
                 context,

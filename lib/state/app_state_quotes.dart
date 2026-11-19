@@ -2,43 +2,68 @@ part of 'app_state.dart';
 
 // Split out of app_state.dart (pure move, no behaviour change).
 extension AppStateQuotes on AppState {
-  Future<void> _syncLiveQuotes() async {
+  Future<({double? remoteUsdt, double? remoteGold, double? localUsdt, double? localGold})>
+      _fetchLiveQuoteValues({
+    bool? usdtEnabled,
+    bool? goldEnabled,
+    String? wallexUrl,
+    String? persianUrl,
+  }) async {
     quotes ??= QuoteClients();
+    final wantUsdt = usdtEnabled ?? settings.usdtApiEnabled;
+    final wantGold = goldEnabled ?? settings.goldApiEnabled;
+    final wUrl = wallexUrl ?? settings.wallexUrl;
+    final pUrl = persianUrl ?? settings.persianToolboxUrl;
 
     double? remoteUsdt;
     double? remoteGold;
-    if (useRemote && !offline && remote != null) {
-      try {
-        final q = await remote!.fetchQuotes();
-        remoteUsdt = q.usdt;
-        remoteGold = q.gold;
-      } catch (_) {}
-    }
-
     double? localUsdt;
     double? localGold;
     final tasks = <Future<void>>[];
-    if (settings.usdtApiEnabled) {
+
+    if (useRemote && !offline && remote != null) {
       tasks.add(() async {
-        localUsdt = await quotes!.fetchUsdtToman(wallexUrl: settings.wallexUrl);
+        try {
+          final q = await remote!.fetchQuotes();
+          remoteUsdt = q.usdt;
+          remoteGold = q.gold;
+        } catch (_) {}
       }());
     }
-    if (settings.goldApiEnabled) {
+    if (wantUsdt) {
+      tasks.add(() async {
+        try {
+          localUsdt = await quotes!.fetchUsdtToman(wallexUrl: wUrl);
+        } catch (_) {}
+      }());
+    }
+    if (wantGold) {
       // Always hit free bazaar feeds — Vinor gold is often understated toolbox spot.
       tasks.add(() async {
-        final g = await quotes!
-            .fetchGoldToman(persianUrl: settings.persianToolboxUrl);
-        localGold = g.price;
+        try {
+          final g = await quotes!.fetchGoldToman(persianUrl: pUrl);
+          localGold = g.price;
+        } catch (_) {}
       }());
     }
     if (tasks.isNotEmpty) {
       await Future.wait(tasks);
     }
+    return (
+      remoteUsdt: remoteUsdt,
+      remoteGold: remoteGold,
+      localUsdt: localUsdt,
+      localGold: localGold,
+    );
+  }
 
-    final fetchedUsdt = localUsdt ?? remoteUsdt;
+  Future<void> _applyLiveQuoteValues(
+    ({double? remoteUsdt, double? remoteGold, double? localUsdt, double? localGold}) q,
+  ) async {
+    final fetchedUsdt = q.localUsdt ?? q.remoteUsdt;
     final fetchedGold = GoldQuoteParser.preferFreeMarketGold(
-      freeMarket: localGold,
-      remoteOrCached: remoteGold ?? settings.goldTmnPerGram,
+      freeMarket: q.localGold,
+      remoteOrCached: q.remoteGold ?? settings.goldTmnPerGram,
     );
 
     if (fetchedUsdt != null || fetchedGold != null) {
@@ -81,6 +106,11 @@ extension AppStateQuotes on AppState {
     await _local('quotes-alerts', _dispatchPriceAlerts);
   }
 
+  Future<void> _syncLiveQuotes() async {
+    final fetched = await _fetchLiveQuoteValues();
+    await _applyLiveQuoteValues(fetched);
+  }
+
   /// Replace شاخص / live gold with the free 18k bazaar feed when Vinor is stale.
   Future<({double? price, double? change24h})?> _fetchFreeMarketGold() async {
     if (!settings.goldApiEnabled) return null;
@@ -96,9 +126,12 @@ extension AppStateQuotes on AppState {
     }
   }
 
-  Future<void> _loadPriceAlertRuntime() async {
+  Future<void> _loadPriceAlertRuntime({
+    PriceAlertSnapshot? preloadedSnap,
+    bool syncWorker = true,
+  }) async {
     try {
-      final snap = await PriceAlertPrefs.loadSnapshot();
+      final snap = preloadedSnap ?? await PriceAlertPrefs.loadSnapshot();
       if (snap != null) {
         // Online: never overwrite server prefs; only fill gaps for migration.
         if (useRemote && !offline) {
@@ -109,7 +142,9 @@ extension AppStateQuotes on AppState {
       }
       await PriceAlertPrefs.saveFrom(settings);
       _normalizeGoldApiUrl();
-      await BackgroundPriceWorker.sync(settings);
+      if (syncWorker) {
+        unawaited(BackgroundPriceWorker.sync(settings));
+      }
     } catch (_) {}
   }
 

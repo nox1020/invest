@@ -67,6 +67,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int index = 0;
+  final Set<int> _visitedTabs = <int>{0};
 
   static const titles = [
     'داشبورد',
@@ -78,7 +79,27 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   void _goTab(int i) {
     if (!mounted || i < 0 || i >= titles.length) return;
-    setState(() => index = i);
+    setState(() {
+      _visitedTabs.add(i);
+      index = i;
+    });
+  }
+
+  Widget _tabPage(int i) {
+    switch (i) {
+      case HomeTabs.dashboard:
+        return const DashboardPage();
+      case HomeTabs.withdrawals:
+        return const WithdrawalsPage();
+      case HomeTabs.trades:
+        return const TradesHubPage();
+      case HomeTabs.performance:
+        return const PerformancePage();
+      case HomeTabs.settings:
+        return const SettingsPage();
+      default:
+        return const SizedBox.shrink();
+    }
   }
 
   @override
@@ -180,11 +201,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   Widget _buildShell(BuildContext context) {
     final state = context.watch<AppState>();
     final pages = [
-      const DashboardPage(),
-      const WithdrawalsPage(),
-      const TradesHubPage(),
-      const PerformancePage(),
-      const SettingsPage(),
+      for (var i = 0; i < titles.length; i++)
+        _visitedTabs.contains(i) ? _tabPage(i) : const SizedBox.shrink(),
     ];
 
     final initialLoad = state.loading && state.metrics == null;

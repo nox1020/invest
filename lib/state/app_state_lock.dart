@@ -16,18 +16,28 @@ extension AppStateLock on AppState {
     return false;
   }
 
-  Future<void> refreshBiometricCapability() async {
-    try {
-      biometricDeviceSupported = await BiometricAuth.isDeviceSupported();
-      biometricAvailable = await BiometricAuth.hasEnrolledBiometrics();
-      if (biometricDeviceSupported) {
-        biometricLabel =
-            BiometricAuth.labelForTypes(await BiometricAuth.availableTypes());
+  Future<void> refreshBiometricCapability({bool force = false}) {
+    if (!force && _biometricProbe != null) return _biometricProbe!;
+    final job = () async {
+      try {
+        final supportedF = BiometricAuth.isDeviceSupported();
+        final availableF = BiometricAuth.hasEnrolledBiometrics();
+        final typesF = BiometricAuth.availableTypes();
+        biometricDeviceSupported = await supportedF;
+        biometricAvailable = await availableF;
+        final types = await typesF;
+        if (biometricDeviceSupported) {
+          biometricLabel = BiometricAuth.labelForTypes(types);
+        }
+        notifyListeners();
+      } catch (e, st) {
+        logLocalFailure('biometric', e, st);
+      } finally {
+        _biometricProbe = null;
       }
-      notifyListeners();
-    } catch (e, st) {
-      logLocalFailure('biometric', e, st);
-    }
+    }();
+    _biometricProbe = job;
+    return job;
   }
 
   Future<bool> unlockWithBiometric() async {
@@ -52,7 +62,7 @@ extension AppStateLock on AppState {
       if (!appLockEnabled) {
         return 'ابتدا رمز ورود برنامه را تنظیم کنید.';
       }
-      await refreshBiometricCapability();
+      await refreshBiometricCapability(force: true);
       if (!biometricDeviceSupported) {
         return 'این دستگاه از بیومتریک پشتیبانی نمی‌کند.';
       }

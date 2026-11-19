@@ -29,16 +29,27 @@ extension AppStatePortfolio on AppState {
     }
 
     final svc = remote!;
+    final initialCalendar = settings.calendar;
     final assetsF = guard('assets', () => svc.assets.listAll());
     final openF = guard('trades-open', () => svc.listOpen());
     final closedF = guard('trades-closed', () => svc.listClosed());
+    final dashF = guard('dashboard', () => svc.fetchDashboard(initialCalendar));
     final withdrawalsF = guard('withdrawals', () => svc.listWithdrawals());
     final insightsF = guard('insights', () => svc.fetchInsights());
     final settingsF = fetchSettings
         ? guard('settings', () => svc.fetchSettings())
         : Future<RemoteSettingsBundle?>.value(null);
+    final liveQuotesF = (includeQuotes && settings.livePricesEnabled)
+        ? guard('quotes', () => _fetchLiveQuoteValues())
+        : null;
     final healthF = checkApiVersion
-        ? guard('health', () => _syncApiVersion())
+        ? guard(
+            'health',
+            () => _syncApiVersion().timeout(
+              const Duration(milliseconds: 1200),
+              onTimeout: () {},
+            ),
+          )
         : Future<void>.value();
 
     final serverAssets = await assetsF;
@@ -69,15 +80,17 @@ extension AppStatePortfolio on AppState {
         }
       });
     }
-    await healthF;
-    final dash =
-        await guard('dashboard', () => svc.fetchDashboard(settings.calendar));
+    var dash = await dashF;
+    if (settings.calendar != initialCalendar) {
+      dash = await guard('dashboard', () => svc.fetchDashboard(settings.calendar));
+    }
     if (dash != null && svc.growthSeriesError != null) {
       failures.add(_StepFailure('snapshots', svc.growthSeriesError!));
     }
     final remoteWithdrawals = await withdrawalsF;
     final withdrawalsFailed = failures.any((f) => f.step == 'withdrawals');
     await insightsF;
+    await healthF;
 
     final bookComplete = assetsOk && openOk && closedOk;
     final merged = bookComplete
@@ -119,7 +132,12 @@ extension AppStatePortfolio on AppState {
       }
       await guard('checks', () => _applyChecksAfterFetch(settingsBundle));
       if (includeQuotes && settings.livePricesEnabled) {
-        await guard('quotes', () => _syncLiveQuotes());
+        final preFetched = liveQuotesF != null ? await liveQuotesF : null;
+        if (preFetched != null) {
+          await guard('quotes', () => _applyLiveQuoteValues(preFetched));
+        } else {
+          await guard('quotes', () => _syncLiveQuotes());
+        }
       } else {
         await guard('quotes', () => _overlayLiveMarks());
       }
@@ -275,11 +293,14 @@ extension AppStatePortfolio on AppState {
     required List<Trade> serverOpen,
     required List<Trade> serverClosed,
   }) async {
-    final local = await _loadPhoneBook();
     final pending = await _isPortfolioUploadPending();
     final serverEmpty = serverAssets.isEmpty &&
         serverOpen.isEmpty &&
         serverClosed.isEmpty;
+    if (!serverEmpty && !pending) {
+      return (assets: serverAssets, open: serverOpen, closed: serverClosed);
+    }
+    final local = await _loadPhoneBook();
     if (!((serverEmpty && local.hasRows) || pending)) {
       return (assets: serverAssets, open: serverOpen, closed: serverClosed);
     }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -55,7 +56,13 @@ class SessionStore {
       if (value != null) values[key] = value;
     }
     final store = SessionStore._(values);
-    await store._backfill(secure: secure, file: file, prefs: prefs);
+    if (store._needsBackfill(secure: secure, file: file, prefs: prefs)) {
+      if (debugStoreDirectory == null && _pluginsEnabled) {
+        unawaited(store._backfill(secure: secure, file: file, prefs: prefs));
+      } else {
+        await store._backfill(secure: secure, file: file, prefs: prefs);
+      }
+    }
     return store;
   }
 
@@ -116,21 +123,42 @@ class SessionStore {
     await _writeFile();
   }
 
+  bool _needsBackfill({
+    required Map<String, String> secure,
+    required Map<String, String> file,
+    required Map<String, String> prefs,
+  }) {
+    for (final key in _authKeys) {
+      final value = _values[key];
+      if (value == null) continue;
+      if ((_pluginsEnabled && secure[key] != value) || prefs[key] != value) {
+        return true;
+      }
+    }
+    return (_pluginsEnabled || debugStoreDirectory != null) &&
+        (file.length != _values.length ||
+            _authKeys.any((key) => file[key] != _values[key]));
+  }
+
   /// Copy a value that exists in only one layer into the others.
   Future<void> _backfill({
     required Map<String, String> secure,
     required Map<String, String> file,
     required Map<String, String> prefs,
   }) async {
+    final tasks = <Future<void>>[];
     for (final key in _authKeys) {
       final value = _values[key];
       if (value == null) continue;
-      if (secure[key] != value) await _writeSecure(key, value);
-      if (prefs[key] != value) await _writePrefs(key, value);
+      if (secure[key] != value) tasks.add(_writeSecure(key, value));
+      if (prefs[key] != value) tasks.add(_writePrefs(key, value));
     }
     if (file.length != _values.length ||
         _authKeys.any((key) => file[key] != _values[key])) {
-      await _writeFile();
+      tasks.add(_writeFile());
+    }
+    if (tasks.isNotEmpty) {
+      await Future.wait(tasks);
     }
   }
 
