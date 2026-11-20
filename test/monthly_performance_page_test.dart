@@ -12,6 +12,7 @@ import 'package:invest/domain/utils/biz_dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/performance_page.dart';
+import 'package:invest/ui/widgets/performance_sections.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -134,6 +135,20 @@ void main() {
         find.byKey(const ValueKey('perf-preview-month-8')),
         findsOneWidget,
       );
+      expect(find.text('برج 8 · آبان'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(
+                find.byKey(const ValueKey('perf-preview-month-net-8')))
+            .data,
+        signedPerfMoney(253500000),
+      );
+      expect(find.text('آپارتمان ونک'), findsNothing);
+      expect(find.text('طلای آب‌شده'), findsNothing);
+      expect(find.text('Bitcoin'), findsNothing);
+      expect(find.textContaining('در خالص حساب نمی‌شود'), findsNothing);
+      expect(find.byKey(const ValueKey('perf-preview-month-flag-8')),
+          findsNothing);
       expect(find.byKey(const ValueKey('biz-month-12')), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('perf-open-all-months')));
@@ -145,6 +160,14 @@ void main() {
       );
       await revealKey(tester, const ValueKey('biz-month-8'));
       expect(find.byKey(const ValueKey('biz-month-8')), findsOneWidget);
+      expect(find.text('برج 8 · آبان'), findsWidgets);
+      expect(
+        tester.widget<Text>(find.byKey(const ValueKey('biz-month-net-8'))).data,
+        signedPerfMoney(253500000),
+      );
+      expect(find.text('آپارتمان ونک'), findsNothing);
+      expect(find.text('طلای آب‌شده'), findsNothing);
+      expect(find.text('Bitcoin'), findsNothing);
       await revealKey(tester, const ValueKey('biz-month-12'));
       expect(find.byKey(const ValueKey('biz-month-12')), findsOneWidget);
 

@@ -19,6 +19,7 @@ import 'package:invest/domain/utils/money.dart';
 import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/biz_page.dart';
+import 'package:invest/ui/widgets/performance_sections.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -589,25 +590,24 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('biz-mismatch-pill')), findsOneWidget);
       await openAllMonths(tester);
-      expect(find.byKey(const ValueKey('biz-month-flag-1')), findsOneWidget);
-      await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('biz-month-tp-2')),
-        200,
-        scrollable: find.byType(Scrollable).last,
-      );
+      await revealKey(tester, const ValueKey('biz-month-1'));
+      expect(find.text('برج 1 · فروردین'), findsOneWidget);
       expect(
-        find.byKey(const ValueKey('biz-month-tp-2')),
-        findsOneWidget,
-      ); // profit w/o ops row
+        tester.widget<Text>(find.byKey(const ValueKey('biz-month-net-1'))).data,
+        signedPerfMoney(1000000),
+      );
+      expect(find.byKey(const ValueKey('biz-month-flag-1')), findsNothing);
+      await revealKey(tester, const ValueKey('biz-month-2'));
       expect(
         tester.widget<Text>(find.byKey(const ValueKey('biz-month-net-2'))).data,
-        formatMoney(800),
+        signedPerfMoney(800),
       );
-      await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('biz-month-1')),
-        -200,
-        scrollable: find.byType(Scrollable).last,
-      );
+      await revealKey(tester, const ValueKey('biz-month-1'));
+      await tester.tap(find.byKey(const ValueKey('biz-month-1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('perf-month-flag-1')), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
       await openMonthEditor(tester, 1);
       expect(
         find.byKey(const ValueKey('biz-m-fill')),
@@ -637,7 +637,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(s.ops[1]!['income'], 0);
       expect(store.snap.months.first.net, 1000000);
-      expect(find.byKey(const ValueKey('biz-month-flag-1')), findsNothing);
+      expect(find.byKey(const ValueKey('perf-month-flag-1')), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
@@ -741,8 +741,19 @@ void main() {
     await openAllMonths(tester);
     await tester.tap(find.byKey(const ValueKey('biz-months-filter-active')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('biz-month-bought-8')), findsOneWidget);
+    await revealKey(tester, const ValueKey('biz-month-8'));
+    expect(find.byKey(const ValueKey('biz-month-8')), findsOneWidget);
+    expect(find.text('برج 8 · آبان'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('biz-month-net-8'))).data,
+      signedPerfMoney(0),
+    );
+    expect(find.byKey(const ValueKey('biz-month-bought-8')), findsNothing);
     expect(find.byKey(const ValueKey('biz-month-1')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('biz-month-8')));
+    await tester.pumpAndSettle();
+    expect(find.text('برج'), findsOneWidget);
+    expect(find.textContaining('در خالص نیست'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1024,8 +1035,14 @@ void main() {
       );
 
       await openAllMonths(tester);
-      expect(find.byKey(const ValueKey('biz-month-note-1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('biz-month-note-1')), findsNothing);
+      await revealKey(tester, const ValueKey('biz-month-1'));
+      await tester.tap(find.byKey(const ValueKey('biz-month-1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('perf-month-note-1')), findsOneWidget);
       expect(find.text('یادداشت تست فروردین'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
 
       // Active filter hides empty months (month 2 has no ops/trades)
       await tester.tap(find.byKey(const ValueKey('biz-months-filter-active')));
@@ -1057,9 +1074,10 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(s.notes[1], 'یادداشت ویرایش‌شده');
+      expect(find.text('یادداشت ویرایش‌شده'), findsOneWidget);
       await tester.pageBack();
       await tester.pumpAndSettle();
-      expect(find.text('یادداشت ویرایش‌شده'), findsOneWidget);
+      expect(find.text('یادداشت ویرایش‌شده'), findsNothing);
 
       // Offline queued month edit renders PendingSyncMark
       await tester.runAsync(() async {
