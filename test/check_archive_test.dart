@@ -7,6 +7,7 @@ import 'package:invest/domain/services/dashboard_digest.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/checks_page.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 BankCheck _c(int id, String dir, double amount, {String? archivedAt, String status = checkStatusPending, String due = '2026-10-25'}) =>
     BankCheck(
@@ -24,14 +25,19 @@ BankCheck _c(int id, String dir, double amount, {String? archivedAt, String stat
 
 /// Let the save's real async work (local DB, prefs) finish, then redraw.
 Future<void> _settle(WidgetTester tester) async {
-  for (var i = 0; i < 5; i++) {
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+  for (var i = 0; i < 24; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
     await tester.pump();
+    if (i >= 8 && find.byType(BottomSheet).evaluate().isEmpty) break;
   }
   await tester.pumpAndSettle();
 }
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   final today = DateTime(2026, 10, 23);
   final book = [
     _c(1, checkDirectionReceivable, 100),
@@ -114,7 +120,9 @@ void main() {
     expect(find.text('طرف 2'), findsNothing);
     expect(find.text('بایگانی (1)'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('check-filter-archived')));
+    final archiveChip = find.byKey(const ValueKey('check-filter-archived'));
+    await tester.ensureVisible(archiveChip);
+    await tester.tap(archiveChip);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('check-archive-note')), findsOneWidget);
     expect(find.text('طرف 2'), findsOneWidget);
@@ -272,7 +280,9 @@ void main() {
     expect(find.text('طرف 2'), findsNothing);
     expect(find.text('بایگانی (2)'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('check-filter-archived')));
+    final archiveChip = find.byKey(const ValueKey('check-filter-archived'));
+    await tester.ensureVisible(archiveChip);
+    await tester.tap(archiveChip);
     await tester.pumpAndSettle();
     expect(find.text('طرف 1'), findsOneWidget);
     expect(find.text('طرف 2'), findsOneWidget);

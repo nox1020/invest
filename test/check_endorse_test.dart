@@ -7,6 +7,7 @@ import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/checks_page.dart';
 import 'package:invest/ui/pages/global_search_page.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 BankCheck _c(int id, {String status = checkStatusPending, String to = '', String what = ''}) => BankCheck(
       id: id,
@@ -23,9 +24,12 @@ BankCheck _c(int id, {String status = checkStatusPending, String to = '', String
     );
 
 Future<void> _settle(WidgetTester tester) async {
-  for (var i = 0; i < 5; i++) {
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+  for (var i = 0; i < 24; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
     await tester.pump();
+    if (i >= 8 && find.byType(BottomSheet).evaluate().isEmpty) break;
   }
   await tester.pumpAndSettle();
 }
@@ -34,6 +38,7 @@ Future<AppState> _pump(WidgetTester tester, List<BankCheck> book) async {
   final state = AppState()
     ..loading = false
     ..authenticated = true
+    ..useRemote = false
     ..settings = AppSettings(calendar: 'gregorian')
     ..checks = book;
   tester.view.physicalSize = const Size(420, 1600);
@@ -49,6 +54,8 @@ Future<AppState> _pump(WidgetTester tester, List<BankCheck> book) async {
 }
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   test('fields round-trip, clean up, and an older server cannot erase them', () {
     final a = prepareBankCheck(_c(1, status: checkStatusEndorsed, to: ' فروشگاه  نمونه ', what: 'مصالح'));
     expect(a.endorsedTo, 'فروشگاه نمونه');
@@ -102,7 +109,9 @@ void main() {
     expect(c.endorsedTo, 'آقای نمونه');
     expect(c.endorsedFor, 'خرید مصالح');
     expect(find.text('بایگانی (1)'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('check-filter-archived')));
+    final archiveChip = find.byKey(const ValueKey('check-filter-archived'));
+    await tester.ensureVisible(archiveChip);
+    await tester.tap(archiveChip);
     await tester.pumpAndSettle();
     expect(find.text('خرج شده به آقای نمونه · بابت خرید مصالح'), findsOneWidget);
 
