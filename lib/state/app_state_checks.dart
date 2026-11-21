@@ -345,12 +345,28 @@ extension AppStateChecks on AppState {
         'در حالت آفلاین فقط مشاهده ممکن است. برای ذخیره آنلاین شوید.',
       );
     }
+    final existing = draft.id == null
+        ? null
+        : checks.where((c) => c.id == draft.id).firstOrNull;
     final prepared = prepareBankCheck(draft, others: checks);
     final now = nowIso();
     final isNew = draft.id == null;
     final id = prepared.id ?? _nextCheckId();
+    // Any transaction that becomes settled/handled (cleared, endorsed,
+    // cancelled) moves into the archive automatically, while explicitly
+    // restoring an already-settled row keeps it out until status changes.
+    final justSettled =
+        (existing == null || !existing.isSettled) && prepared.isSettled;
+    final reopenedFromArchive = existing != null &&
+        existing.isSettled &&
+        !prepared.isSettled &&
+        prepared.isArchived &&
+        draft.archivedAt == existing.archivedAt;
     final saved = prepared.copyWith(
       id: id,
+      archivedAt:
+          justSettled && !prepared.isArchived ? now : prepared.archivedAt,
+      clearArchived: reopenedFromArchive,
       createdAt: prepared.createdAt.trim().isEmpty ? now : prepared.createdAt,
       updatedAt: now,
     );

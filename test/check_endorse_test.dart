@@ -98,8 +98,12 @@ void main() {
 
     final c = state.checks.single;
     expect(c.status, checkStatusEndorsed);
+    expect(c.isArchived, isTrue);
     expect(c.endorsedTo, 'آقای نمونه');
     expect(c.endorsedFor, 'خرید مصالح');
+    expect(find.text('بایگانی (1)'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('check-filter-archived')));
+    await tester.pumpAndSettle();
     expect(find.text('خرج شده به آقای نمونه · بابت خرید مصالح'), findsOneWidget);
 
     final hits = buildSearchItems(state)

@@ -155,4 +155,126 @@ void main() {
     expect(state.checkLedger.openReceivable, 0);
     expect(find.text('طرف 1'), findsNothing);
   });
+
+  test('settling a transaction auto-archives it; partial, bounce, and manual restore behave cleanly',
+      () async {
+    final state = AppState()
+      ..loading = false
+      ..authenticated = true
+      ..useRemote = false
+      ..checks = [
+        _c(1, checkDirectionReceivable, 1000),
+        _c(2, checkDirectionPayable, 800),
+        _c(3, checkDirectionReceivable, 500),
+        _c(4, checkDirectionPayable, 600),
+      ];
+
+    // Partial payment keeps the check active (not archived).
+    await state.recordCheckPayment(
+      state.checks.firstWhere((c) => c.id == 1),
+      amount: 400,
+      paidAt: '2026-10-20',
+    );
+    var c1 = state.checks.firstWhere((c) => c.id == 1);
+    expect(c1.status, checkStatusPending);
+    expect(c1.isArchived, isFalse);
+
+    // Final payment covering the remainder clears & auto-archives it.
+    await state.recordCheckPayment(
+      c1,
+      amount: 600,
+      paidAt: '2026-10-21',
+    );
+    c1 = state.checks.firstWhere((c) => c.id == 1);
+    expect(c1.status, checkStatusCleared);
+    expect(c1.isArchived, isTrue);
+
+    // Full settlement button helper auto-archives.
+    await state.settleCheckPayment(state.checks.firstWhere((c) => c.id == 2));
+    var c2 = state.checks.firstWhere((c) => c.id == 2);
+    expect(c2.status, checkStatusCleared);
+    expect(c2.isArchived, isTrue);
+
+    // Bounced is NOT handled/settled, so it stays active.
+    await state.setCheckStatus(
+      state.checks.firstWhere((c) => c.id == 3),
+      checkStatusBounced,
+    );
+    var c3 = state.checks.firstWhere((c) => c.id == 3);
+    expect(c3.status, checkStatusBounced);
+    expect(c3.isArchived, isFalse);
+
+    // Cancelling marks settled and auto-archives.
+    await state.setCheckStatus(
+      state.checks.firstWhere((c) => c.id == 4),
+      checkStatusCancelled,
+    );
+    var c4 = state.checks.firstWhere((c) => c.id == 4);
+    expect(c4.status, checkStatusCancelled);
+    expect(c4.isArchived, isTrue);
+
+    // Explicitly restoring a settled check leaves it unarchived even if edited.
+    await state.setCheckArchived(c1, false);
+    c1 = state.checks.firstWhere((c) => c.id == 1);
+    expect(c1.isArchived, isFalse);
+    await state.saveCheck(c1.copyWith(note: 'توضیح بعد از بازگردانی'));
+    c1 = state.checks.firstWhere((c) => c.id == 1);
+    expect(c1.isArchived, isFalse);
+
+    // Re-opening an archived settled check back to pending unarchives it.
+    await state.setCheckStatus(c2, checkStatusPending);
+    c2 = state.checks.firstWhere((c) => c.id == 2);
+    expect(c2.status, checkStatusPending);
+    expect(c2.isArchived, isFalse);
+  });
+
+  testWidgets('UI: marking cleared or full-settling moves transaction into archive automatically',
+      (tester) async {
+    final state = AppState()
+      ..loading = false
+      ..authenticated = true
+      ..useRemote = false
+      ..settings = AppSettings(calendar: 'gregorian')
+      ..checks = [
+        _c(1, checkDirectionReceivable, 2000000),
+        _c(2, checkDirectionPayable, 1500000),
+      ];
+    tester.view.physicalSize = const Size(420, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: state,
+      child: const MaterialApp(home: ChecksPage()),
+    ));
+    await tester.pumpAndSettle();
+
+    // Handle check 1 via status button «وصول شده»
+    await tester.tap(find.text('طرف 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(OutlinedButton, 'وصول شده'));
+    await _settle(tester);
+
+    expect(state.checks.firstWhere((c) => c.id == 1).isArchived, isTrue);
+    expect(find.text('طرف 1'), findsNothing);
+    expect(find.text('بایگانی (1)'), findsOneWidget);
+
+    // Handle check 2 via full settlement «تسویه کامل»
+    await tester.tap(find.text('طرف 2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('check-pay-full')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('check-pay-full-confirm')));
+    await _settle(tester);
+
+    expect(state.checks.firstWhere((c) => c.id == 2).isArchived, isTrue);
+    expect(find.text('طرف 2'), findsNothing);
+    expect(find.text('بایگانی (2)'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('check-filter-archived')));
+    await tester.pumpAndSettle();
+    expect(find.text('طرف 1'), findsOneWidget);
+    expect(find.text('طرف 2'), findsOneWidget);
+  });
 }

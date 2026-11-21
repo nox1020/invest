@@ -935,14 +935,16 @@ class _CheckDetailSheet extends StatelessWidget {
   Future<void> _payPartial(BuildContext context, BankCheck check) async {
     final picked = await askCheckPayment(context, check);
     if (picked == null || !context.mounted) return;
-    await _commitPayment(context, () {
-      return context.read<AppState>().recordCheckPayment(
+    await _commitPayment(
+      context,
+      wasArchived: check.isArchived,
+      run: () => context.read<AppState>().recordCheckPayment(
             check,
             amount: picked.amount,
             paidAt: picked.paidAt,
             note: picked.note,
-          );
-    });
+          ),
+    );
   }
 
   Future<void> _payFull(BuildContext context, BankCheck check) async {
@@ -968,22 +970,30 @@ class _CheckDetailSheet extends StatelessWidget {
       ),
     );
     if (ok != true || !context.mounted) return;
-    await _commitPayment(context, () {
-      return context.read<AppState>().settleCheckPayment(check);
-    });
+    await _commitPayment(
+      context,
+      wasArchived: check.isArchived,
+      run: () => context.read<AppState>().settleCheckPayment(check),
+    );
   }
 
   Future<void> _commitPayment(
-    BuildContext context,
-    Future<({BankCheck check, bool synced})> Function() run,
-  ) async {
+    BuildContext context, {
+    required bool wasArchived,
+    required Future<({BankCheck check, bool synced})> Function() run,
+  }) async {
     final state = context.read<AppState>();
+    final messenger = ScaffoldMessenger.maybeOf(context);
     try {
       final result = await run();
       if (!context.mounted) return;
-      if (!result.synced) {
+      final autoArchived = !wasArchived && result.check.isArchived;
+      if (autoArchived) {
+        Navigator.pop(context);
+        _showAutoArchivedSnack(messenger, state, result.check, synced: result.synced);
+      } else if (!result.synced) {
         final detail = state.checkSyncError;
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger?.showSnackBar(
           SnackBar(
             content: Text(
               (detail != null && detail.trim().isNotEmpty)
@@ -1004,6 +1014,7 @@ class _CheckDetailSheet extends StatelessWidget {
     _StatusAction action,
   ) async {
     final state = context.read<AppState>();
+    final messenger = ScaffoldMessenger.maybeOf(context);
     String? to;
     String? what;
     if (action.status == checkStatusEndorsed) {
@@ -1020,9 +1031,15 @@ class _CheckDetailSheet extends StatelessWidget {
         endorsedFor: what,
       );
       if (!context.mounted) return;
-      if (!synced) {
+      final latest = state.checks.where((c) => c.id == check.id).firstOrNull;
+      final autoArchived =
+          !check.isArchived && latest != null && latest.isArchived;
+      Navigator.pop(context);
+      if (autoArchived) {
+        _showAutoArchivedSnack(messenger, state, latest, synced: synced);
+      } else if (!synced) {
         final detail = state.checkSyncError;
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger?.showSnackBar(
           SnackBar(
             content: Text(
               (detail != null && detail.trim().isNotEmpty)
@@ -1032,7 +1049,6 @@ class _CheckDetailSheet extends StatelessWidget {
           ),
         );
       }
-      Navigator.pop(context);
     } catch (e) {
       if (context.mounted) showUserError(context, e);
     }
@@ -1639,15 +1655,20 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
       archiveFromServer: widget.existing?.archiveFromServer ?? false,
       createdAt: widget.existing?.createdAt ?? '',
     );
+    final wasArchived = widget.existing?.isArchived ?? false;
     setState(() => _saving = true);
     try {
-      final result = await context.read<AppState>().saveCheck(draft);
+      final state = context.read<AppState>();
+      final result = await state.saveCheck(draft);
       if (!mounted) return;
-      final messenger = ScaffoldMessenger.of(context);
+      final messenger = ScaffoldMessenger.maybeOf(context);
       Navigator.pop(context);
-      if (!result.synced) {
-        final detail = context.read<AppState>().checkSyncError;
-        messenger.showSnackBar(
+      if (!wasArchived && result.check.isArchived) {
+        _showAutoArchivedSnack(messenger, state, result.check,
+            synced: result.synced);
+      } else if (!result.synced) {
+        final detail = state.checkSyncError;
+        messenger?.showSnackBar(
           SnackBar(
             content: Text(
               (detail != null && detail.trim().isNotEmpty)
@@ -1664,6 +1685,30 @@ class _CheckEditorPageState extends State<CheckEditorPage> {
       if (mounted) setState(() => _saving = false);
     }
   }
+}
+
+void _showAutoArchivedSnack(
+  ScaffoldMessengerState? messenger,
+  AppState state,
+  BankCheck item, {
+  required bool synced,
+}) {
+  if (messenger == null) return;
+  messenger.hideCurrentSnackBar();
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(
+        [
+          'تراکنش رسیدگی و به‌صورت خودکار بایگانی شد.',
+          if (!synced) 'روی دستگاه ماند و بعداً با سرور همگام می‌شود.',
+        ].join(' '),
+      ),
+      action: SnackBarAction(
+        label: 'برگرداندن',
+        onPressed: () => state.setCheckArchived(item, false),
+      ),
+    ),
+  );
 }
 
 /// Archive or restore [check]. An open cheque asks first, because archiving
@@ -1758,9 +1803,10 @@ class _ArchiveNote extends StatelessWidget {
           SizedBox(width: 8),
           Expanded(
             child: Text(
-              'چک‌های بایگانی‌شده پاک نشده‌اند، ولی در ارزش پورتفو، جمع چک‌ها، '
-              'هشدارها و سررسیدها حساب نمی‌شوند. برای بازگردانی، چک را بکشید '
-              'یا باز کنید و «بازگردانی» را بزنید.',
+              'تراکنش‌های رسیدگی‌شده (وصول، پاس، تسویه، خرج یا باطل‌شده) '
+              'به‌صورت خودکار به بایگانی می‌آیند و در ارزش پورتفو، جمع‌ها و '
+              'هشدارها حساب نمی‌شوند. برای بازگردانی، مورد را بکشید یا باز کنید '
+              'و «بازگردانی» را بزنید.',
               textAlign: TextAlign.right,
               style:
                   TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.6),
