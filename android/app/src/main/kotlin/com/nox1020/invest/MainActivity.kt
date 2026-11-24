@@ -63,6 +63,18 @@ class MainActivity : FlutterFragmentActivity() {
                         runOnUiThread { result.success(list) }
                     }.start()
                 }
+                "cashflowInbox" -> {
+                    val since = (call.argument<Number>("since") ?: 0).toLong()
+                    val app = applicationContext
+                    Thread {
+                        try {
+                            val list = SmsReceiver.readMovements(app, since)
+                            runOnUiThread { result.success(list) }
+                        } catch (e: Throwable) {
+                            runOnUiThread { result.error("cashflow_inbox_failed", e.javaClass.simpleName, null) }
+                        }
+                    }.start()
+                }
                 "takePending" -> synchronized(pendingSms) {
                     val copy = ArrayList(pendingSms); pendingSms.clear(); result.success(copy)
                 }

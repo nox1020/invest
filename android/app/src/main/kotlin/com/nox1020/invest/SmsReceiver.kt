@@ -30,10 +30,16 @@ class SmsReceiver : BroadcastReceiver() {
         private const val CHANNEL = "bank_sms"
         private const val NATIVE = "invest_bank_sms_native"
 
-        private val debit = Regex("برداشت|خرید|انتقال|کسر|پرداخت|[0-9۰-۹][0-9۰-۹,٬]*\\s*-|-\\s*[0-9۰-۹]")
+        // Kept in sync with test/bank_sms_native_filter_test.dart (it reads these literals).
+        private val debit = Regex("برداشت|خرید|انتقال|کسر|پرداخت|بدهکار|کارت\\s*به\\s*کارت|پایا|ساتنا|از\\s*(حساب|کارت)\\s*(ی\\s*)?شما|[0-9۰-۹][0-9۰-۹,٬]*\\s*-|-\\s*[0-9۰-۹]")
+        private val credit = Regex("واریز|بستانکار|به\\s*(حساب|کارت|سپرده)\\s*(ی\\s*)?شما|[0-9۰-۹][0-9۰-۹,٬]*\\s*\\+|\\+\\s*[0-9۰-۹]")
         private val skip = Regex("رمز|کد\\s*(تایید|تأیید|یکبار|پویا)|otp", RegexOption.IGNORE_CASE)
 
         fun looksLikeWithdrawal(body: String) = debit.containsMatchIn(body) && !skip.containsMatchIn(body)
+
+        /** Any bank money movement (in or out): used by the cashflow card. */
+        fun looksLikeMovement(body: String) =
+            (debit.containsMatchIn(body) || credit.containsMatchIn(body)) && !skip.containsMatchIn(body)
 
         fun fingerprint(addr: String, body: String): String {
             val d = MessageDigest.getInstance("SHA-1").digest("${addr.trim()}\n${body.trim()}".toByteArray(Charsets.UTF_8))
@@ -66,6 +72,26 @@ class SmsReceiver : BroadcastReceiver() {
                 while (c.moveToNext() && out.size < 300) {
                     val body = c.getString(1) ?: continue
                     if (!looksLikeWithdrawal(body)) continue
+                    out.add(mapOf("address" to (c.getString(0) ?: ""), "body" to body, "date" to c.getLong(2)))
+                }
+            }
+            return out
+        }
+
+        /**
+         * Cashflow card scan: every in/out bank SMS since [since], no 300 cap
+         * (a hard safety limit only). Raw text goes to Dart for parsing and is
+         * never stored.
+         */
+        fun readMovements(ctx: Context, since: Long): List<Map<String, Any>> {
+            val out = mutableListOf<Map<String, Any>>()
+            ctx.contentResolver.query(
+                Uri.parse("content://sms/inbox"), arrayOf("address", "body", "date"),
+                "date > ?", arrayOf(since.toString()), "date DESC"
+            )?.use { c ->
+                while (c.moveToNext() && out.size < 20000) {
+                    val body = c.getString(1) ?: continue
+                    if (!looksLikeMovement(body)) continue
                     out.add(mapOf("address" to (c.getString(0) ?: ""), "body" to body, "date" to c.getLong(2)))
                 }
             }
@@ -139,14 +165,17 @@ class SmsReceiver : BroadcastReceiver() {
         val addr = parts[0].originatingAddress ?: ""
         val body = parts.joinToString("") { it.messageBody ?: "" }
         val date = System.currentTimeMillis()
-        if (!looksLikeWithdrawal(body)) return
+        val withdrawal = looksLikeWithdrawal(body)
+        if (!withdrawal && !looksLikeMovement(body)) return
         val ch = MainActivity.channel
         if (MainActivity.resumed && ch != null) {
+            // Deposits too while the app is open: the cashflow card updates live
+            // (Dart never offers a deposit as a withdrawal).
             val sms = mapOf<String, Any>("address" to addr, "body" to body, "date" to date)
             Handler(Looper.getMainLooper()).post { ch.invokeMethod("smsArrived", sms) }
             return
         }
-        notify(ctx, addr, body, date)
+        if (withdrawal) notify(ctx, addr, body, date)
     }
 }
 

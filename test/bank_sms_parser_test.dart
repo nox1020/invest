@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/domain/services/bank_sms_parser.dart';
 import 'package:invest/ui/widgets/bank_sms_ui.dart';
 
+import 'support/bank_sms_samples.dart';
+
 void main() {
   final rx = DateTime(2026, 10, 25, 14, 30);
   BankSmsItem? p(String s, String b) => parseBankSms(s, b, rx);
@@ -65,8 +67,7 @@ void main() {
     expect(p('98700000', 'برداشت 20,000 تومان')!.toman, 20000);
   });
 
-  test('deposit SMS is incoming; OTP, ads and bare plus amounts are ignored',
-      () {
+  test('deposit SMS is incoming; OTP and ads are ignored', () {
     final dep = p('Mellat', 'بانک ملت\nواریز: 1,000,000\nمانده: 3,000,000')!;
     expect(dep.isIn, isTrue);
     expect(dep.direction, bankSmsDirectionIn);
@@ -75,7 +76,12 @@ void main() {
     expect(dep.bank, 'بانک ملت');
     expect(p('Mellat', 'رمز پویا: 123456 مبلغ خرید 1,000,000'), isNull);
     expect(p('Ad', 'تخفیف ویژه! همین حالا خرید کنید'), isNull);
-    expect(p('Saman', '+500,000 مانده 900,000'), isNull);
+    // A signed «+» amount from a bank with a balance line is a deposit.
+    final plus = p('Saman', '+500,000 مانده 900,000')!;
+    expect(plus.isIn, isTrue);
+    expect(plus.toman, 50000);
+    // Without any bank signal it is still ignored.
+    expect(p('Shop', '+500,000 امتیاز هدیه'), isNull);
   });
 
   test('بستانکار and Blu-style واریز are incoming, rial or toman', () {
@@ -170,5 +176,34 @@ void main() {
         isNull);
     expect(
         p('98700000', 'برداشت قسط وام: 3,000,000 مانده: 9,000,000'), isNotNull);
+  });
+
+  group('multi-bank samples', () {
+    for (final s in bankSmsSamples) {
+      test(s.name, () {
+        final it = p(s.sender, s.body);
+        if (s.dir == null) {
+          expect(it, isNull);
+          return;
+        }
+        expect(it, isNotNull);
+        expect(it!.direction, s.dir);
+        if (s.toman != null) expect(it.toman, s.toman);
+        if (s.balance != null) expect(it.balanceToman, s.balance);
+      });
+    }
+  });
+
+  test('real 14xx dates without separators are still not amounts', () {
+    final r = p(
+        'BMI', 'بانک ملی\nبرداشت 2,000,000\nتاریخ 14050903\nمانده 9,000,000')!;
+    expect(r.toman, 200000);
+  });
+
+  test('«+98…» phone numbers are not treated as deposits', () {
+    final r = p('Mellat',
+        'بانک ملت\nبرداشت: 1,000,000\nپشتیبانی +982112345678\nمانده: 2,000,000')!;
+    expect(r.isOut, isTrue);
+    expect(r.toman, 100000);
   });
 }

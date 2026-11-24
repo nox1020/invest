@@ -82,6 +82,15 @@ class BankSmsStore extends ChangeNotifier {
   static const _kWant = 'bank_sms_want_v1';
   static const _kCards = 'bank_sms_card_person_v1';
   static const _maxHandled = 5000;
+  static const _kRejected = 'bank_sms_rejected_v1';
+  static const _maxRejected = 5000;
+  static const _kCashflow = 'bank_sms_cashflow_v1';
+
+  /// Bump when the parser changes so the cashflow index is rebuilt.
+  static const cashflowIndexVersion = 2;
+
+  /// Re-read this much before the last cashflow scan (late inbox writes).
+  static const _cfOverlapMs = 15 * 60 * 1000;
 
   /// Card/account tail → PWO person id (learned on confirm, editable).
   final Map<String, String> cardPerson = {};
@@ -98,6 +107,18 @@ class BankSmsStore extends ChangeNotifier {
   /// Decided SMS: date, bank, amount, status only (never the SMS text).
   final List<BankSmsDecision> history = [];
   final List<String> _handled = [];
+
+  /// SMS the user rejected («رد»): never counted on the cashflow card.
+  final Set<String> _rejected = <String>{};
+
+  /// Cashflow index: parsed in/out movements by fingerprint (no SMS text),
+  /// covering inbox dates from [_cfFrom] up to the last scan [_cfTo].
+  final Map<String, BankSmsItem> _cf = {};
+  int _cfFrom = 0;
+  int _cfTo = 0;
+
+  /// Last cashflow-scan failure (short, non-sensitive), or null.
+  String? cashflowError;
   final List<BankSmsItem> pending = [];
   BankSmsCaps caps = const BankSmsCaps();
 
@@ -205,6 +226,10 @@ class BankSmsStore extends ChangeNotifier {
     _handled
       ..clear()
       ..addAll(safe(() => p.getStringList(_kHandled)) ?? const []);
+    _rejected
+      ..clear()
+      ..addAll(safe(() => p.getStringList(_kRejected)) ?? const []);
+    _loadCashflow(safe(() => p.getString(_kCashflow)));
     cardPerson.clear();
     try {
       final m = jsonDecode(safe(() => p.getString(_kCards)) ?? '{}');
@@ -259,6 +284,49 @@ class BankSmsStore extends ChangeNotifier {
         _kPending, [for (final it in pending) jsonEncode(it.toJson())]);
     await p.setStringList(
         _kHistory, [for (final d in history) jsonEncode(d.toJson())]);
+    await p.setStringList(_kRejected, _rejected.toList());
+  }
+
+  void _addRejected(String fp) {
+    _rejected.remove(fp);
+    _rejected.add(fp);
+    if (_rejected.length > _maxRejected) {
+      final drop = _rejected.take(_rejected.length - _maxRejected).toList();
+      _rejected.removeAll(drop);
+    }
+  }
+
+  void _loadCashflow(String? raw) {
+    _cf.clear();
+    _cfFrom = 0;
+    _cfTo = 0;
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final m = jsonDecode(raw);
+      if (m is! Map || m['v'] != cashflowIndexVersion) return;
+      for (final o in (m['items'] as List?) ?? const []) {
+        final it = BankSmsItem.fromJson(o);
+        if (it != null) _cf[it.fp] = it;
+      }
+      _cfFrom = (m['from'] as num?)?.toInt() ?? 0;
+      _cfTo = (m['to'] as num?)?.toInt() ?? 0;
+    } catch (_) {
+      _cf.clear();
+      _cfFrom = 0;
+      _cfTo = 0;
+    }
+  }
+
+  Future<void> _saveCashflow() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString(
+        _kCashflow,
+        jsonEncode({
+          'v': cashflowIndexVersion,
+          'from': _cfFrom,
+          'to': _cfTo,
+          'items': [for (final it in _cf.values) it.toJson()],
+        }));
   }
 
   /// «رد همه»: every pending item → history as rejected, one disk write.
@@ -277,6 +345,7 @@ class BankSmsStore extends ChangeNotifier {
               decidedAt: now,
               fp: it.fp,
               direction: it.direction));
+      _addRejected(it.fp);
       _handled.remove(it.fp);
       _handled.add(it.fp);
     }
@@ -307,6 +376,10 @@ class BankSmsStore extends ChangeNotifier {
     pending.clear();
     history.clear();
     _handled.clear();
+    _rejected.clear();
+    _cf.clear();
+    _cfFrom = 0;
+    _cfTo = 0;
     cardPerson.clear();
     lastScanMs = 0;
     notifyListeners();
@@ -316,6 +389,7 @@ class BankSmsStore extends ChangeNotifier {
     try {
       final p = await SharedPreferences.getInstance();
       await p.remove(_kCards);
+      await p.remove(_kCashflow);
       await _save();
     } catch (e) {
       _err('reset', e);
@@ -383,6 +457,7 @@ class BankSmsStore extends ChangeNotifier {
     await load();
     if (!enabled) return const [];
     final added = <BankSmsItem>[];
+    var cfChanged = false;
     for (final m in raw) {
       if (m is! Map) continue;
       final addr = '${m['address'] ?? ''}';
@@ -392,7 +467,14 @@ class BankSmsStore extends ChangeNotifier {
       if (body.isEmpty) continue;
       final it =
           parseBankSms(addr, body, DateTime.fromMillisecondsSinceEpoch(ms));
-      if (it == null || isHandled(it.fp)) continue;
+      if (it == null) continue;
+      // Every parsed movement feeds the cashflow card at once (a just-arrived
+      // SMS may not be in the inbox provider yet).
+      if (!_cf.containsKey(it.fp)) {
+        _cf[it.fp] = it;
+        cfChanged = true;
+      }
+      if (isHandled(it.fp)) continue;
       // Deposits are counted on the cashflow card, not offered as برداشت.
       if (it.isIn) continue;
       if (_isRecorded(it.tag)) {
@@ -412,7 +494,12 @@ class BankSmsStore extends ChangeNotifier {
     }
     pending.sort((a, b) => b.at.compareTo(a.at));
     await _save();
-    if (added.isNotEmpty) notifyListeners();
+    if (cfChanged) {
+      try {
+        await _saveCashflow();
+      } catch (_) {}
+    }
+    if (added.isNotEmpty || cfChanged) notifyListeners();
     return added;
   }
 
@@ -443,6 +530,11 @@ class BankSmsStore extends ChangeNotifier {
       history.removeRange(_maxHistory, history.length);
     }
     pending.removeWhere((x) => x.fp == fp);
+    if (status == 'rejected') {
+      _addRejected(fp);
+    } else {
+      _rejected.remove(fp);
+    }
     _handled.remove(fp);
     _handled.add(fp);
     if (_handled.length > _maxHandled) {
@@ -604,57 +696,126 @@ class BankSmsStore extends ChangeNotifier {
   /// Switch is on and the device can receive or read bank SMS.
   bool get smsAvailable => enabled && (caps.read || caps.receive);
 
-  /// Parsed in/out movements since [since], without changing lastScanMs,
-  /// pending, or history. Deposits are included. Raw SMS text is not kept.
+  /// SMS arrive live but the inbox cannot be read: cashflow totals only
+  /// include SMS received while the app could see them.
+  bool get smsInboxUnreadable => enabled && caps.receive && !caps.read;
+
+  /// Parsed in/out movements dated on/after [since], without changing
+  /// lastScanMs, pending, or history. Deposits are included; SMS the user
+  /// rejected are not. Raw SMS text is not kept.
+  ///
+  /// The inbox is read incrementally into a cached index: only the first call
+  /// for an earlier [since] reads that whole range; later calls read just the
+  /// SMS that arrived since the previous scan.
   Future<List<BankSmsItem>> movementsSince(DateTime since) async {
     await load();
-    final items = <BankSmsItem>[];
-
-    bool isDup(BankSmsItem it) {
-      for (final x in items) {
-        if (x.hasRealTag && it.hasRealTag && x.fp == it.fp) return true;
-        if ((x.toman - it.toman).abs() < 1 &&
-            x.bank == it.bank &&
-            x.direction == it.direction &&
-            x.at.millisecondsSinceEpoch == it.at.millisecondsSinceEpoch) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    void add(BankSmsItem it) {
-      if (it.at.isBefore(since)) return;
-      if (isDup(it)) return;
-      items.add(it);
-    }
-
+    cashflowError = null;
+    final sinceMs = since.millisecondsSinceEpoch;
     if (smsAvailable && caps.read) {
       try {
-        final raw = await channel.invokeMethod<List<Object?>>(
-            'inbox', {'since': since.millisecondsSinceEpoch});
-        for (final m in raw ?? const <Object?>[]) {
-          if (m is! Map) continue;
-          final addr = '${m['address'] ?? ''}';
-          final body = '${m['body'] ?? ''}';
-          final ms = (m['date'] as num?)?.toInt() ??
-              DateTime.now().millisecondsSinceEpoch;
-          if (body.isEmpty) continue;
-          final it =
-              parseBankSms(addr, body, DateTime.fromMillisecondsSinceEpoch(ms));
-          if (it != null) add(it);
-        }
-      } catch (_) {}
+        await _cfScan(sinceMs);
+      } catch (e) {
+        var m = '${e.runtimeType}';
+        if (e is PlatformException) m = e.code;
+        cashflowError = m;
+      }
+    }
+
+    String key(BankSmsItem it) =>
+        '${it.bank}|${it.direction}|${it.at.millisecondsSinceEpoch}|${it.toman.round()}';
+    final rejectedKeys = <String>{
+      for (final d in history)
+        if (d.status == 'rejected') key(d.toItem()),
+    };
+    final out = <String, BankSmsItem>{};
+    final keys = <String>{};
+    void add(BankSmsItem it) {
+      if (it.at.millisecondsSinceEpoch < sinceMs) return;
+      if (_rejected.contains(it.fp)) return;
+      final k = key(it);
+      if (rejectedKeys.contains(k)) return;
+      if (out.containsKey(it.fp) || keys.contains(k)) return;
+      out[it.fp] = it;
+      keys.add(k);
+    }
+
+    for (final it in _cf.values) {
+      add(it);
     }
     for (final it in pending) {
       add(it);
     }
     for (final d in history) {
+      if (d.status == 'rejected') continue;
       add(d.toItem());
     }
-    items.sort((a, b) => b.at.compareTo(a.at));
+    final items = out.values.toList()..sort((a, b) => b.at.compareTo(a.at));
     return items;
   }
+
+  Future<void> _cfScan(int sinceMs) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final widen = _cfFrom == 0 || sinceMs < _cfFrom;
+    final from = widen
+        ? sinceMs
+        : (_cfTo - _cfOverlapMs > sinceMs ? _cfTo - _cfOverlapMs : sinceMs);
+    final raw = await _readMovements(from);
+    final parsed = raw.length > 200
+        ? await compute(parseBankSmsBatch, raw)
+        : parseBankSmsBatch(raw);
+    var changed = widen;
+    for (final it in parsed) {
+      if (_cf.containsKey(it.fp)) continue;
+      _cf[it.fp] = it;
+      changed = true;
+    }
+    if (widen) {
+      _cfFrom = sinceMs;
+    } else if (sinceMs > _cfFrom) {
+      // New year: drop what no period can show any more (2-day margin for
+      // SMS whose body date is earlier than the inbox date).
+      _cfFrom = sinceMs;
+      changed = true;
+      _cf.removeWhere((_, it) =>
+          it.at.millisecondsSinceEpoch < sinceMs - 2 * 24 * 3600 * 1000);
+    }
+    _cfTo = now;
+    if (changed) await _saveCashflow();
+  }
+
+  /// All bank in/out SMS since [from] (no 300 cap). Falls back to the
+  /// withdrawal-only `inbox` method on builds without the native method.
+  Future<List<Map<Object?, Object?>>> _readMovements(int from) async {
+    List<Object?>? raw;
+    try {
+      raw = await channel
+          .invokeMethod<List<Object?>>('cashflowInbox', {'since': from});
+    } on MissingPluginException {
+      raw = null;
+    }
+    raw ??= await channel.invokeMethod<List<Object?>>('inbox', {'since': from});
+    return [
+      for (final m in raw ?? const <Object?>[])
+        if (m is Map) m,
+    ];
+  }
+}
+
+/// Parses raw `{address, body, date}` inbox rows (runs in an isolate for big
+/// batches). Unparseable rows are skipped.
+List<BankSmsItem> parseBankSmsBatch(List<Map<Object?, Object?>> raw) {
+  final out = <BankSmsItem>[];
+  for (final m in raw) {
+    final addr = '${m['address'] ?? ''}';
+    final body = '${m['body'] ?? ''}';
+    if (body.isEmpty) continue;
+    final ms =
+        (m['date'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+    final it =
+        parseBankSms(addr, body, DateTime.fromMillisecondsSinceEpoch(ms));
+    if (it != null) out.add(it);
+  }
+  return out;
 }
 
 /// One decided bank SMS kept for the history list (no SMS text).

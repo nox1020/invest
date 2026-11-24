@@ -1,13 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:invest/data/bank_sms_store.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/domain/services/bank_sms_parser.dart';
 import 'package:invest/domain/services/period_cashflow.dart';
+import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/dashboard_kit.dart';
 import 'package:provider/provider.dart';
+import 'package:shamsi_date/shamsi_date.dart';
 
 /// Compact day/month/year in/out totals from bank SMS and recorded
 /// transactions, shown at the top of the withdrawals tab.
@@ -35,8 +39,20 @@ class PeriodCashflowCard extends StatefulWidget {
 class _PeriodCashflowCardState extends State<PeriodCashflowCard> {
   CashflowPeriod _period = CashflowPeriod.month;
   List<BankSmsItem> _sms = const [];
-  bool _smsUnavailable = true;
+  bool _smsUnavailable = false;
+  bool _inboxUnreadable = false;
+  String? _smsError;
+
+  /// False until the first SMS load finishes: no «unavailable» flash.
+  bool _loaded = false;
+
+  /// Year-start the loaded SMS cover. The store is always asked for the whole
+  /// Jalali year, so switching روز/ماه/سال never rescans.
+  int _loadedFrom = -1;
   bool _reloading = false;
+  bool _again = false;
+  Timer? _midnight;
+  AppLifecycleListener? _life;
 
   DateTime get _now => widget.now ?? DateTime.now();
 
@@ -44,6 +60,10 @@ class _PeriodCashflowCardState extends State<PeriodCashflowCard> {
   void initState() {
     super.initState();
     BankSmsStore.instance.addListener(_onSmsStore);
+    _life = AppLifecycleListener(onResume: () {
+      if (mounted) _reloadSms();
+    });
+    _armMidnight();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _reloadSms();
     });
@@ -62,11 +82,28 @@ class _PeriodCashflowCardState extends State<PeriodCashflowCard> {
   @override
   void dispose() {
     BankSmsStore.instance.removeListener(_onSmsStore);
+    _midnight?.cancel();
+    _life?.dispose();
     super.dispose();
   }
 
   void _onSmsStore() {
     if (mounted) _reloadSms();
+  }
+
+  /// Re-render (and reload) just after local midnight: the day changes, and
+  /// on 1 Farvardin the year does too.
+  void _armMidnight() {
+    _midnight?.cancel();
+    if (widget.now != null) return;
+    final n = DateTime.now();
+    final next = DateTime(n.year, n.month, n.day + 1, 0, 0, 5);
+    _midnight = Timer(next.difference(n), () {
+      if (!mounted) return;
+      setState(() {});
+      _reloadSms();
+      _armMidnight();
+    });
   }
 
   Future<void> _reloadSms() async {
@@ -75,41 +112,68 @@ class _PeriodCashflowCardState extends State<PeriodCashflowCard> {
       setState(() {
         _sms = widget.smsOverride ?? const [];
         _smsUnavailable = widget.smsUnavailableOverride ?? false;
+        _loaded = true;
       });
       return;
     }
-    if (_reloading) return;
+    // A reload while one runs is not dropped: it runs again afterwards with
+    // the then-current period / clock.
+    if (_reloading) {
+      _again = true;
+      return;
+    }
     _reloading = true;
     try {
-      final store = BankSmsStore.instance;
-      try {
-        await store.load();
-        if (!store.capsChecked) await store.refreshCaps();
-      } catch (_) {}
-      if (!mounted) return;
-      final unavailable = !store.smsAvailable;
-      var moves = <BankSmsItem>[];
-      if (!unavailable) {
-        try {
-          moves = await store.movementsSince(
-            cashflowPeriodStart(_period, _now),
-          );
-        } catch (_) {}
-      }
-      if (!mounted) return;
-      setState(() {
-        _smsUnavailable = unavailable;
-        _sms = moves;
-      });
+      do {
+        _again = false;
+        await _loadOnce();
+      } while (_again && mounted);
     } finally {
       _reloading = false;
     }
   }
 
+  Future<void> _loadOnce() async {
+    final store = BankSmsStore.instance;
+    String? error;
+    try {
+      await store.load();
+      if (!store.capsChecked) await store.refreshCaps();
+    } catch (e) {
+      error = '${e.runtimeType}';
+    }
+    if (!mounted) return;
+    final from =
+        cashflowPeriodStart(CashflowPeriod.year, _now).millisecondsSinceEpoch;
+    final unavailable = !store.smsAvailable;
+    var moves = const <BankSmsItem>[];
+    if (!unavailable) {
+      try {
+        moves = await store
+            .movementsSince(DateTime.fromMillisecondsSinceEpoch(from));
+        error ??= store.cashflowError;
+      } catch (e) {
+        error = '${e.runtimeType}';
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _smsUnavailable = unavailable;
+      _inboxUnreadable = !unavailable && store.smsInboxUnreadable;
+      _smsError = unavailable ? null : error;
+      _sms = moves;
+      _loadedFrom = from;
+      _loaded = true;
+    });
+  }
+
   void _select(CashflowPeriod period) {
     if (_period == period) return;
     setState(() => _period = period);
-    _reloadSms();
+    // Data already covers the whole year; reload only if the year moved.
+    final from =
+        cashflowPeriodStart(CashflowPeriod.year, _now).millisecondsSinceEpoch;
+    if (from != _loadedFrom && widget.smsOverride == null) _reloadSms();
   }
 
   @override
@@ -126,12 +190,15 @@ class _PeriodCashflowCardState extends State<PeriodCashflowCard> {
           withdrawals: state.withdrawals,
           checks: state.checks,
           pwo: pwo.ledger,
-          smsUnavailable: _smsUnavailable,
+          smsUnavailable: _smsUnavailable || !_loaded,
         );
         return _CardBody(
           period: _period,
           now: _now,
           flow: flow,
+          showUnavailable: _loaded && _smsUnavailable,
+          inboxUnreadable: _inboxUnreadable,
+          smsError: _smsError,
           onSelect: _select,
         );
       },
@@ -145,12 +212,18 @@ class _CardBody extends StatelessWidget {
     required this.now,
     required this.flow,
     required this.onSelect,
+    this.showUnavailable = false,
+    this.inboxUnreadable = false,
+    this.smsError,
   });
 
   final CashflowPeriod period;
   final DateTime now;
   final PeriodCashflow flow;
   final ValueChanged<CashflowPeriod> onSelect;
+  final bool showUnavailable;
+  final bool inboxUnreadable;
+  final String? smsError;
 
   @override
   Widget build(BuildContext context) {
@@ -241,14 +314,29 @@ class _CardBody extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (flow.smsUnavailable) ...[
-                  const SizedBox(height: 8),
-                  Text(
+                if (showUnavailable)
+                  _Note(
                     'پیامک در دسترس نیست',
                     key: const ValueKey('period-cashflow-sms-off'),
-                    style: mutedStyle(10),
                   ),
-                ],
+                if (inboxUnreadable)
+                  _Note(
+                    'فقط پیامک‌های دریافت‌شده هنگام باز بودن برنامه؛ دسترسی خواندن پیامک خاموش است',
+                    key: const ValueKey('period-cashflow-sms-partial'),
+                  ),
+                if (smsError != null)
+                  _Note(
+                    'خواندن پیامک‌ها ناموفق بود؛ اعداد پیامک ممکن است ناقص باشد',
+                    key: const ValueKey('period-cashflow-sms-error'),
+                    color: AppTheme.negative,
+                  ),
+                if (flow.pwoMonthOnly)
+                  _Note(
+                    'برداشت‌های PWO روز ندارند و فقط در «ماه» و «سال» شمرده می‌شوند',
+                    key: const ValueKey('period-cashflow-pwo-day'),
+                  ),
+                if (flow.duplicates.isNotEmpty)
+                  _DupLine(pairs: flow.duplicates),
                 const SizedBox(height: 8),
                 const Divider(height: 1, color: AppTheme.border),
                 const SizedBox(height: 8),
@@ -297,21 +385,35 @@ class _Segments extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget seg(CashflowPeriod value, String label) {
       final on = period == value;
-      return GestureDetector(
-        key: ValueKey('period-cashflow-${value.name}'),
+      // 40×40 tap target around a compact pill; read as a selectable button.
+      return Semantics(
+        button: true,
+        selected: on,
+        label: 'گردش پول $label',
+        excludeSemantics: true,
         onTap: () => onSelect(value),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-          decoration: BoxDecoration(
-            color: on ? AppTheme.accent : Colors.transparent,
-            borderRadius: BorderRadius.circular(7),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: on ? Colors.white : AppTheme.muted,
+        child: InkWell(
+          key: ValueKey('period-cashflow-${value.name}'),
+          borderRadius: BorderRadius.circular(7),
+          onTap: () => onSelect(value),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: on ? AppTheme.accent : Colors.transparent,
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: on ? Colors.white : AppTheme.muted,
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -319,7 +421,7 @@ class _Segments extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.all(2),
+      padding: const EdgeInsets.symmetric(horizontal: 2),
       decoration: BoxDecoration(
         color: AppTheme.bg,
         border: Border.all(color: AppTheme.border),
@@ -386,7 +488,9 @@ class _Tile extends StatelessWidget {
           ),
           const SizedBox(height: 3),
           Text(
-            _money(total, signed: true),
+            // Direction is in the label and colour: no «+» on خروجی.
+            _money(total),
+            key: ValueKey('period-cashflow-total-$label'),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -418,4 +522,98 @@ String _money(num value, {bool signed = false}) {
   if (value == 0) return fa(formatCompactToman(0));
   if (signed) return faSigned(formatCompactToman(value, showSign: true));
   return fa(formatCompactToman(value));
+}
+
+class _Note extends StatelessWidget {
+  const _Note(this.text, {super.key, this.color});
+  final String text;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text(
+        text,
+        style: mutedStyle(10).copyWith(color: color),
+      ),
+    );
+  }
+}
+
+/// «احتمال تکرار: N مورد» — tap to see the SMS / app-row pairs.
+class _DupLine extends StatelessWidget {
+  const _DupLine({required this.pairs});
+  final List<CashflowDupPair> pairs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      child: InkWell(
+        key: const ValueKey('period-cashflow-dups'),
+        onTap: () => _show(context),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 32),
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              fa('احتمال تکرار: ${pairs.length} مورد'),
+              style: mutedStyle(10, FontWeight.w700)
+                  .copyWith(decoration: TextDecoration.underline),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _show(BuildContext context) {
+    String day(DateTime d) {
+      final j = Jalali.fromDateTime(d);
+      return fa('${j.day} ${jalaliMonthNamesFa[j.month - 1]}');
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTheme.card,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          key: const ValueKey('period-cashflow-dups-sheet'),
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          children: [
+            const Text(
+              'احتمال تکرار',
+              style: TextStyle(
+                color: AppTheme.title,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'هم‌مبلغ و هم‌جهت در یک روز یا روز کناری؛ هر دو حساب شده‌اند.',
+              style: mutedStyle(11),
+            ),
+            const SizedBox(height: 8),
+            for (final p in pairs)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  '${p.isIn ? 'ورودی' : 'خروجی'} ${_money(p.toman)}\n'
+                  'پیامک ${p.smsBank} · ${day(p.smsAt)}\n'
+                  '${p.rowLabel} · ${day(p.rowAt)}',
+                  style: const TextStyle(
+                    color: AppTheme.title,
+                    fontSize: 12,
+                    height: 1.6,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }

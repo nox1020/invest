@@ -156,22 +156,41 @@ String normalizeSmsText(String s) {
 
 final _otp = RegExp(r'رمز|کد\s*(تایید|تأیید|یکبار|پویا)|otp|password',
     caseSensitive: false);
-final _withdrawKw = RegExp(r'برداشت|خرید|انتقال|کسر|پرداخت|انتقالی');
+final _withdrawKw = RegExp(r'برداشت|خرید|انتقال|کسر|پرداخت|انتقالی|بدهکار');
 final _failed =
     RegExp(r'ناموفق|عدم موفقیت|لغو شد|برگشت خورد|برگشت داده|انجام نشد|رد شد');
 final _reminder =
     RegExp(r'یادآوری|سررسید|مهلت|پرداخت کنید|لطفا|لطفاً|بدهی|قسط');
 final _depositKw = RegExp(r'واریز|بستانکار');
-final _balanceKw = RegExp(r'(مانده|موجودی|ماند)\s*[:：]?\s*$');
+final _balanceKw = RegExp(
+    r'(مانده|موجودی|ماند)(\s*(حساب|کارت|قابل\s*برداشت|فعلی))?\s*[:：]?\s*$');
+
+/// Money arriving in *your* account/card (strong «in» signal).
+final _youIn = RegExp(r'به\s*(حساب|کارت|سپرده)\s*(ی\s*)?شما|بستانکار');
+
+/// Money leaving *your* account/card (strong «out» signal).
+final _youOut = RegExp(r'از\s*(حساب|کارت|سپرده)\s*(ی\s*)?شما|بدهکار');
+
+/// Outgoing transfers that mention «واریز» for the *receiver* side.
+final _outTransfer = RegExp(
+    r'کارت\s*به\s*کارت|پایا|ساتنا|واریز\s*به\s*(کارت|حساب|شبا|سپرده)(?!\s*(ی\s*)?شما)');
+
+/// First money keyword on the amount's own line decides mixed messages.
+final _lineKw = RegExp(r'واریز|بستانکار|برداشت|خرید|انتقال|کسر|پرداخت|بدهکار');
+final _lineDepositKw = RegExp(r'^(واریز|بستانکار)$');
 final _amountKw = RegExp(r'(برداشت|خرید|انتقال|کسر|پرداخت|مبلغ)[^\d\n]{0,14}$');
 final _depositAmountKw = RegExp(r'(واریز|بستانکار|مبلغ)[^\d\n]{0,14}$');
 final _num = RegExp(r'\d[\d,]*');
 
 class _Cand {
-  _Cand(this.value, this.start, this.end, this.minus, this.commas);
+  _Cand(this.value, this.start, this.end, this.minus, this.commas,
+      {this.plus = false});
   final double value;
   final int start, end;
   final bool minus, commas;
+
+  /// Explicit «+» next to the amount (deposit marker on some banks).
+  final bool plus;
 }
 
 /// Parses an Iranian bank SMS; returns null unless it is clearly a withdrawal.
@@ -181,7 +200,9 @@ BankSmsItem? parseBankSms(String sender, String body, DateTime receivedAt) {
   if (_otp.hasMatch(lower)) return null;
   // Failed / reversed / cancelled transactions.
   if (_failed.hasMatch(t)) return null;
-  final hasW = _withdrawKw.hasMatch(t);
+  final hasW = _withdrawKw.hasMatch(t) ||
+      _outTransfer.hasMatch(t) ||
+      _youOut.hasMatch(t);
 
   final cands = <_Cand>[];
   for (final m in _num.allMatches(t)) {
@@ -214,13 +235,33 @@ BankSmsItem? parseBankSms(String sender, String body, DateTime receivedAt) {
         RegExp(r'-\s*$').hasMatch(t.substring(s >= 2 ? s - 2 : 0, s)) ||
             RegExp(r'^\s*-')
                 .hasMatch(t.substring(e, e + 2 > t.length ? t.length : e + 2));
-    cands.add(_Cand(v, s, e, minus, commas));
+    final plusSign =
+        RegExp(r'\+\s*$').hasMatch(t.substring(s >= 2 ? s - 2 : 0, s)) ||
+            RegExp(r'^\s*\+')
+                .hasMatch(t.substring(e, e + 2 > t.length ? t.length : e + 2));
+    // «+98…» phone numbers are not amounts with a sign.
+    final plus = plusSign && !minus && (commas || digits.length <= 9);
+    cands.add(_Cand(v, s, e, minus, commas, plus: plus));
   }
 
   bool isBalance(_Cand c) => _balanceKw
-      .hasMatch(t.substring(c.start >= 16 ? c.start - 16 : 0, c.start));
-  bool isDateLike(_Cand c) =>
-      !c.commas && RegExp(r'^14\d{6}$').hasMatch(c.value.toStringAsFixed(0));
+      .hasMatch(t.substring(c.start >= 26 ? c.start - 26 : 0, c.start));
+  String before24(_Cand c) =>
+      t.substring(c.start >= 24 ? c.start - 24 : 0, c.start);
+  bool isDateLike(_Cand c) {
+    if (c.commas) return false;
+    final m = RegExp(r'^14(\d{2})(\d{2})(\d{2})$')
+        .firstMatch(c.value.toStringAsFixed(0));
+    if (m == null) return false;
+    final mo = int.parse(m.group(2)!), d = int.parse(m.group(3)!);
+    // «واریز 14500000» is an amount: month 50 is not a date.
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+    if (_amountKw.hasMatch(before24(c)) ||
+        _depositAmountKw.hasMatch(before24(c))) {
+      return false;
+    }
+    return true;
+  }
 
   final pool = cands.where((c) => !isBalance(c) && !isDateLike(c)).toList();
   final withCommas = pool.where((c) => c.commas).toList();
@@ -251,47 +292,57 @@ BankSmsItem? parseBankSms(String sender, String body, DateTime receivedAt) {
     amount = usable.first;
     low = true;
   }
-  final hasD = _depositKw.hasMatch(t);
+  final hasD = _depositKw.hasMatch(t) || _youIn.hasMatch(t);
   var direction = bankSmsDirectionOut;
-  var depositLow = false;
 
-  bool depositTakesPrecedence() {
-    if (!hasD) return false;
+  _Cand? pickDepositAmount({bool mark = false}) {
+    final pool = usable.where((c) => !c.minus).toList();
+    if (pool.isEmpty) return null;
+    final plus = pool.where((c) => c.plus).firstOrNull;
+    if (plus != null) return plus;
+    for (final c in pool) {
+      if (_depositAmountKw.hasMatch(before24(c))) return c;
+    }
+    final after = pool.where((c) {
+      final end = c.end + 30 > t.length ? t.length : c.end + 30;
+      final rest = t.substring(c.end, end).split('\n').first;
+      return (_depositKw.hasMatch(rest) || _youIn.hasMatch(rest)) &&
+          !_withdrawKw.hasMatch(rest);
+    }).firstOrNull;
+    if (after != null) return after;
+    if (mark && pool.length > 1) low = true;
+    return pool.first;
+  }
+
+  /// First money keyword on the line holding [c] (null when none).
+  String? lineKwOf(_Cand c) {
+    final ls = t.lastIndexOf('\n', c.start > 0 ? c.start - 1 : 0);
+    final le = t.indexOf('\n', c.end);
+    final line = t.substring(ls < 0 ? 0 : ls + 1, le < 0 ? t.length : le);
+    return _lineKw.firstMatch(line)?.group(0);
+  }
+
+  bool decideIn() {
     if (amount != null && amount.minus) return false;
-    if (!hasW) return true;
+    if (usable.any((c) => c.plus)) return true;
+    final youIn = _youIn.hasMatch(t), youOut = _youOut.hasMatch(t);
+    if (youIn && !youOut) return true;
+    if (youOut || _outTransfer.hasMatch(t)) return false;
+    if (!hasD) return false;
+    if (!_withdrawKw.hasMatch(t)) return true;
+    // Both kinds of words: the amount's own line decides, then word order.
+    final c = amount ?? pickDepositAmount();
+    final kw = c == null ? null : lineKwOf(c);
+    if (kw != null) return _lineDepositKw.hasMatch(kw);
     return _depositKw.firstMatch(t)!.start < _withdrawKw.firstMatch(t)!.start;
   }
 
-  _Cand? pickDepositAmount() {
-    final pool = usable.where((c) => !c.minus).toList();
-    if (pool.isEmpty) return null;
-    _Cand? dep;
-    for (final c in pool) {
-      if (_depositAmountKw
-          .hasMatch(t.substring(c.start >= 24 ? c.start - 24 : 0, c.start))) {
-        dep = c;
-        break;
-      }
-    }
-    dep ??= pool.where((c) {
-      final end = c.end + 30 > t.length ? t.length : c.end + 30;
-      final after = t.substring(c.end, end).split('\n').first;
-      return _depositKw.hasMatch(after) && !_withdrawKw.hasMatch(after);
-    }).firstOrNull;
-    if (dep == null && hasD && pool.length == 1) dep = pool.first;
-    if (dep == null && hasD && pool.isNotEmpty) {
-      dep = pool.first;
-      depositLow = true;
-    }
-    return dep;
-  }
-
-  if (amount == null || depositTakesPrecedence()) {
-    final dep = pickDepositAmount();
-    if (dep != null && (amount == null || depositTakesPrecedence())) {
+  if (usable.isNotEmpty && decideIn()) {
+    low = false;
+    final dep = pickDepositAmount(mark: true);
+    if (dep != null) {
       amount = dep;
       direction = bankSmsDirectionIn;
-      if (depositLow) low = true;
     }
   }
   if (amount == null) return null;

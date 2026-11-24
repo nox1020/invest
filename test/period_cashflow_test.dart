@@ -102,11 +102,11 @@ void main() {
     expect(cashflowPeriodCaption(CashflowPeriod.year, now), '1405');
   });
 
-  test('SMS in and out plus rejected SMS still count', () {
+  test('SMS in and out are summed per period', () {
     final r = flow(sms: [
       smsMove(now, 5000000, isIn: true),
       smsMove(now, 3000000),
-      smsMove(lastOfAban, 8000000), // rejected last month: not today
+      smsMove(lastOfAban, 8000000), // last month: not today
     ]);
     expect(r.smsIn, 5000000);
     expect(r.smsOut, 3000000);
@@ -161,7 +161,9 @@ void main() {
     expect(r.txOut, 3000);
   });
 
-  test('bounced cheques are excluded; archived cleared still count', () {
+  test(
+      'bounced cheque: only payments made before it bounced count; archived cleared still count',
+      () {
     final bounced = flow(checks: [
       cheque(
         direction: checkDirectionPayable,
@@ -172,7 +174,7 @@ void main() {
         ],
       ),
     ]);
-    expect(bounced.txOut, 0);
+    expect(bounced.txOut, 1000);
     expect(bounced.txIn, 0);
 
     final archived = flow(checks: [
@@ -274,5 +276,143 @@ void main() {
     expect(r.txOut, 1000);
     expect(r.inflow, 0);
     expect(r.outflow, 1000);
+  });
+
+  group('review fixes', () {
+    test('UTC timestamps are converted to local before choosing the day', () {
+      // nowIso() writes UTC without a zone; 21:30 UTC = 01:00 Tehran next day.
+      final local = DateTime.utc(2026, 11, 23, 21, 30).toLocal();
+      expect(cashflowDateOf('2026-11-23T21:30:00'), local);
+      expect(cashflowDateOf('2026-11-23T21:30:00Z'), local);
+      expect(cashflowDateOf('2026-11-24T01:00:00+03:30'), local);
+      // Date-only and Jalali dates stay that local calendar day.
+      expect(cashflowDateOf('2026-11-24'), DateTime(2026, 11, 24));
+      expect(cashflowDateOf('1405/09/03'), DateTime(2026, 11, 24));
+
+      final r = computePeriodCashflow(
+        period: CashflowPeriod.day,
+        now: local,
+        sms: const [],
+        withdrawals: [
+          Withdrawal(amount: 1000, createdAt: '2026-11-23T21:30:00'),
+        ],
+        checks: const [],
+        pwo: PwoLedger(people: [], months: {}),
+      );
+      expect(r.txOut, 1000);
+    });
+
+    test('cleared cheque with partial payments counts the remainder too', () {
+      final r = flow(period: CashflowPeriod.month, checks: [
+        cheque(
+          direction: checkDirectionReceivable,
+          amount: 10000,
+          status: checkStatusCleared,
+          settled: '2026-11-24',
+          payments: [
+            CheckPayment(checkId: 1, amount: 4000, paidAt: '2026-11-22'),
+          ],
+        ),
+      ]);
+      expect(r.txIn, 10000);
+    });
+
+    test('cancelled cheque: payments made before cancelling still count', () {
+      final r = flow(checks: [
+        cheque(
+          direction: checkDirectionPayable,
+          amount: 8000,
+          status: checkStatusCancelled,
+          payments: [
+            CheckPayment(checkId: 1, amount: 2500, paidAt: '2026-11-24'),
+          ],
+        ),
+      ]);
+      expect(r.txOut, 2500);
+    });
+
+    test('only an exact SMS tag hides a row (no loose amount/day match)', () {
+      // A tag-looking note whose SMS is not in the list: the row counts.
+      final loose = flow(
+        sms: [smsMove(now, 5000, tag: '#11112222')],
+        withdrawals: [
+          Withdrawal(
+              amount: 5000, note: 'یادداشت #deadbeef', createdAt: '2026-11-24'),
+        ],
+      );
+      expect(loose.txOut, 5000);
+      // The exact tag hides the row even if the amount was edited.
+      final exact = flow(
+        sms: [smsMove(now, 5000, tag: '#11112222')],
+        withdrawals: [
+          Withdrawal(
+              amount: 4800,
+              note: 'بانک ملت #11112222',
+              createdAt: '2026-11-24'),
+        ],
+      );
+      expect(exact.txOut, 0);
+      // A longer hex run is not that tag.
+      final longer = flow(
+        sms: [smsMove(now, 5000, tag: '#11112222')],
+        withdrawals: [
+          Withdrawal(
+              amount: 5000, note: 'کد #11112222ab', createdAt: '2026-11-24'),
+        ],
+      );
+      expect(longer.txOut, 5000);
+    });
+
+    test('likely duplicates: same direction & amount, ±1 day, untagged', () {
+      final r = flow(
+        period: CashflowPeriod.month,
+        sms: [
+          smsMove(now, 5000000),
+          smsMove(now, 7000000, isIn: true),
+          smsMove(now, 9000000),
+          smsMove(now, 3000000, tag: '#aaaabbbb'),
+        ],
+        withdrawals: [
+          // yesterday, same amount → pair
+          Withdrawal(amount: 5000000, note: 'دستی', createdAt: '2026-11-23'),
+          // 2 days earlier → no pair
+          Withdrawal(amount: 9000000, createdAt: '2026-11-22'),
+          // tagged → represented by its SMS, no pair
+          Withdrawal(
+              amount: 3000000, note: 'x #aaaabbbb', createdAt: '2026-11-24'),
+          // same amount but opposite direction to the 7M deposit → no pair
+          Withdrawal(amount: 7000000, createdAt: '2026-11-24'),
+        ],
+        checks: [
+          cheque(
+            direction: checkDirectionReceivable,
+            amount: 7000000,
+            status: checkStatusCleared,
+            settled: '2026-11-25',
+          ),
+        ],
+      );
+      expect(r.duplicates, hasLength(2));
+      expect(r.duplicates.where((d) => d.isIn), hasLength(1));
+      expect(r.duplicates.where((d) => !d.isIn).single.toman, 5000000);
+      // Both sides stay counted.
+      expect(r.smsOut, 17000000);
+      expect(r.txOut, 5000000 + 9000000 + 7000000);
+    });
+
+    test('day view: PWO without a day is flagged, not silently dropped', () {
+      final pwo = PwoLedger(people: [], months: {
+        pwoMonthKey(1405, 9):
+            PwoMonth(year: 1405, month: 9, amounts: {'p0': 1000}),
+      });
+      final day = flow(pwo: pwo);
+      expect(day.txOut, 0);
+      expect(day.pwoMonthOnly, isTrue);
+      final month = flow(period: CashflowPeriod.month, pwo: pwo);
+      expect(month.txOut, 1000);
+      expect(month.pwoMonthOnly, isFalse);
+      final none = flow(pwo: PwoLedger(people: [], months: {}));
+      expect(none.pwoMonthOnly, isFalse);
+    });
   });
 }
