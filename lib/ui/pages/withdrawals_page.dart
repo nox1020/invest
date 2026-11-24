@@ -21,6 +21,7 @@ import 'package:invest/ui/widgets/tg_percent_wheel.dart';
 import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 import 'package:invest/ui/widgets/offline_banner.dart';
+import 'package:invest/ui/widgets/period_cashflow_card.dart';
 
 /// Economist desk for withdrawal policy, capacity, and ledger history.
 class WithdrawalsPage extends StatefulWidget {
@@ -93,6 +94,8 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
                   allowance.calendar,
                 ),
               ),
+              const SizedBox(height: 12),
+              const PeriodCashflowCard(),
               const SizedBox(height: 12),
               _CapacityHero(
                 allowance: allowance,

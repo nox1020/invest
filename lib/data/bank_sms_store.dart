@@ -274,7 +274,9 @@ class BankSmsStore extends ChangeNotifier {
               toman: it.toman,
               at: it.at,
               status: 'rejected',
-              decidedAt: now));
+              decidedAt: now,
+              fp: it.fp,
+              direction: it.direction));
       _handled.remove(it.fp);
       _handled.add(it.fp);
     }
@@ -391,6 +393,8 @@ class BankSmsStore extends ChangeNotifier {
       final it =
           parseBankSms(addr, body, DateTime.fromMillisecondsSinceEpoch(ms));
       if (it == null || isHandled(it.fp)) continue;
+      // Deposits are counted on the cashflow card, not offered as برداشت.
+      if (it.isIn) continue;
       if (_isRecorded(it.tag)) {
         // Already saved before (e.g. after «ریست»): never offer it again.
         pending.removeWhere((x) => x.fp == it.fp);
@@ -431,7 +435,9 @@ class BankSmsStore extends ChangeNotifier {
               at: it.at,
               status: status,
               target: target,
-              decidedAt: DateTime.now()));
+              decidedAt: DateTime.now(),
+              fp: it.fp,
+              direction: it.direction));
     }
     if (history.length > _maxHistory) {
       history.removeRange(_maxHistory, history.length);
@@ -594,9 +600,64 @@ class BankSmsStore extends ChangeNotifier {
     }
     return popNow;
   }
+
+  /// Switch is on and the device can receive or read bank SMS.
+  bool get smsAvailable => enabled && (caps.read || caps.receive);
+
+  /// Parsed in/out movements since [since], without changing lastScanMs,
+  /// pending, or history. Deposits are included. Raw SMS text is not kept.
+  Future<List<BankSmsItem>> movementsSince(DateTime since) async {
+    await load();
+    final items = <BankSmsItem>[];
+
+    bool isDup(BankSmsItem it) {
+      for (final x in items) {
+        if (x.hasRealTag && it.hasRealTag && x.fp == it.fp) return true;
+        if ((x.toman - it.toman).abs() < 1 &&
+            x.bank == it.bank &&
+            x.direction == it.direction &&
+            x.at.millisecondsSinceEpoch == it.at.millisecondsSinceEpoch) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    void add(BankSmsItem it) {
+      if (it.at.isBefore(since)) return;
+      if (isDup(it)) return;
+      items.add(it);
+    }
+
+    if (smsAvailable && caps.read) {
+      try {
+        final raw = await channel.invokeMethod<List<Object?>>(
+            'inbox', {'since': since.millisecondsSinceEpoch});
+        for (final m in raw ?? const <Object?>[]) {
+          if (m is! Map) continue;
+          final addr = '${m['address'] ?? ''}';
+          final body = '${m['body'] ?? ''}';
+          final ms = (m['date'] as num?)?.toInt() ??
+              DateTime.now().millisecondsSinceEpoch;
+          if (body.isEmpty) continue;
+          final it =
+              parseBankSms(addr, body, DateTime.fromMillisecondsSinceEpoch(ms));
+          if (it != null) add(it);
+        }
+      } catch (_) {}
+    }
+    for (final it in pending) {
+      add(it);
+    }
+    for (final d in history) {
+      add(d.toItem());
+    }
+    items.sort((a, b) => b.at.compareTo(a.at));
+    return items;
+  }
 }
 
-/// One decided bank SMS kept for the history list (no SMS text, no hash).
+/// One decided bank SMS kept for the history list (no SMS text).
 class BankSmsDecision {
   const BankSmsDecision({
     required this.bank,
@@ -605,19 +666,41 @@ class BankSmsDecision {
     required this.status,
     this.target,
     required this.decidedAt,
+    this.fp,
+    this.direction = bankSmsDirectionOut,
   });
   final String bank;
   final double toman;
   final DateTime at;
 
-  /// 'saved' | 'rejected'
+  /// 'saved' | 'rejected' | 'recorded'
   final String status;
 
   /// 'personal' | 'system' when saved.
   final String? target;
   final DateTime decidedAt;
 
+  /// Fingerprint when known (new decisions). Legacy rows may omit it.
+  final String? fp;
+
+  /// [bankSmsDirectionIn] or [bankSmsDirectionOut]. Legacy rows default to out.
+  final String direction;
+
   bool get saved => status == 'saved' || status == 'recorded';
+
+  BankSmsItem toItem() {
+    final id = fp;
+    final synthetic = id == null || id.length < 8
+        ? 'hist-${at.millisecondsSinceEpoch}-${toman.round()}-${bank.hashCode}'
+        : id;
+    return BankSmsItem(
+      fp: synthetic,
+      bank: bank,
+      toman: toman,
+      at: at,
+      direction: direction,
+    );
+  }
 
   Map<String, Object?> toJson() => {
         'bank': bank,
@@ -626,6 +709,8 @@ class BankSmsDecision {
         'st': status,
         'tg': target,
         'dt': decidedAt.millisecondsSinceEpoch,
+        if (fp != null && fp!.isNotEmpty) 'fp': fp,
+        if (direction == bankSmsDirectionIn) 'dir': direction,
       };
 
   static BankSmsDecision? fromJson(Object? o) {
@@ -640,6 +725,10 @@ class BankSmsDecision {
       target: o['tg'] as String?,
       decidedAt: DateTime.fromMillisecondsSinceEpoch(
           (o['dt'] as num?)?.toInt() ?? at.toInt()),
+      fp: o['fp'] is String ? o['fp'] as String : null,
+      direction: o['dir'] == bankSmsDirectionIn
+          ? bankSmsDirectionIn
+          : bankSmsDirectionOut,
     );
   }
 }

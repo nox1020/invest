@@ -164,7 +164,16 @@ void main() {
           'trades': [],
           'months': [
             for (var i = 1; i <= 12; i++)
-              {'year': y, 'month': i, 'staff': 0.0, 'pwo': 0.0, 'ads': i == m ? 50000.0 : 0.0, 'income': 0.0, 'note': '', 'has_ops': i == m}
+              {
+                'year': y,
+                'month': i,
+                'staff': 0.0,
+                'pwo': 0.0,
+                'ads': i == m ? 50000.0 : 0.0,
+                'income': 0.0,
+                'note': '',
+                'has_ops': i == m
+              }
           ],
         }),
         account: '0912');
@@ -690,5 +699,49 @@ void main() {
     expect(save.bottom, lessThanOrEqualTo(640 - 48));
     expect(tester.getRect(find.byKey(const ValueKey('sms-reject'))).bottom,
         lessThanOrEqualTo(640 - 48));
+  });
+
+  test('deposit SMS is not added to pending when scanning', () async {
+    final s = BankSmsStore.instance;
+    await s.setEnabled(true);
+    final added = await s.ingest([
+      sms('بانک ملت\nواریز: 1,000,000\nمانده: 3,000,000'),
+      sms('بانک ملت\nبرداشت: 2,000,000\nمانده: 1,000,000'),
+    ]);
+    expect(added, hasLength(1));
+    expect(s.pending, hasLength(1));
+    expect(s.pending.single.isOut, isTrue);
+    expect(s.pending.single.toman, 200000);
+  });
+
+  test('movementsSince includes inbox deposits and skips nothing when off',
+      () async {
+    final s = BankSmsStore.instance;
+    await s.load();
+    expect(s.smsAvailable, isFalse);
+    await s.setEnabled(true);
+    await s.refreshCaps();
+    expect(s.smsAvailable, isTrue);
+    final since = DateTime.now().subtract(const Duration(days: 2));
+    final moves = await s.movementsSince(since);
+    // Default inbox mock is a withdrawal; deposits are parsed only when present.
+    expect(moves, isNotEmpty);
+    expect(moves.every((m) => m.isOut), isTrue);
+  });
+
+  test('legacy history JSON without fp or dir stays outgoing', () {
+    final d = BankSmsDecision.fromJson({
+      'bank': 'بانک ملت',
+      'toman': 1500,
+      'at': DateTime(2026, 11, 24).millisecondsSinceEpoch,
+      'st': 'rejected',
+      'dt': DateTime(2026, 11, 24).millisecondsSinceEpoch,
+    })!;
+    expect(d.direction, bankSmsDirectionOut);
+    expect(d.fp, isNull);
+    final it = d.toItem();
+    expect(it.isOut, isTrue);
+    expect(it.hasRealTag, isFalse);
+    expect(it.tag, isEmpty);
   });
 }

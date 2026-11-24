@@ -526,4 +526,18 @@ class PwoStore extends ChangeNotifier {
     lastError = null;
     showingCache = false;
   }
+
+  /// Test-only: mark the store loaded so [load] / [ensurePwoReady] will not
+  /// apply the 1405 seed onto a fixture-driven page.
+  void debugSetLoaded([PwoLedger? ledger]) {
+    _cacheOnly = false;
+    _ledger = ledger ??
+        PwoLedger(people: [], months: {}, tags: {pwoSeedTag});
+    _loaded = true;
+    _remote = null;
+    _account = null;
+    _sync = null;
+    lastError = null;
+    showingCache = false;
+  }
 }

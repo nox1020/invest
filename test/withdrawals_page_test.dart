@@ -5,12 +5,23 @@ import 'package:invest/domain/models/app_settings.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/withdrawal.dart';
+import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/pages/withdrawals_page.dart';
 import 'package:invest/ui/widgets/tg_percent_wheel.dart';
+import 'package:invest/data/bank_sms_store.dart';
+import 'package:invest/data/pwo_store.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    BankSmsStore.debugReset();
+    PwoStore.instance.debugSetLoaded();
+    CurrencyMode.reset();
+  });
+
   testWidgets('withdrawals economist desk shows policy and history',
       (tester) async {
     final state = AppState()
@@ -122,7 +133,8 @@ void main() {
     expect(find.text('ویرایش برداشت'), findsOneWidget);
     expect(find.text('تاریخ برداشت'), findsOneWidget);
     expect(find.text('20000'), findsOneWidget);
-    expect(find.text('مبلغ می‌تواند بیشتر از قابل برداشت باشد.'), findsOneWidget);
+    expect(
+        find.text('مبلغ می‌تواند بیشتر از قابل برداشت باشد.'), findsOneWidget);
 
     await tester.tap(find.text('انصراف'));
     await tester.pumpAndSettle();
@@ -258,7 +270,8 @@ void main() {
 
     expect(find.text('ثبت برداشت'), findsOneWidget);
     expect(find.text('مبلغ قابل برداشت صفر است'), findsNothing);
-    expect(find.text('مبلغ می‌تواند بیشتر از قابل برداشت باشد.'), findsOneWidget);
+    expect(
+        find.text('مبلغ می‌تواند بیشتر از قابل برداشت باشد.'), findsOneWidget);
     expect(find.text('قابل برداشت: 0 تومان'), findsOneWidget);
   });
 }

@@ -3,7 +3,13 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 
-/// One bank withdrawal parsed from an SMS. Only these fields are kept on the
+/// Incoming bank deposit (واریز / بستانکار).
+const bankSmsDirectionIn = 'in';
+
+/// Outgoing bank withdrawal (برداشت / خرید / انتقال / …).
+const bankSmsDirectionOut = 'out';
+
+/// One bank movement parsed from an SMS. Only these fields are kept on the
 /// device; the raw text is never stored, logged or sent anywhere.
 class BankSmsItem {
   const BankSmsItem({
@@ -14,6 +20,7 @@ class BankSmsItem {
     this.balanceToman,
     this.card,
     this.lowConfidence = false,
+    this.direction = bankSmsDirectionOut,
   });
 
   /// sha1(sender + body): stable for the same SMS from the inbox or receiver.
@@ -25,6 +32,16 @@ class BankSmsItem {
   final DateTime at;
   final bool lowConfidence;
 
+  /// [bankSmsDirectionIn] or [bankSmsDirectionOut]. Missing/legacy → out.
+  final String direction;
+
+  bool get isIn => direction == bankSmsDirectionIn;
+  bool get isOut => !isIn;
+
+  /// Real SHA-1 fingerprints (not synthetic history ids) produce a note tag.
+  bool get hasRealTag =>
+      fp.length >= 8 && !fp.startsWith('hist-') && !fp.startsWith('sms-');
+
   Jalali get jalali => Jalali.fromDateTime(at);
 
   /// Server idempotency key (A-Z a-z 0-9 _ -, 8..100).
@@ -33,9 +50,10 @@ class BankSmsItem {
   /// Short marker appended to the saved note so the same SMS can be
   /// recognised later as already recorded (also on the server, after a reset
   /// or on another phone). 8 hex chars of the hash; no SMS content.
-  String get tag => '#${fp.substring(0, 8)}';
+  String get tag => hasRealTag ? '#${fp.substring(0, 8)}' : '';
 
-  static bool noteHasTag(String note, String tag) => note.contains(tag);
+  static bool noteHasTag(String note, String tag) =>
+      tag.isNotEmpty && note.contains(tag);
 
   String get note {
     final parts = <String>[bank];
@@ -51,6 +69,7 @@ class BankSmsItem {
         'card': card,
         'at': at.millisecondsSinceEpoch,
         'low': lowConfidence,
+        if (direction == bankSmsDirectionIn) 'dir': direction,
       };
 
   static BankSmsItem? fromJson(Object? o) {
@@ -65,6 +84,9 @@ class BankSmsItem {
       card: o['card'] as String?,
       at: DateTime.fromMillisecondsSinceEpoch(at.toInt()),
       lowConfidence: o['low'] == true,
+      direction: o['dir'] == bankSmsDirectionIn
+          ? bankSmsDirectionIn
+          : bankSmsDirectionOut,
     );
   }
 }
@@ -142,6 +164,7 @@ final _reminder =
 final _depositKw = RegExp(r'واریز|بستانکار');
 final _balanceKw = RegExp(r'(مانده|موجودی|ماند)\s*[:：]?\s*$');
 final _amountKw = RegExp(r'(برداشت|خرید|انتقال|کسر|پرداخت|مبلغ)[^\d\n]{0,14}$');
+final _depositAmountKw = RegExp(r'(واریز|بستانکار|مبلغ)[^\d\n]{0,14}$');
 final _num = RegExp(r'\d[\d,]*');
 
 class _Cand {
@@ -228,15 +251,51 @@ BankSmsItem? parseBankSms(String sender, String body, DateTime receivedAt) {
     amount = usable.first;
     low = true;
   }
-  if (amount == null) return null;
-  if (!hasW && !amount.minus) return null;
-  // A deposit with no withdrawal marker on the amount.
-  if (_depositKw.hasMatch(t) && !amount.minus && !hasW) return null;
-  if (_depositKw.hasMatch(t) && !amount.minus) {
-    final dep = _depositKw.firstMatch(t)!.start;
-    final w = _withdrawKw.firstMatch(t)!.start;
-    if (dep < w) return null;
+  final hasD = _depositKw.hasMatch(t);
+  var direction = bankSmsDirectionOut;
+  var depositLow = false;
+
+  bool depositTakesPrecedence() {
+    if (!hasD) return false;
+    if (amount != null && amount.minus) return false;
+    if (!hasW) return true;
+    return _depositKw.firstMatch(t)!.start < _withdrawKw.firstMatch(t)!.start;
   }
+
+  _Cand? pickDepositAmount() {
+    final pool = usable.where((c) => !c.minus).toList();
+    if (pool.isEmpty) return null;
+    _Cand? dep;
+    for (final c in pool) {
+      if (_depositAmountKw
+          .hasMatch(t.substring(c.start >= 24 ? c.start - 24 : 0, c.start))) {
+        dep = c;
+        break;
+      }
+    }
+    dep ??= pool.where((c) {
+      final end = c.end + 30 > t.length ? t.length : c.end + 30;
+      final after = t.substring(c.end, end).split('\n').first;
+      return _depositKw.hasMatch(after) && !_withdrawKw.hasMatch(after);
+    }).firstOrNull;
+    if (dep == null && hasD && pool.length == 1) dep = pool.first;
+    if (dep == null && hasD && pool.isNotEmpty) {
+      dep = pool.first;
+      depositLow = true;
+    }
+    return dep;
+  }
+
+  if (amount == null || depositTakesPrecedence()) {
+    final dep = pickDepositAmount();
+    if (dep != null && (amount == null || depositTakesPrecedence())) {
+      amount = dep;
+      direction = bankSmsDirectionIn;
+      if (depositLow) low = true;
+    }
+  }
+  if (amount == null) return null;
+  if (direction != bankSmsDirectionIn && !hasW && !amount.minus) return null;
 
   final toman = lower.contains('تومان');
   double toT(double v) => toman ? v : v / 10;
@@ -302,5 +361,6 @@ BankSmsItem? parseBankSms(String sender, String body, DateTime receivedAt) {
     card: card,
     at: at,
     lowConfidence: low,
+    direction: direction,
   );
 }

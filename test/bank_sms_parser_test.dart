@@ -65,11 +65,36 @@ void main() {
     expect(p('98700000', 'برداشت 20,000 تومان')!.toman, 20000);
   });
 
-  test('deposit, OTP and ads are ignored', () {
-    expect(p('Mellat', 'بانک ملت\nواریز: 1,000,000\nمانده: 3,000,000'), isNull);
+  test('deposit SMS is incoming; OTP, ads and bare plus amounts are ignored',
+      () {
+    final dep = p('Mellat', 'بانک ملت\nواریز: 1,000,000\nمانده: 3,000,000')!;
+    expect(dep.isIn, isTrue);
+    expect(dep.direction, bankSmsDirectionIn);
+    expect(dep.toman, 100000);
+    expect(dep.balanceToman, 300000);
+    expect(dep.bank, 'بانک ملت');
     expect(p('Mellat', 'رمز پویا: 123456 مبلغ خرید 1,000,000'), isNull);
     expect(p('Ad', 'تخفیف ویژه! همین حالا خرید کنید'), isNull);
     expect(p('Saman', '+500,000 مانده 900,000'), isNull);
+  });
+
+  test('بستانکار and Blu-style واریز are incoming, rial or toman', () {
+    final a = p('BMI', 'بانک ملی\nبستانکار: ۲٬۰۰۰٬۰۰۰ ریال\nمانده: ۵٬۰۰۰٬۰۰۰')!;
+    expect(a.isIn, isTrue);
+    expect(a.toman, 200000);
+    final b = p('blu',
+        'بلو\n۱۵۰,۰۰۰ تومان به حساب شما واریز شد\nمانده: ۲۰,۰۰۰,۰۰۰ تومان')!;
+    expect(b.isIn, isTrue);
+    expect(b.toman, 150000);
+    expect(b.bank, 'بلو');
+  });
+
+  test('withdrawal parsing is unchanged when a deposit word is absent', () {
+    final r = p('+98999000111',
+        'بانک ملت\nبرداشت: 1,250,000\nحساب: 123***45\nمانده: 8,400,000')!;
+    expect(r.isOut, isTrue);
+    expect(r.direction, bankSmsDirectionOut);
+    expect(r.toman, 125000);
   });
 
   test('fingerprint is stable and json round-trips without raw text', () {
@@ -81,6 +106,22 @@ void main() {
     expect(j.values.whereType<String>().any((s) => s.contains('برداشت:')),
         isFalse);
     expect(BankSmsItem.fromJson(j)!.toman, a.toman);
+    expect(j.containsKey('dir'), isFalse);
+    expect(BankSmsItem.fromJson(j)!.isOut, isTrue);
+  });
+
+  test('legacy JSON without dir defaults to out; deposits persist dir', () {
+    final out = BankSmsItem(
+      fp: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      bank: 'بانک ملت',
+      toman: 1000,
+      at: rx,
+    );
+    final raw = Map<String, Object?>.from(out.toJson())..remove('dir');
+    expect(BankSmsItem.fromJson(raw)!.isOut, isTrue);
+    final inc = p('Mellat', 'بانک ملت\nواریز: 1,000,000\nمانده: 3,000,000')!;
+    expect(inc.toJson()['dir'], bankSmsDirectionIn);
+    expect(BankSmsItem.fromJson(inc.toJson())!.isIn, isTrue);
   });
 
   test('Blu-style: amount then «برداشت» on the same line is confident', () {
