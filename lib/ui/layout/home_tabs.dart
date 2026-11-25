@@ -5,6 +5,7 @@ abstract final class HomeTabs {
   static const dashboard = 0;
   static const withdrawals = 1;
   static const trades = 2;
+
   /// «عملکرد» (office monthly table). The old «شاخص» tab lives on the
   /// dashboard now.
   static const performance = 3;
@@ -34,3 +35,16 @@ void openHomeTab(BuildContext context, int index, {bool popToRoot = false}) {
     OpenHomeTabNotification(index).dispatch(context);
   }
 }
+
+/// Fires when the user taps the bottom tab that is already selected, so that
+/// page can scroll back to its top.
+class HomeTabReselect extends ChangeNotifier {
+  int index = -1;
+
+  void fire(int tab) {
+    index = tab;
+    notifyListeners();
+  }
+}
+
+final homeTabReselect = HomeTabReselect();

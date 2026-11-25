@@ -273,7 +273,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: index,
-        onTap: _goTab,
+        // Tapping the tab already shown scrolls that page back to the top.
+        onTap: (i) => i == index ? homeTabReselect.fire(i) : _goTab(i),
         type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(

@@ -10,6 +10,7 @@ import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/data/biz_store.dart';
 import 'package:invest/data/projects_store.dart';
+import 'package:invest/ui/layout/home_tabs.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/data/pwo_store.dart';
 import 'package:invest/ui/pages/biz_page.dart';
@@ -37,6 +38,11 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
   late final Animation<double> _fade;
   late final Animation<Offset> _slide;
 
+  /// Own controller (not the Scaffold's primary one shared by every tab in
+  /// the IndexedStack): keeps this tab's position and lets a re-tap on the
+  /// «برداشت» tab scroll back to the top.
+  final ScrollController _scroll = ScrollController();
+
   @override
   void initState() {
     super.initState();
@@ -50,6 +56,7 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _enter, curve: Curves.easeOutCubic));
     _enter.forward();
+    homeTabReselect.addListener(_onTabReselected);
     // PWO feeds the capacity card; load it even before its card is scrolled to.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) ensurePwoReady(context, PwoStore.instance, refresh: false);
@@ -58,8 +65,20 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
 
   @override
   void dispose() {
+    homeTabReselect.removeListener(_onTabReselected);
+    _scroll.dispose();
     _enter.dispose();
     super.dispose();
+  }
+
+  void _onTabReselected() {
+    if (homeTabReselect.index != HomeTabs.withdrawals) return;
+    if (!mounted || !_scroll.hasClients || _scroll.offset <= 0) return;
+    _scroll.animateTo(
+      0,
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -75,86 +94,107 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
   Widget _buildBody(BuildContext context, AppState state) {
     final history = state.withdrawals;
     final allowance = state.withdrawalAllowance;
+    final pad = shellPagePadding(extraForFab: state.canMutate);
+    final side = EdgeInsets.only(left: pad.left, right: pad.right);
 
+    // One lazy scroll view: the summary cards scroll away with the list and
+    // history rows are only built when they come into view.
     return RefreshIndicator(
       onRefresh: () => state.refreshAll(),
       child: FadeTransition(
         opacity: _fade,
         child: SlideTransition(
           position: _slide,
-          child: ListView(
+          child: CustomScrollView(
+            key: const PageStorageKey<String>('withdrawals-scroll'),
+            controller: _scroll,
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: shellPagePadding(extraForFab: state.canMutate),
-            children: [
-              _StatusRibbon(
-                offline: false, // connection state lives in the header line
-                count: history.length,
-                yearLabel: WithdrawalAllowance.yearCaption(
-                  allowance.yearKey,
-                  allowance.calendar,
+            slivers: [
+              SliverPadding(
+                padding: side.copyWith(top: pad.top),
+                sliver: SliverList.list(
+                  children: [
+                    _StatusRibbon(
+                      offline:
+                          false, // connection state lives in the header line
+                      count: history.length,
+                      yearLabel: WithdrawalAllowance.yearCaption(
+                        allowance.yearKey,
+                        allowance.calendar,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const PeriodCashflowCard(),
+                    const SizedBox(height: 12),
+                    _CapacityHero(
+                      allowance: allowance,
+                      canEdit: state.canMutate,
+                      onEditAnnualPct: () =>
+                          _editAnnualWithdrawalPct(context, state),
+                    ),
+                    const SizedBox(height: 20),
+                    const _SectionLabel(
+                      eyebrow: 'تراز',
+                      title: 'سود و برداشت',
+                    ),
+                    const SizedBox(height: 10),
+                    _BalanceLedger(
+                        allowance: allowance,
+                        breakdown: state.realizedBreakdown),
+                    const SizedBox(height: 10),
+                    _CoveragePanel(allowance: allowance),
+                    if (PwoStore.instance.loaded) ...[
+                      const SizedBox(height: 10),
+                      DoubleCountPanel(
+                        withdrawals: history,
+                        ledger: PwoStore.instance.ledger,
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    _AnnualQuotaPanel(
+                      allowance: allowance,
+                      onEditBase: state.canMutate
+                          ? () => _editCapBase(context, state)
+                          : null,
+                    ),
+                    const SizedBox(height: 10),
+                    const PwoEntryCard(),
+                    const SizedBox(height: 10),
+                    const BizEntryCard(),
+                    const SizedBox(height: 22),
+                    _SectionLabel(
+                      eyebrow: 'دفتر',
+                      title: 'سابقه برداشت',
+                      trailing: Text(
+                        '${history.length} ردیف',
+                        style: const TextStyle(
+                          color: AppTheme.muted,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    if (history.isEmpty) const _EmptyHistory(),
+                  ],
                 ),
               ),
-              const SizedBox(height: 12),
-              const PeriodCashflowCard(),
-              const SizedBox(height: 12),
-              _CapacityHero(
-                allowance: allowance,
-                canEdit: state.canMutate,
-                onEditAnnualPct: () => _editAnnualWithdrawalPct(context, state),
-              ),
-              const SizedBox(height: 20),
-              const _SectionLabel(
-                eyebrow: 'تراز',
-                title: 'سود و برداشت',
-              ),
-              const SizedBox(height: 10),
-              _BalanceLedger(allowance: allowance, breakdown: state.realizedBreakdown),
-              const SizedBox(height: 10),
-              _CoveragePanel(allowance: allowance),
-              if (PwoStore.instance.loaded) ...[
-                const SizedBox(height: 10),
-                DoubleCountPanel(
-                  withdrawals: history,
-                  ledger: PwoStore.instance.ledger,
-                ),
-              ],
-              const SizedBox(height: 10),
-              _AnnualQuotaPanel(
-                allowance: allowance,
-                onEditBase: state.canMutate
-                    ? () => _editCapBase(context, state)
-                    : null,
-              ),
-              const SizedBox(height: 10),
-              const PwoEntryCard(),
-              const SizedBox(height: 10),
-              const BizEntryCard(),
-              const SizedBox(height: 22),
-              _SectionLabel(
-                eyebrow: 'دفتر',
-                title: 'سابقه برداشت',
-                trailing: Text(
-                  '${history.length} ردیف',
-                  style: const TextStyle(
-                    color: AppTheme.muted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+              if (history.isNotEmpty)
+                SliverPadding(
+                  padding: side,
+                  sliver: SliverList.separated(
+                    itemCount: history.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, i) => _WithdrawalTile(
+                      key: ValueKey('withdrawal-tile-${i + 1}'),
+                      item: history[i],
+                      canEdit: state.canMutate,
+                      rank: i + 1,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              if (history.isEmpty)
-                const _EmptyHistory()
-              else
-                for (var i = 0; i < history.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 8),
-                  _WithdrawalTile(
-                    item: history[i],
-                    canEdit: state.canMutate,
-                    rank: i + 1,
-                  ),
-                ],
-              const SizedBox(height: 28),
+              // Clears the FAB «ثبت برداشت» and the bottom navigation.
+              SliverToBoxAdapter(child: SizedBox(height: 28 + pad.bottom)),
             ],
           ),
         ),
@@ -230,25 +270,35 @@ class _StatusRibbon extends StatelessWidget {
               : AppTheme.muted,
         ),
         const SizedBox(width: 6),
-        Text(
-          offline
-              ? context.watch<AppState>().connectionStatus.short
-              : 'میز نقدینگی',
-          style: TextStyle(
-            color: offline
-                ? context.watch<AppState>().connectionStatus.color
-                : AppTheme.muted,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
+        Flexible(
+          child: Text(
+            offline
+                ? context.watch<AppState>().connectionStatus.short
+                : 'میز نقدینگی',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: offline
+                  ? context.watch<AppState>().connectionStatus.color
+                  : AppTheme.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-        const Spacer(),
-        Text(
-          '$yearLabel · $count برداشت',
-          style: const TextStyle(
-            color: AppTheme.muted,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
+        const SizedBox(width: 8),
+        Expanded(
+          flex: 3,
+          child: Text(
+            '$yearLabel · $count برداشت',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.end,
+            style: const TextStyle(
+              color: AppTheme.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],
@@ -349,31 +399,39 @@ class _CapacityHero extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppTheme.bg.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppTheme.border),
-                ),
-                child: Text(
-                  yearLabel,
-                  style: const TextStyle(
-                    color: AppTheme.muted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+              Flexible(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.bg.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppTheme.border),
+                  ),
+                  child: Text(
+                    yearLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppTheme.muted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
-              const Spacer(),
-              const Text(
-                'ظرفیت قابل برداشت',
-                textAlign: TextAlign.right,
-                style: TextStyle(
-                  color: AppTheme.muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'ظرفیت قابل برداشت',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    color: AppTheme.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -1011,6 +1069,7 @@ String _amountFieldText(double amount) {
 
 class _WithdrawalTile extends StatelessWidget {
   const _WithdrawalTile({
+    super.key,
     required this.item,
     required this.canEdit,
     required this.rank,
@@ -1032,6 +1091,8 @@ class _WithdrawalTile extends StatelessWidget {
 
   Widget _inner(BuildContext context) {
     final calendar = context.read<AppState>().settings.calendar;
+    // Status stripe on the start edge as a positioned child, not
+    // IntrinsicHeight (a second layout pass for every row while scrolling).
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -1039,108 +1100,115 @@ class _WithdrawalTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppTheme.border),
       ),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              width: 3,
-              color: _statusColor,
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Stack(
+        children: [
+          PositionedDirectional(
+            start: 0,
+            top: 0,
+            bottom: 0,
+            width: 3,
+            child: ColoredBox(color: _statusColor),
+          ),
+          Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(17, 12, 12, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        Text(
-                          '#$rank',
-                          style: const TextStyle(
-                            color: AppTheme.muted,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          formatMoney(item.amount),
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            color: AppTheme.title,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                          ),
-                        ),
-                        if (canEdit)
-                          IconButton(
-                            tooltip: 'ویرایش',
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () => showRecordWithdrawalDialog(
-                              context,
-                              existing: item,
-                            ),
-                            icon: const Icon(Icons.edit_outlined, size: 18),
-                          ),
-                      ],
+                    Text(
+                      '#$rank',
+                      style: const TextStyle(
+                        color: AppTheme.muted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
+                    const SizedBox(width: 8),
+                    // Long amounts shrink to fit instead of overflowing.
+                    Expanded(
+                      child: Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
                           child: Text(
-                            formatDisplayDate(item.createdAt, calendar),
+                            formatMoney(item.amount),
+                            maxLines: 1,
                             textAlign: TextAlign.right,
                             style: const TextStyle(
-                              color: AppTheme.muted,
-                              fontSize: 12,
+                              color: AppTheme.title,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _statusColor.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            item.statusLabel,
-                            style: TextStyle(
-                              color: _statusColor,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                    if (item.note.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        item.note,
+                    if (canEdit)
+                      IconButton(
+                        tooltip: 'ویرایش',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => showRecordWithdrawalDialog(
+                          context,
+                          existing: item,
+                        ),
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        formatDisplayDate(item.createdAt, calendar),
                         textAlign: TextAlign.right,
                         style: const TextStyle(
                           color: AppTheme.muted,
                           fontSize: 12,
                         ),
                       ),
-                    ],
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _statusColor.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        item.statusLabel,
+                        style: TextStyle(
+                          color: _statusColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
-              ),
+                if (item.note.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    item.note,
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      color: AppTheme.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
-
 
 Future<void> _editCapBase(BuildContext context, AppState state) async {
   final cur = state.settings.withdrawalCapBase;
@@ -1155,7 +1223,8 @@ Future<void> _editCapBase(BuildContext context, AppState state) async {
             const ListTile(
               title: Text('مبنای سقف برداشت سالانه',
                   style: TextStyle(fontWeight: FontWeight.w800)),
-              subtitle: Text('درصد سقف روی این مبلغ حساب می‌شود. تغییرش فقط عدد سقف را عوض می‌کند؛ هیچ برداشتی تغییر نمی‌کند.'),
+              subtitle: Text(
+                  'درصد سقف روی این مبلغ حساب می‌شود. تغییرش فقط عدد سقف را عوض می‌کند؛ هیچ برداشتی تغییر نمی‌کند.'),
             ),
             for (final b in AppConfig.capBases)
               ListTile(
@@ -1178,7 +1247,8 @@ Future<void> _editCapBase(BuildContext context, AppState state) async {
     await state.saveWithdrawalCapBase(picked);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('مبنای سقف: ${AppSettings.capBaseLabel(picked)} ذخیره شد')));
+          content:
+              Text('مبنای سقف: ${AppSettings.capBaseLabel(picked)} ذخیره شد')));
     }
   } catch (e) {
     if (context.mounted) showUserError(context, e);
