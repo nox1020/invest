@@ -157,6 +157,10 @@ void applyCoreOp(CoreBook b, CoreOp op) {
       }
     case 'trade.close':
       final id = (a['tradeId'] as num).toInt();
+      // Re-applied before every redraw: a partial close already shown (its
+      // closed piece exists) must not close the shrunken remainder again.
+      final tmp = (a['closed_tmp'] as num?)?.toInt();
+      if (tmp != null && b.closed.any((x) => x.id == tmp)) return;
       final t = b.open.where((x) => x.id == id).firstOrNull;
       if (t == null) return;
       final qty = _d(a['quantity']) ?? t.quantity;

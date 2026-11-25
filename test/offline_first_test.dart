@@ -205,6 +205,30 @@ void main() {
   });
 
   group('core outbox (assets / trades / withdrawals)', () {
+    test('a queued close of exactly half a lot, re-applied, keeps the other half open', () async {
+      final ob = CoreOutbox();
+      await ob.bind('0913');
+      await ob.add(
+          'trade.close', {'tradeId': 7, 'closed_tmp': -71, 'sellPrice': 150.0, 'sellFee': 3.0, 'quantity': 2.5}, 'c');
+      final book = CoreBook(
+        assets: [],
+        open: [Trade(id: 7, assetId: 1, status: AppConfig.tradeOpen, quantity: 5, buyPrice: 100, buyFee: 10)],
+        closed: [],
+        withdrawals: [],
+      );
+      for (var i = 0; i < 4; i++) {
+        for (final op in ob.ops) {
+          applyCoreOp(book, op);
+        }
+      }
+      expect(book.open.single.id, 7);
+      expect(book.open.single.quantity, closeTo(2.5, 1e-9));
+      expect(book.open.single.buyFee, closeTo(5, 1e-9));
+      expect(book.closed.single.id, -71);
+      expect(book.closed.single.quantity, 2.5);
+      expect(book.closed.single.buyFee, closeTo(5, 1e-9));
+    });
+
     test('offline ops apply idempotently, flush in order with tmp→real ids, keys stable', () async {
       final ob = CoreOutbox();
       await ob.bind('0912');
