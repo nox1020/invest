@@ -427,4 +427,108 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('asset-delete-gold-fund')), findsOneWidget);
   });
+
+  group('bottom area: system nav bar and keyboard', () {
+    const navBar = 48.0;
+    const keyboard = 300.0;
+
+    /// A phone with a 48 px gesture/nav bar under the app (edge-to-edge),
+    /// optionally with the keyboard open.
+    void phone(WidgetTester tester, {bool keyboardOpen = false}) {
+      tester.view.viewPadding = const FakeViewPadding(bottom: navBar);
+      // Android reports no bottom padding while the keyboard covers the bar.
+      tester.view.padding = FakeViewPadding(bottom: keyboardOpen ? 0 : navBar);
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboardOpen ? keyboard : 0);
+      addTearDown(tester.view.resetViewPadding);
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.view.resetViewInsets);
+    }
+
+    void expectAbove(WidgetTester tester, Finder f, double limit, String what) {
+      final r = tester.getRect(f);
+      expect(r.bottom, lessThanOrEqualTo(limit + 0.01), reason: '$what bottom ${r.bottom} > $limit');
+    }
+
+    void expectApart(WidgetTester tester, Finder a, Finder b) {
+      final ra = tester.getRect(a), rb = tester.getRect(b);
+      expect(ra.intersect(rb).width > 0 && ra.intersect(rb).height > 0, isFalse,
+          reason: 'buttons overlap: $ra / $rb');
+    }
+
+    for (final (size, text) in const [(Size(320, 568), 1.3), (Size(360, 640), 1.3), (Size(360, 640), 1.0)]) {
+      final tag = '${size.width.toInt()}x${size.height.toInt()} @${text}x';
+
+      testWidgets('page: last rows clear the nav bar ($tag)', (tester) async {
+        phone(tester);
+        await _pump(tester, _state(), const GoldFundPage(), size: size, text: text);
+        final pos = tester
+            .state<ScrollableState>(
+                find.descendant(of: find.byKey(const ValueKey('gf-list')), matching: find.byType(Scrollable)).first)
+            .position;
+        for (var i = 0; i < 8; i++) {
+          pos.jumpTo(pos.maxScrollExtent); // lazy list: the extent firms up as it lays out
+          await tester.pump();
+        }
+        await tester.pumpAndSettle();
+        expectAbove(tester, find.byKey(const ValueKey('gf-cash')), size.height - navBar, 'cash ledger');
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('calculator footer clears the nav bar and the keyboard ($tag)', (tester) async {
+        phone(tester);
+        final s = _state();
+        await _pump(tester, s, const GoldFundPage(), size: size, text: text);
+        await tester.ensureVisible(find.byKey(const ValueKey('gf-buy')));
+        await tester.tap(find.byKey(const ValueKey('gf-buy')));
+        await tester.pumpAndSettle();
+        final close = find.byKey(const ValueKey('gc-close'));
+        final rec = find.byKey(const ValueKey('gc-record'));
+        expectAbove(tester, close, size.height - navBar, 'فقط محاسبه');
+        expectAbove(tester, rec, size.height - navBar, 'ثبت خرید');
+        expectApart(tester, close, rec);
+        expect(tester.takeException(), isNull);
+
+        // Keyboard up: the footer sits on the keyboard, the field stays visible.
+        phone(tester, keyboardOpen: true);
+        await tester.pumpAndSettle();
+        expectAbove(tester, close, size.height - keyboard, 'فقط محاسبه (keyboard)');
+        expectAbove(tester, rec, size.height - keyboard, 'ثبت خرید (keyboard)');
+        expectApart(tester, close, rec);
+        await tester.showKeyboard(find.byKey(const ValueKey('gc-input')));
+        await tester.pumpAndSettle();
+        final input = tester.getRect(find.byKey(const ValueKey('gc-input')));
+        expect(input.bottom, lessThanOrEqualTo(tester.getRect(close).top + 0.01), reason: 'input under the footer');
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('cash sheet save clears the nav bar and the keyboard ($tag)', (tester) async {
+        phone(tester);
+        await _pump(tester, _state(), const GoldFundPage(), size: size, text: text);
+        await tester.ensureVisible(find.byKey(const ValueKey('gf-deposit')));
+        await tester.tap(find.byKey(const ValueKey('gf-deposit')));
+        await tester.pumpAndSettle();
+        final save = find.byKey(const ValueKey('gcs-save'));
+        expect(save.hitTestable(), findsOneWidget, reason: 'save visible without scrolling');
+        expectAbove(tester, save, size.height - navBar, 'ثبت');
+        phone(tester, keyboardOpen: true);
+        await tester.showKeyboard(find.byKey(const ValueKey('gcs-amount')));
+        await tester.pumpAndSettle();
+        expect(save.hitTestable(), findsOneWidget, reason: 'save visible with the keyboard up');
+        expectAbove(tester, save, size.height - keyboard, 'ثبت (keyboard)');
+        final amount = tester.getRect(find.byKey(const ValueKey('gcs-amount')));
+        expect(amount.bottom, lessThanOrEqualTo(tester.getRect(save).top + 0.01), reason: 'amount under save');
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('the sheets\' result snackbar floats above the nav bar', (tester) async {
+      phone(tester);
+      await _pump(tester, _state(), const GoldFundPage(), size: const Size(360, 640), text: 1.3);
+      // Same call the sheets make after closing.
+      ScaffoldMessenger.of(tester.element(find.byKey(const ValueKey('gf-list'))))
+          .showSnackBar(const SnackBar(behavior: SnackBarBehavior.floating, content: Text('نقد صندوق ثبت شد.')));
+      await tester.pumpAndSettle();
+      expectAbove(tester, find.byType(SnackBar), 640 - navBar, 'snackbar');
+    });
+  });
 }

@@ -134,7 +134,8 @@ class _GoldFundPageState extends State<GoldFundPage> {
           child: ListView(
             key: const ValueKey('gf-list'),
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 36),
+            // The last rows scroll clear of the system nav bar.
+            padding: EdgeInsets.fromLTRB(14, 10, 14, 36 + MediaQuery.paddingOf(context).bottom),
             children: [
               _Ribbon(state: state, quote: q, pending: pending),
               const SizedBox(height: 10),

@@ -1085,7 +1085,8 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
     }
     if (_busy) onRecord = null;
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+      // Above the system nav bar; on the keyboard when it is up.
+      padding: EdgeInsets.fromLTRB(14, 8, 14, 12 + gSafeBottom(context)),
       decoration: const BoxDecoration(
         color: kSheetBg,
         border: Border(top: BorderSide(color: AppTheme.border)),

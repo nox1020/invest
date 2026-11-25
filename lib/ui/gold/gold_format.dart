@@ -37,6 +37,14 @@ String gPct(num v, {int decimals = 1, bool sign = true}) {
 /// Compact Toman (`۱۸۵٫۴ میلیون ت`).
 String gCompact(num v) => fa(formatCompactToman(v, forceToman: true));
 
+/// Space the system gesture/nav bar takes under the app (Android 15 draws
+/// edge-to-edge). Zero while the keyboard covers it. Modal sheets opened with
+/// `useSafeArea` don't pad the bottom, so their footers add this themselves.
+double gSafeBottom(BuildContext context) {
+  final bar = MediaQuery.viewPaddingOf(context).bottom - MediaQuery.viewInsetsOf(context).bottom;
+  return bar > 0 ? bar : 0;
+}
+
 const kGoldDeep = Color(0xFFC9A743);
 const kGoldText = Color(0xFFF1E3B0);
 const kSheetBg = Color(0xFF132019);
