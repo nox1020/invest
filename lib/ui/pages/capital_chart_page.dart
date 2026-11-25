@@ -14,6 +14,7 @@ import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/dashboard_kit.dart';
 import 'package:invest/ui/widgets/dual_currency_chart.dart';
+import 'package:invest/ui/pages/gold_fund_page.dart';
 import 'package:invest/ui/widgets/portfolio_value_breakdown.dart';
 import 'package:invest/ui/widgets/sparkline.dart' show sparkDeltaPct;
 import 'package:invest/ui/widgets/user_error.dart';
@@ -70,6 +71,7 @@ class _CapitalChartPageState extends State<CapitalChartPage>
       calendar: calendar,
       metrics: state.metrics,
       checks: state.checks,
+      goldFundCash: state.goldFundCash,
     );
     final growth = state.capitalGrowthSeries;
     final year = state.yearRealizedChartSeries;
@@ -155,14 +157,17 @@ class _CapitalChartPageState extends State<CapitalChartPage>
                   trend: trend,
                   lifetimePct: lifetimePct,
                 ),
-                if (snap.holdingCount > 0) ...[
+                if (snap.holdingCount > 0 || (snap.valuation?.goldFundCash ?? 0).abs() >= 0.5) ...[
                   const SizedBox(height: 20),
                   const _SectionLabel(
                     eyebrow: 'ترکیب',
                     title: 'ترکیب ارزش',
                   ),
                   const SizedBox(height: 10),
-                  PortfolioValueBreakdown(snap: snap),
+                  PortfolioValueBreakdown(
+                    snap: snap,
+                    onOpenGoldFund: () => openGoldFundPage(context),
+                  ),
                 ],
                 const SizedBox(height: 20),
                 const _SectionLabel(
@@ -399,13 +404,15 @@ class _NavHero extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Row(
+          Row(
             children: [
-              _Pill(text: 'NAV'),
-              SizedBox(width: 8),
+              const _Pill(text: 'NAV'),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'ارزش کل · با چک‌های باز',
+                  (snap.valuation?.goldFundCash ?? 0).abs() >= 0.5
+                      ? 'ارزش کل · با چک‌ها و نقد صندوق طلا'
+                      : 'ارزش کل · با چک‌های باز',
                   textAlign: TextAlign.right,
                   style: TextStyle(
                     color: AppTheme.muted,
@@ -662,6 +669,7 @@ class _BalanceSheet extends StatelessWidget {
     final totalTone =
         snap.totalPnl >= 0 ? AppTheme.positive : AppTheme.negative;
     final showFlows = trend.pct != null && trend.netFlows.abs() >= 1;
+    final fundCash = snap.valuation?.goldFundCash ?? 0;
     return Container(
       key: const ValueKey('vp-balance'),
       decoration: BoxDecoration(
@@ -683,6 +691,7 @@ class _BalanceSheet extends StatelessWidget {
             value: formatMoney(snap.marketValue),
             caption: [
               if (snap.chequeNav.affectsNav) 'شامل چک‌های باز',
+              if (fundCash.abs() >= 0.5) 'شامل نقد صندوق طلا',
               snap.marketValueUsd == null
                   ? 'علامت زنده تومانی'
                   : 'معادل ${formatUsd(snap.marketValueUsd!)}',
@@ -701,6 +710,15 @@ class _BalanceSheet extends StatelessWidget {
               tone: snap.chequeNav.net >= 0
                   ? AppTheme.positive
                   : AppTheme.negative,
+              showDivider: true,
+            ),
+          if (fundCash.abs() >= 0.5)
+            _LedgerRow(
+              key: const ValueKey('vp-gold-fund-cash'),
+              label: 'نقد صندوق طلا',
+              value: formatMoney(fundCash),
+              caption: 'پول کنار گذاشته برای طلا · جزو روند ۳۰ روزه نیست',
+              tone: fundCash >= 0 ? AppTheme.positive : AppTheme.negative,
               showDivider: true,
             ),
           _LedgerRow(

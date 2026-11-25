@@ -6,10 +6,12 @@ import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/models/profit_alert.dart';
 import 'package:invest/domain/services/buy_usd_suggest.dart';
 import 'package:invest/domain/services/notification_service.dart';
+import 'package:invest/domain/utils/gold_fund_tag.dart';
 import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/gold/gold_delete_note.dart';
 import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
@@ -771,7 +773,8 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
       buyUsdTmn: crypto ? _parseOptionalPositive(fxCtrl.text) : null,
       buyFee: double.tryParse(feeCtrl.text) ?? 0,
       buyDate: buyDate,
-      buyNote: noteCtrl.text,
+      // A note edit must not drop the hidden «صندوق طلا» marker.
+      buyNote: carryGoldFundTag(trade.buyNote, noteCtrl.text),
     );
     await state.refresh();
     if (context.mounted) {
@@ -785,6 +788,8 @@ Future<void> showEditOpenTradeDialog(BuildContext context, Trade trade) async {
 }
 
 Future<void> confirmDeleteClosedTrade(BuildContext context, Trade trade) async {
+  final fundState = context.read<AppState>();
+  final fundNote = goldFundDeleteNote(fundState, [trade]);
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
@@ -792,7 +797,9 @@ Future<void> confirmDeleteClosedTrade(BuildContext context, Trade trade) async {
       content: Text(
         'تاریخچه معامله «${trade.assetName}» حذف شود؟\n'
         'این کار فقط از سوابق حذف می‌کند و موجودی فعلی را تغییر نمی‌دهد.\n'
+        '${fundNote == null ? '' : '$fundNote\n'}'
         'این عمل قابل بازگشت نیست.',
+        key: fundNote == null ? null : const ValueKey('trade-delete-gold-fund'),
         textAlign: TextAlign.right,
       ),
       actions: [

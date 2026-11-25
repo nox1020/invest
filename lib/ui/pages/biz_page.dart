@@ -2168,6 +2168,7 @@ Future<Map<String, List<List<Object?>>>> _fullSheets(
     calendar: state.settings.calendar,
     metrics: state.metrics,
     checks: state.checks,
+    goldFundCash: state.goldFundCash,
   );
   final now = DateTime.now();
   final yearKey = '${store.snap.year ?? currentJalaliYear()}';
@@ -2181,6 +2182,7 @@ Future<Map<String, List<List<Object?>>>> _fullSheets(
     holdings: snap.holdings,
     holdingsValue: snap.holdingsValue,
     nav: snap.marketValue,
+    goldFundCash: snap.valuation?.goldFundCash ?? 0,
     openTrades: state.openTrades,
     closedTrades: state.closedTrades,
     tradesRealized: b.trades,

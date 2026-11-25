@@ -11,6 +11,7 @@ import 'package:invest/ui/layout/page_padding.dart';
 import 'package:invest/ui/pages/biz_page.dart';
 import 'package:invest/ui/pages/capital_chart_page.dart';
 import 'package:invest/ui/pages/checks_page.dart';
+import 'package:invest/ui/pages/gold_fund_page.dart';
 import 'package:invest/ui/pages/commodity_index_page.dart';
 import 'package:invest/ui/pages/quote_detail_page.dart';
 import 'package:invest/ui/theme/app_theme.dart';
@@ -130,6 +131,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
       calendar: state.settings.calendar,
       metrics: state.metrics,
       checks: state.checks,
+      goldFundCash: state.goldFundCash,
     );
     final valuation = snap.valuation!;
     final today = todayIso();
@@ -456,6 +458,7 @@ extension _CompactDash on _DashboardBodyState {
 
     final nav = snap.marketValue;
     final goldV = sumV(gold);
+    final fundCash = snap.valuation?.goldFundCash ?? 0;
     final goldPct = pctOf(gold);
     final fxPct = pctOf(fx);
     final otherPct = pctOf(other);
@@ -610,18 +613,30 @@ extension _CompactDash on _DashboardBodyState {
           line: fa('${alerts.length} مورد · ${alerts.first.title}'),
           child: DashAlertsList(alerts: alerts, onOpen: openAlert),
         ),
-      if (gold.isNotEmpty)
+      if (gold.isNotEmpty || fundCash.abs() >= 0.5)
         section(
           id: 'gold',
           icon: Icons.diamond_rounded,
           color: kGold,
           title: 'طلا و سکه · پوشش تورم',
-          line: fa('${gold.length} دارایی · ${fa(formatCompactToman(goldV))}'
-              '${snap.goldHoldingG > 0 ? ' · ${formatGrams(snap.goldHoldingG)} ۱۸ عیار' : ''}'
-              '${nav > 0 ? ' · ${(goldV / nav * 100).round()}٪ سبد' : ''}'),
+          line: gold.isEmpty
+              ? fa('نقد صندوق طلا ${formatCompactToman(fundCash)}')
+              : fa('${gold.length} دارایی · ${fa(formatCompactToman(goldV))}'
+                  '${snap.goldHoldingG > 0 ? ' · ${formatGrams(snap.goldHoldingG)} ۱۸ عیار' : ''}'
+                  '${nav > 0 ? ' · ${(goldV / nav * 100).round()}٪ سبد' : ''}'),
           value: goldPct == null ? null : signedPct(goldPct),
           valueColor: goldPct == null ? AppTheme.muted : toneOf(goldPct),
-          child: rows(gold),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            GoldFundEntryRow(
+              key: const ValueKey('dash-gold-fund'),
+              fundCash: fundCash,
+              onTap: () => openGoldFundPage(context),
+            ),
+            if (gold.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              rows(gold),
+            ],
+          ]),
         ),
       if (fx.isNotEmpty)
         section(

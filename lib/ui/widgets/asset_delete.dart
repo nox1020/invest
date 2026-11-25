@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/gold/gold_delete_note.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
@@ -18,6 +19,10 @@ Future<bool> confirmDeleteAsset(BuildContext context, Asset asset) async {
   final closed = state.closedTrades.where((t) => t.assetId == id).length;
   final qty = open.fold<double>(0, (s, t) => s + t.quantity);
   final value = qty * asset.currentPrice;
+  final fundNote = goldFundDeleteNote(state, [
+    ...open,
+    ...state.closedTrades.where((t) => t.assetId == id),
+  ])?.replaceFirst('این معامله از «صندوق طلا» ثبت شده', 'بعضی معامله‌های این دارایی از «صندوق طلا» ثبت شده‌اند');
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => Directionality(
@@ -44,6 +49,8 @@ Future<bool> confirmDeleteAsset(BuildContext context, Asset asset) async {
               key: const ValueKey('asset-delete-closed'),
               textAlign: TextAlign.right,
             ),
+            if (fundNote != null)
+              Text('• $fundNote', key: const ValueKey('asset-delete-gold-fund'), textAlign: TextAlign.right),
             const SizedBox(height: 10),
             const Text(
               'جمع دارایی‌ها، سود و زیان و داشبورد بدون این دارایی محاسبه می‌شوند. این کار قابل بازگشت نیست.',
