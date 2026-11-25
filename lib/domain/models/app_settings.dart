@@ -1,4 +1,5 @@
 import 'package:invest/config/app_config.dart';
+import 'package:invest/domain/models/gold_cash_entry.dart';
 import 'package:invest/domain/utils/json_values.dart';
 import 'package:invest/domain/models/price_alert.dart';
 import 'package:invest/domain/models/profit_alert.dart';
@@ -27,12 +28,14 @@ class AppSettings {
     List<PriceAlert>? priceAlerts,
     List<ProfitAlert>? profitAlerts,
     List<YearNavEntry>? yearNavHistory,
+    List<GoldCashEntry>? goldFundLedger,
   })  : autoRefreshSeconds = clampAutoRefreshSeconds(autoRefreshSeconds),
         annualWithdrawalPct = clampAnnualWithdrawalPct(annualWithdrawalPct),
         withdrawalCapBase = parseCapBase(withdrawalCapBase),
         priceAlerts = priceAlerts ?? [],
         profitAlerts = profitAlerts ?? [],
-        yearNavHistory = yearNavHistory ?? [];
+        yearNavHistory = yearNavHistory ?? [],
+        goldFundLedger = goldFundLedger ?? [];
 
   String calendar;
   String currency;
@@ -87,6 +90,10 @@ class AppSettings {
 
   /// Manual year-end NAV figures for YoY comparison (one number per year).
   List<YearNavEntry> yearNavHistory;
+
+  /// Manual cash movements of «صندوق طلا» (deposits, withdrawals, opening
+  /// balance, adjustments). Trade cash is derived from `[gf:…]` trades.
+  List<GoldCashEntry> goldFundLedger;
 
   bool get isDark => theme != 'light';
 
@@ -241,6 +248,7 @@ class AppSettings {
     List<PriceAlert>? priceAlerts,
     List<ProfitAlert>? profitAlerts,
     List<YearNavEntry>? yearNavHistory,
+    List<GoldCashEntry>? goldFundLedger,
     bool clearUsdtTmnRate = false,
     bool clearGoldTmnPerGram = false,
   }) {
@@ -271,6 +279,7 @@ class AppSettings {
       yearNavHistory: (yearNavHistory ?? this.yearNavHistory)
           .map((e) => e.copyWith())
           .toList(),
+      goldFundLedger: List<GoldCashEntry>.from(goldFundLedger ?? this.goldFundLedger),
     );
   }
 
@@ -297,6 +306,7 @@ class AppSettings {
         'price_alerts': priceAlerts.map((e) => e.toJson()).toList(),
         'profit_alerts': profitAlerts.map((e) => e.toJson()).toList(),
         'year_nav_history': yearNavHistory.map((e) => e.toJson()).toList(),
+        AppConfig.settingGoldFundLedger: goldFundLedger.map((e) => e.toJson()).toList(),
       };
 
   /// Local SQLite / settings-table key map.
@@ -322,6 +332,7 @@ class AppSettings {
         AppConfig.settingPriceAlerts: PriceAlertList.encode(priceAlerts),
         AppConfig.settingProfitAlerts: ProfitAlertList.encode(profitAlerts),
         AppConfig.settingYearNavHistory: YearNavList.encode(yearNavHistory),
+        AppConfig.settingGoldFundLedger: GoldCashLedger.encode(goldFundLedger),
       };
 
   static bool _on(dynamic v, {bool fallback = true}) {
@@ -383,6 +394,7 @@ class AppSettings {
       yearNavHistory: YearNavList.parse(
         s['year_nav_history'] ?? s[AppConfig.settingYearNavHistory],
       ),
+      goldFundLedger: GoldCashLedger.parse(s[AppConfig.settingGoldFundLedger]),
     );
   }
 
@@ -410,6 +422,7 @@ class AppSettings {
       'price_alerts': map[AppConfig.settingPriceAlerts],
       'profit_alerts': map[AppConfig.settingProfitAlerts],
       'year_nav_history': map[AppConfig.settingYearNavHistory],
+      AppConfig.settingGoldFundLedger: map[AppConfig.settingGoldFundLedger],
     });
   }
 }

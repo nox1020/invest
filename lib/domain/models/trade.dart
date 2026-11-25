@@ -1,6 +1,7 @@
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/utils/buy_usd.dart';
 import 'package:invest/domain/utils/dates.dart';
+import 'package:invest/domain/utils/gold_fund_tag.dart';
 import 'package:invest/domain/utils/json_values.dart';
 
 class Trade {
@@ -77,8 +78,16 @@ class Trade {
   /// Toman-per-USD rate locked at sell time (`[sell_fx:…]` in [sellNote]).
   double? get sellUsdTmn => readSellUsdTmn(sellNote);
 
-  /// Free-text sell note without the `[sell_fx:…]` marker.
-  String get sellNoteDisplay => parseSellNoteFx(sellNote).note;
+  /// Free-text sell note without the `[sell_fx:…]` / `[gf:…]` markers.
+  String get sellNoteDisplay => stripGoldFundTag(parseSellNoteFx(sellNote).note);
+
+  /// Sell note without `[sell_fx:…]` but with a gold-fund marker kept (for
+  /// re-creating the trade, e.g. a backup restore).
+  String get sellNoteFree => parseSellNoteFx(sellNote).note;
+
+  /// Recorded from the «صندوق طلا» page (cash came from / went to the fund).
+  bool get buyFromGoldFund => hasGoldFundTag(buyNote);
+  bool get soldToGoldFund => isClosed && hasGoldFundTag(sellNote);
 
   double get markPrice =>
       isOpen ? currentPrice : (sellPrice ?? currentPrice);
@@ -96,8 +105,11 @@ class Trade {
   /// Days since buy for an open lot (0 if closed or undated).
   int get openDays => isOpen ? openHoldingDays(buyDate) : (holdingDays ?? 0);
 
-  /// Free-text note without `[buy_usd:…]` / `[buy_fx:…]` markers.
-  String get buyNoteDisplay => parseBuyNoteUsd(buyNote).note;
+  /// Free-text note without `[buy_usd:…]` / `[buy_fx:…]` / `[gf:…]` markers.
+  String get buyNoteDisplay => stripGoldFundTag(parseBuyNoteUsd(buyNote).note);
+
+  /// Buy note without the USD markers but with a gold-fund marker kept.
+  String get buyNoteFree => parseBuyNoteUsd(buyNote).note;
 
   /// Stored dollar Toman rate, else implied from Toman ÷ registered USD.
   double? get resolvedBuyUsdTmn => resolveBuyUsdTmn(

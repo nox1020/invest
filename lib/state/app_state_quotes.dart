@@ -43,6 +43,7 @@ extension AppStateQuotes on AppState {
         try {
           final g = await quotes!.fetchGoldToman(persianUrl: pUrl);
           localGold = g.price;
+          _noteGoldSides(g);
         } catch (_) {}
       }());
     }
@@ -91,6 +92,7 @@ extension AppStateQuotes on AppState {
           fetchedGold.toString(),
         ),
       );
+      await _recordGoldPrice();
     }
 
     if (!useRemote && trades != null) {
@@ -112,7 +114,7 @@ extension AppStateQuotes on AppState {
   }
 
   /// Replace شاخص / live gold with the free 18k bazaar feed when Vinor is stale.
-  Future<({double? price, double? change24h})?> _fetchFreeMarketGold() async {
+  Future<GoldLiveQuote?> _fetchFreeMarketGold() async {
     if (!settings.goldApiEnabled) return null;
     quotes ??= QuoteClients();
     try {
@@ -120,6 +122,7 @@ extension AppStateQuotes on AppState {
           .fetchGoldToman(persianUrl: settings.persianToolboxUrl);
       if (g.price == null || g.price! <= 0) return null;
       if (GoldQuoteParser.isUnderstated18kToman(g.price)) return null;
+      _noteGoldSides(g);
       return g;
     } catch (_) {
       return null;

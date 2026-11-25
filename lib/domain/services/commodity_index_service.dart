@@ -46,7 +46,7 @@ class CommodityIndexService {
     ]);
     final market = results[0] as Map<String, dynamic>?;
     final wallex = results[1] as Map<String, dynamic>?;
-    final gold = results[2] as ({double? price, double? change24h});
+    final gold = results[2] as GoldLiveQuote;
 
     final essentials = alignDerivedQuotes(
       _buildEssentials(market, wallex, goldQuote: gold),
@@ -76,7 +76,7 @@ class CommodityIndexService {
   List<CommodityQuote> _buildEssentials(
     Map<String, dynamic>? market,
     Map<String, dynamic>? wallex, {
-    ({double? price, double? change24h})? goldQuote,
+    GoldLiveQuote? goldQuote,
   }) {
     final usdt = _usdtFromWallex(wallex);
     final units = _asMap(market?['units']);

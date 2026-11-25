@@ -94,11 +94,13 @@ class DashboardSnapshot {
     required String calendar,
     DashboardMetrics? metrics,
     Iterable<BankCheck> checks = const [],
+    double goldFundCash = 0,
   }) {
     final valuation = PortfolioValuation.of(
       assets: assets,
       openTrades: openTrades,
       checks: checks,
+      goldFundCash: goldFundCash,
     );
     final holdings = valuation.holdings;
     final holdingsValue = valuation.holdingsValue;

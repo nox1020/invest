@@ -46,6 +46,9 @@ class AppConfig {
   /// Year-end NAV history: `[{year, nav_toman, usdt_tmn}, …]`.
   static const settingYearNavHistory = 'year_nav_history';
 
+  /// Manual cash entries of «صندوق طلا» (settings bag list, synced).
+  static const settingGoldFundLedger = 'gold_fund_ledger';
+
   /// PIN / password hash synced via Vinor settings (cross-device).
   static const settingAppLockHash = 'app_lock_hash';
   static const settingAppLockBiometric = 'app_lock_biometric';

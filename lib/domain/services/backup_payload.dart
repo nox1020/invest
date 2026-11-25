@@ -165,6 +165,9 @@ class BackupPayload {
           fromRaw.yearNavHistory.isNotEmpty) {
         settings.yearNavHistory = fromRaw.yearNavHistory;
       }
+      if (settings.goldFundLedger.isEmpty && fromRaw.goldFundLedger.isNotEmpty) {
+        settings.goldFundLedger = fromRaw.goldFundLedger;
+      }
       if (!settingsMap.containsKey('notify_background') &&
           raw.containsKey(AppConfig.settingNotifyBackground)) {
         settings.notifyBackground = fromRaw.notifyBackground;

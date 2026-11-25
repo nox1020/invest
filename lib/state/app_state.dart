@@ -23,6 +23,7 @@ import 'package:invest/data/repositories.dart';
 import 'package:invest/data/session_store.dart';
 import 'package:invest/data/withdrawal_repository.dart';
 import 'package:invest/domain/models/app_settings.dart';
+import 'package:invest/domain/models/gold_cash_entry.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/bank_check.dart';
 import 'package:invest/domain/models/metrics.dart';
@@ -49,6 +50,10 @@ import 'package:invest/domain/services/price_alert_prefs.dart';
 import 'package:invest/domain/services/profit_alert_engine.dart';
 import 'package:invest/domain/services/background_price_worker.dart';
 import 'package:invest/domain/services/quote_clients.dart';
+import 'package:invest/domain/utils/gold_fund_tag.dart';
+import 'package:invest/domain/services/gold_calc.dart';
+import 'package:invest/domain/services/gold_fund_book.dart';
+import 'package:invest/domain/services/gold_price_log.dart';
 import 'package:invest/domain/services/gold_quote_parser.dart';
 import 'package:invest/domain/services/live_toman_price.dart';
 import 'package:invest/domain/services/trade_service.dart';
@@ -71,6 +76,7 @@ part 'app_state_checks.dart';
 part 'app_state_sync.dart';
 part 'app_state_quotes.dart';
 part 'app_state_backup.dart';
+part 'app_state_gold.dart';
 
 class _StepFailure {
   _StepFailure(this.step, this.error);
@@ -232,6 +238,14 @@ class AppState extends ChangeNotifier {
 
   double? liveUsdt;
   double? liveGold;
+
+  /// Last WallGold sell/buy prints for 18k (null when the feed lacks them).
+  double? liveGoldBid;
+  double? liveGoldAsk;
+  double? liveGoldChange24h;
+
+  /// On-device daily 18k price log (see [GoldPriceLog]).
+  List<GoldPricePoint> goldPriceLog = const [];
 
   /// When a USDT rate last came from a live feed in this session. Null means
   /// [liveUsdt] is the stored rate (settings or offline cache), not live.
@@ -414,6 +428,7 @@ class AppState extends ChangeNotifier {
               calendar: cal,
               metrics: metrics,
               checks: checks,
+              goldFundCash: goldFundCash,
             ).marketValue
           : null,
     );
@@ -443,6 +458,7 @@ class AppState extends ChangeNotifier {
     loading = true;
     error = null;
     notifyListeners();
+    if (testDb == null) unawaited(loadGoldPriceLog());
     PriceAlertSnapshot? cachedAlerts;
     var alertsHandled = false;
     try {
@@ -1083,6 +1099,7 @@ class AppState extends ChangeNotifier {
     final sentAnnualPct =
         AppSettings.clampAnnualWithdrawalPct(s.annualWithdrawalPct);
     final sentYearNav = List<YearNavEntry>.from(s.yearNavHistory);
+    final sentGoldLedger = List<GoldCashEntry>.from(s.goldFundLedger);
 
     settings = s
       ..usdtTmnRate = prevUsdt
@@ -1090,7 +1107,8 @@ class AppState extends ChangeNotifier {
       ..wallexUrl = prevWallex
       ..persianToolboxUrl = prevPersian
       ..annualWithdrawalPct = sentAnnualPct
-      ..yearNavHistory = sentYearNav;
+      ..yearNavHistory = sentYearNav
+      ..goldFundLedger = sentGoldLedger;
     notifyListeners();
 
     Object? remoteError;
@@ -1105,6 +1123,7 @@ class AppState extends ChangeNotifier {
         // previous server value on older backends.
         settings.annualWithdrawalPct = sentAnnualPct;
         settings.yearNavHistory = List<YearNavEntry>.from(sentYearNav);
+        settings.goldFundLedger = List<GoldCashEntry>.from(sentGoldLedger);
         if (settings.wallexUrl.trim().isEmpty) {
           settings.wallexUrl = prevWallex;
         }
@@ -1155,6 +1174,12 @@ class AppState extends ChangeNotifier {
       settings.yearNavHistory = List<YearNavEntry>.from(sentYearNav);
       await _persistSettingsLocal(settings);
       await PriceAlertPrefs.saveFrom(settings);
+      notifyListeners();
+    }
+    // Same for the gold-fund cash book (older servers do not store it).
+    if (!GoldCashLedger.same(settings.goldFundLedger, sentGoldLedger)) {
+      settings.goldFundLedger = List<GoldCashEntry>.from(sentGoldLedger);
+      await _persistSettingsLocal(settings);
       notifyListeners();
     }
   }
@@ -1273,6 +1298,7 @@ class AppState extends ChangeNotifier {
     if (!useRemote || offline || remote == null || readOnlyOffline) return null;
     try {
       final sentYearNav = List<YearNavEntry>.from(settings.yearNavHistory);
+      final sentGoldLedger = List<GoldCashEntry>.from(settings.goldFundLedger);
       final sentAnnualPct = settings.annualWithdrawalPct;
       // Once `/checks` exists, a settings snapshot must not replace that book.
       final sentChecks = _checksFromRemote
@@ -1290,6 +1316,7 @@ class AppState extends ChangeNotifier {
       settings = bundle.settings;
       settings.annualWithdrawalPct = sentAnnualPct;
       settings.yearNavHistory = List<YearNavEntry>.from(sentYearNav);
+      settings.goldFundLedger = List<GoldCashEntry>.from(sentGoldLedger);
       await _applyRemoteLockFromBundle(bundle);
       await _persistSettingsLocal(settings);
       await PriceAlertPrefs.saveFrom(settings);
@@ -1359,8 +1386,22 @@ class AppState extends ChangeNotifier {
     RemoteSettingsBundle bundle, {
     required bool migrate,
   }) async {
+    final prevGoldLedger = List<GoldCashEntry>.from(settings.goldFundLedger);
     settings = bundle.settings;
     var filledGaps = false;
+    // A server without `gold_fund_ledger` (not deployed yet) must not wipe
+    // the book kept on this phone: keep memory, else the local table.
+    if (!bundle.presentKeys.contains(AppConfig.settingGoldFundLedger)) {
+      if (prevGoldLedger.isNotEmpty) {
+        settings.goldFundLedger = prevGoldLedger;
+      } else {
+        await _local('settings-gold-ledger', () async {
+          await _ensureLocalSettingsRepo();
+          final map = await settingsRepo?.loadAll();
+          settings.goldFundLedger = GoldCashLedger.parse(map?[AppConfig.settingGoldFundLedger]);
+        });
+      }
+    }
     final gaps = await _local(
       'settings-prefs',
       () => PriceAlertPrefs.fillGapsOnto(settings),

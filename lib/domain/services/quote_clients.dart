@@ -4,6 +4,10 @@ import 'package:http/http.dart' as http;
 import 'package:invest/config/app_config.dart';
 import 'package:invest/domain/services/gold_quote_parser.dart';
 
+/// Live 18k gold: mid price, 24h change and (WallGold only) the last
+/// sell (`bid`) and buy (`ask`) prints, all Toman per gram.
+typedef GoldLiveQuote = ({double? price, double? change24h, double? bid, double? ask});
+
 class QuoteClients {
   QuoteClients({http.Client? client}) : _client = client ?? http.Client();
 
@@ -41,7 +45,7 @@ class QuoteClients {
   /// Iranian 18k gold Toman/gram from free public feeds.
   ///
   /// Order: WallGold → TGJU → optional configured URL (toolbox / override).
-  Future<({double? price, double? change24h})> fetchGoldToman({
+  Future<GoldLiveQuote> fetchGoldToman({
     String? persianUrl,
   }) async {
     final configured = GoldQuoteParser.resolveConfiguredUrl(persianUrl);
@@ -59,9 +63,14 @@ class QuoteClients {
           quote.source == 'persiantoolbox') {
         continue;
       }
-      return (price: quote.priceToman, change24h: quote.change24hPct);
+      return (
+        price: quote.priceToman,
+        change24h: quote.change24hPct,
+        bid: quote.bidToman,
+        ask: quote.askToman,
+      );
     }
-    return (price: null, change24h: null);
+    return (price: null, change24h: null, bid: null, ask: null);
   }
 
   Future<GoldQuoteParse?> _fetchGoldFromUrl(String rawUrl) async {

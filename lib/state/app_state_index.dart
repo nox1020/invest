@@ -209,6 +209,7 @@ extension AppStateIndex on AppState {
       iranInflationError = null;
       await OfflineCacheStore.saveIranInflation(inflation);
     }
+    var goldMoved = false;
     for (final q in essentials) {
       if (q.id == 'usdt' && q.price != null && q.price! > 0) {
         liveUsdt = q.price;
@@ -219,8 +220,10 @@ extension AppStateIndex on AppState {
       if (q.id == 'gold' && q.price != null && q.price! > 0) {
         liveGold = q.price;
         settings.goldTmnPerGram = q.price;
+        goldMoved = true;
       }
     }
+    if (goldMoved) await _recordGoldPrice();
     await _overlayLiveMarks(persistLocal: true);
     await _dispatchPriceAlerts();
   }

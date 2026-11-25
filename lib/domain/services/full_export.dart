@@ -49,6 +49,7 @@ Map<String, Sheet> buildFullExport({
   required List<({Asset asset, HoldingMetrics metrics})> holdings,
   required double holdingsValue,
   required double nav,
+  double goldFundCash = 0,
   required List<Trade> openTrades,
   required List<Trade> closedTrades,
   required double tradesRealized,
@@ -97,7 +98,8 @@ Map<String, Sheet> buildFullExport({
       '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')} — همهٔ داده‌ها تا این لحظه'
     ],
     ['سال گزارش', yearKey, 'ستون‌های «امسال» از ابتدای سال تا امروز'],
-    ['ارزش کل سبد (با چک‌ها)', nav, null],
+    [goldFundCash.abs() < 0.5 ? 'ارزش کل سبد (با چک‌ها)' : 'ارزش کل سبد (با چک‌ها و نقد صندوق طلا)', nav, null],
+    if (goldFundCash.abs() >= 0.5) ['نقد صندوق طلا', goldFundCash, 'پول نقد کنار گذاشته برای طلا'],
     [
       'ارزش دارایی‌ها',
       holdingsValue,

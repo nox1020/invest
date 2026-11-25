@@ -379,7 +379,7 @@ extension AppStateBackup on AppState {
         buyUsdTmn: t.buyUsdTmn,
         buyFee: t.buyFee,
         buyDate: t.buyDate.isEmpty ? null : t.buyDate,
-        buyNote: t.buyNoteDisplay,
+        buyNote: t.buyNoteFree,
         currentPrice: t.currentPrice > 0 ? t.currentPrice : null,
       );
     }
@@ -399,7 +399,7 @@ extension AppStateBackup on AppState {
         buyUsdTmn: t.buyUsdTmn,
         buyFee: t.buyFee,
         buyDate: t.buyDate.isEmpty ? null : t.buyDate,
-        buyNote: t.buyNoteDisplay,
+        buyNote: t.buyNoteFree,
       );
       if (bought.id == null) continue;
       await svc.closeTrade(
@@ -408,7 +408,7 @@ extension AppStateBackup on AppState {
         sellFee: t.sellFee,
         quantity: t.quantity,
         sellDate: t.sellDate,
-        sellNote: t.sellNoteDisplay,
+        sellNote: t.sellNoteFree,
         sellUsdTmn: t.sellUsdTmn,
       );
     }

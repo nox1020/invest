@@ -22,6 +22,7 @@ class ValuationGroup {
 ///   price). This is the basis of the daily series, here and on the server.
 /// * [nav] adds open cheques. It is what the card headline shows, but it is
 ///   never mixed into the trend, so a new or cashed cheque does not move it.
+///   «نقد صندوق طلا» ([goldFundCash]) is added the same way.
 class PortfolioValuation {
   const PortfolioValuation({
     required this.holdings,
@@ -30,6 +31,7 @@ class PortfolioValuation {
     required this.groups,
     required this.unpriced,
     required this.goldValue,
+    this.goldFundCash = 0,
   });
 
   final List<({Asset asset, HoldingMetrics metrics})> holdings;
@@ -46,12 +48,16 @@ class PortfolioValuation {
   /// Market value of gold holdings (inside [holdingsValue]).
   final double goldValue;
 
-  double get nav => holdingsValue + cheques.net;
+  /// Cash parked in «صندوق طلا» (from its own ledger, not a holding).
+  final double goldFundCash;
+
+  double get nav => holdingsValue + cheques.net + goldFundCash;
 
   static PortfolioValuation of({
     required List<Asset> assets,
     required List<Trade> openTrades,
     Iterable<BankCheck> checks = const [],
+    double goldFundCash = 0,
   }) {
     final holdings = HoldingMetrics.activeHoldings(assets: assets, openTrades: openTrades);
     var value = 0.0, gold = 0.0;
@@ -81,6 +87,7 @@ class PortfolioValuation {
       groups: groups,
       unpriced: unpriced,
       goldValue: gold,
+      goldFundCash: goldFundCash.isFinite ? goldFundCash : 0,
     );
   }
 }

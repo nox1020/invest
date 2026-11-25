@@ -6,11 +6,19 @@ class GoldQuoteParse {
     required this.priceToman,
     this.change24hPct,
     required this.source,
+    this.bidToman,
+    this.askToman,
   });
 
   final double priceToman;
   final double? change24hPct;
   final String source;
+
+  /// Last sell / buy prints when the feed has both (WallGold). The lower
+  /// one is what a seller gets ([bidToman]); the higher one what a buyer
+  /// pays ([askToman]).
+  final double? bidToman;
+  final double? askToman;
 }
 
 /// Parse free / public gold JSON payloads into Toman/gram (18k).
@@ -39,10 +47,19 @@ class GoldQuoteParser {
       final change = rawChange == null
           ? null
           : (rawChange.abs() <= 1 ? rawChange * 100 : rawChange);
+      final lastBuy = _positive(_num(capMap['lastBuyPrice']));
+      final lastSell = _positive(_num(capMap['lastSellPrice']));
+      double? bid, ask;
+      if (lastBuy != null && lastSell != null) {
+        bid = lastBuy < lastSell ? lastBuy : lastSell;
+        ask = lastBuy < lastSell ? lastSell : lastBuy;
+      }
       return GoldQuoteParse(
         priceToman: price,
         change24hPct: change,
         source: 'wallgold',
+        bidToman: bid,
+        askToman: ask,
       );
     }
     return null;

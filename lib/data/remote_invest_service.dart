@@ -7,6 +7,7 @@ import 'package:invest/data/biz_remote.dart';
 import 'package:invest/data/projects_remote.dart';
 import 'package:invest/data/pwo_remote.dart';
 import 'package:invest/domain/models/app_settings.dart';
+import 'package:invest/domain/models/gold_cash_entry.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
@@ -198,6 +199,7 @@ class RemoteInvestService implements InvestMutations {
       'price_alerts': s.priceAlerts.map((e) => e.toJson()).toList(),
       'profit_alerts': s.profitAlerts.map((e) => e.toJson()).toList(),
       'year_nav_history': s.yearNavHistory.map((e) => e.toJson()).toList(),
+      AppConfig.settingGoldFundLedger: s.goldFundLedger.map((e) => e.toJson()).toList(),
     };
     if (s.wallexUrl.trim().isNotEmpty) {
       body['wallex_markets_url'] = s.wallexUrl.trim();
@@ -832,6 +834,7 @@ List<String> settingsMismatches({
   chk(AppConfig.settingPriceAlerts, 'هشدارهای قیمت', sent.priceAlerts.length, e.priceAlerts.length);
   chk(AppConfig.settingProfitAlerts, 'هشدارهای سود', sent.profitAlerts.length, e.profitAlerts.length);
   chk(AppConfig.settingYearNavHistory, 'ارزش پایان سال', sent.yearNavHistory.length, e.yearNavHistory.length);
+  chk(AppConfig.settingGoldFundLedger, 'نقد صندوق طلا', sent.goldFundLedger.length, e.goldFundLedger.length);
   return out;
 }
 
@@ -944,6 +947,7 @@ class RemoteSettingsBundle {
       yearNavHistory: YearNavList.parse(
         pick(AppConfig.settingYearNavHistory),
       ),
+      goldFundLedger: GoldCashLedger.parse(pick(AppConfig.settingGoldFundLedger)),
     );
 
     final lockRaw = pick(AppConfig.settingAppLockHash);
@@ -1057,6 +1061,9 @@ class RemoteSettingsBundle {
           ? settings.profitAlerts
           : sent.profitAlerts,
       yearNavHistory: sent.yearNavHistory,
+      // Older Vinor builds drop unknown list keys: keep what was just sent.
+      goldFundLedger:
+          presentKeys.contains(AppConfig.settingGoldFundLedger) ? settings.goldFundLedger : sent.goldFundLedger,
       autoRefreshSeconds: presentKeys.contains('price_refresh_seconds') ||
               presentKeys.contains('auto_refresh_seconds')
           ? settings.autoRefreshSeconds
