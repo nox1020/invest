@@ -71,7 +71,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   static const titles = [
     'داشبورد',
-    'برداشت',
+    'نقدینگی',
     'معاملات',
     'عملکرد',
     'تنظیمات',
@@ -283,7 +283,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.payments_outlined),
-            label: 'برداشت',
+            label: 'نقدینگی',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.swap_horiz_rounded),

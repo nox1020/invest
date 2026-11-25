@@ -212,6 +212,9 @@ void main() {
     expect(find.byType(HomeShell), findsOneWidget);
     expect(find.text('داشبورد'), findsWidgets);
     expect(find.textContaining('طلای ذخیره‌شده'), findsWidgets);
+    // The withdrawals tab is named «نقدینگی» in the bottom navigation.
+    expect(find.text('نقدینگی'), findsOneWidget);
+    expect(find.text('برداشت'), findsNothing);
   });
 
   test('a network error during refresh stays logged in', () async {

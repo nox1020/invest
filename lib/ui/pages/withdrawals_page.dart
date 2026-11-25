@@ -40,7 +40,7 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
 
   /// Own controller (not the Scaffold's primary one shared by every tab in
   /// the IndexedStack): keeps this tab's position and lets a re-tap on the
-  /// «برداشت» tab scroll back to the top.
+  /// «نقدینگی» tab scroll back to the top.
   final ScrollController _scroll = ScrollController();
 
   @override
@@ -274,7 +274,7 @@ class _StatusRibbon extends StatelessWidget {
           child: Text(
             offline
                 ? context.watch<AppState>().connectionStatus.short
-                : 'میز نقدینگی',
+                : 'میز برداشت',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(

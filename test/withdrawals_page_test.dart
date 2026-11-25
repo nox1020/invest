@@ -97,6 +97,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('ظرفیت قابل برداشت'), findsOneWidget);
+    // Status line under the «نقدینگی» title (not a repeat of it).
+    expect(find.text('میز برداشت'), findsOneWidget);
+    expect(find.text('میز نقدینگی'), findsNothing);
     expect(find.text('80,000 تومان'), findsWidgets);
     expect(find.text('سود تحقق‌یافته'), findsOneWidget);
     expect(find.text('400,000 تومان'), findsOneWidget);

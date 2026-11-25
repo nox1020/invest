@@ -1,4 +1,4 @@
-// Vertical scrolling on the «برداشت» tab: reach the last row above the FAB,
+// Vertical scrolling on the «نقدینگی» tab: reach the last row above the FAB,
 // pull-to-refresh with little content, no overflow on small / landscape
 // screens, position kept across rebuilds, scroll-to-top on tab re-tap.
 import 'package:flutter/material.dart';
@@ -59,7 +59,7 @@ Widget _shell(AppState state, {double textScale = 1}) {
         ),
       ),
       home: Scaffold(
-        appBar: AppBar(title: const Text('برداشت')),
+        appBar: AppBar(title: const Text('نقدینگی')),
         body: const WithdrawalsPage(),
         floatingActionButton: FloatingActionButton.extended(
           key: const ValueKey('fab'),
@@ -75,7 +75,7 @@ Widget _shell(AppState state, {double textScale = 1}) {
             BottomNavigationBarItem(
                 icon: Icon(Icons.dashboard), label: 'داشبورد'),
             BottomNavigationBarItem(
-                icon: Icon(Icons.payments), label: 'برداشت'),
+                icon: Icon(Icons.payments), label: 'نقدینگی'),
             BottomNavigationBarItem(
                 icon: Icon(Icons.swap_horiz), label: 'معاملات'),
           ],
@@ -167,7 +167,7 @@ void main() {
     expect(t.state<ScrollableState>(_scrollable).position.pixels, 1500);
   });
 
-  testWidgets('re-tapping the «برداشت» tab scrolls back to the top', (t) async {
+  testWidgets('re-tapping the «نقدینگی» tab scrolls back to the top', (t) async {
     await _size(t, const Size(360, 640));
     final state = _state(rows: 30);
     await t.pumpWidget(_shell(state));
