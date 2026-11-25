@@ -320,6 +320,7 @@ class GoldFundBook {
     // Cash rows: manual entries + tagged trades grouped by operation id.
     final rows = <GoldCashRow>[];
     for (final e in ledger) {
+      if (e.deleted) continue;
       rows.add(GoldCashRow(
         kind: GoldCashRowKind.manual,
         date: e.date,

@@ -95,7 +95,8 @@ Future<void> showAssetEditor(BuildContext context, {Asset? edit}) async {
               result.updateBuyPriceUsd ? meta.buyUsdTmn : primaryLot.buyUsdTmn,
           buyFee: primaryLot.buyFee,
           buyDate: result.updateBuyDate ? result.buyDate : primaryLot.buyDate,
-          buyNote: primaryLot.buyNoteDisplay,
+          // Keeps the hidden «صندوق طلا» marker (USD markers are re-encoded).
+          buyNote: primaryLot.buyNoteFree,
         );
       }
     }

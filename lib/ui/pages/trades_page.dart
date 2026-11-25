@@ -1107,7 +1107,7 @@ class _ClosedTradeDetailsSheet extends StatelessWidget {
         t.buyPriceUsd != null && t.buyPriceUsd! > 0 ? t.buyPriceUsd : null;
     final sellUnitUsd = tomanToUsd(t.sellPrice ?? 0, usdt);
     final note = t.buyNoteDisplay.trim();
-    final sellNote = t.sellNote.trim();
+    final sellNote = t.sellNoteDisplay.trim();
     final crypto = _tradeIsCrypto(t, state.assets);
     final bottom = MediaQuery.paddingOf(context).bottom;
 

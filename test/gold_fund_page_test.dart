@@ -349,6 +349,25 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('calculator inputs: grouped Toman, «2,5» g is 2.5 g, Persian digits', (tester) async {
+    final s = _state();
+    await _pump(tester, s, const GoldFundPage(), size: const Size(320, 900));
+    await tester.tap(find.byKey(const ValueKey('gf-buy')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('gc-input')), '۱۰۰۰۰۰۰۰۰');
+    await tester.pumpAndSettle();
+    final input = tester.widget<TextField>(find.byKey(const ValueKey('gc-input')));
+    expect(input.controller!.text, '100,000,000');
+    expect(find.byKey(const ValueKey('gc-result')), findsOneWidget);
+    // Weight with a comma decimal mark.
+    await tester.tap(find.text('با وزن'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('gc-input')), '2,5');
+    await tester.pumpAndSettle();
+    expect(find.text('ثبت خرید ۲٫۵ گرم'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('calculator only-calc mode has no record button', (tester) async {
     final s = _state();
     await _pump(tester, s, const GoldFundPage(), size: const Size(320, 900));

@@ -29,8 +29,46 @@ class GoldRecordResult {
   int get sent => done - queued;
 }
 
+String _goldLedgerStashKey(String account, Object? _) => 'vplus_gold_fund_ledger_$account';
+
+const _goldLedgerStash = AccountCache(keyOf: _goldLedgerStashKey);
+
+/// Buy date (ISO day) of the newest lot in [quote] bought after [sellDay],
+/// or null when the sale date is valid for every lot.
+String? goldSellDateConflict(GoldSellQuote quote, String sellDay) {
+  String? worst;
+  for (final t in quote.takes) {
+    final d = t.lot.buyDate.length >= 10 ? t.lot.buyDate.substring(0, 10) : t.lot.buyDate;
+    if (d.isEmpty || d.compareTo(sellDay) <= 0) continue;
+    if (worst == null || d.compareTo(worst) > 0) worst = d;
+  }
+  return worst;
+}
+
 /// «صندوق طلا»: the fund book, its cash entries and buy/sell recording.
 extension AppStateGold on AppState {
+  String get _goldLedgerAccount => AccountCache.norm(userPhone ?? _session?.phone);
+
+  Future<void> _stashGoldLedger(String account, List<GoldCashEntry> rows) async {
+    if (account.isEmpty) return;
+    await _goldLedgerStash.write(account, GoldCashLedger.encode(rows));
+  }
+
+  /// This account's copy of the cash book: memory, else its per-account
+  /// stash, else (no stash yet) the local settings table.
+  Future<List<GoldCashEntry>> _localGoldLedger() async {
+    if (settings.goldFundLedger.isNotEmpty) return List<GoldCashEntry>.from(settings.goldFundLedger);
+    final acc = _goldLedgerAccount;
+    final stashed = acc.isEmpty ? null : await _local('gold-ledger-stash-read', () => _goldLedgerStash.read(acc));
+    if (stashed != null) return GoldCashLedger.parse(stashed);
+    final fromTable = await _local('settings-gold-ledger', () async {
+      await _ensureLocalSettingsRepo();
+      final map = await settingsRepo?.loadAll();
+      return GoldCashLedger.parse(map?[AppConfig.settingGoldFundLedger]);
+    });
+    return fromTable ?? <GoldCashEntry>[];
+  }
+
   /// 18k quote with buy/sell sides (estimated when the feed lacks them).
   GoldQuote get goldQuote => GoldQuote.resolve(
         mid: liveGold ?? settings.goldTmnPerGram,
@@ -141,9 +179,11 @@ extension AppStateGold on AppState {
     return entry;
   }
 
+  /// Deletes a manual entry (kept as a hidden tombstone so the delete
+  /// syncs; see [GoldCashLedger.merge]).
   Future<void> deleteGoldCashEntry(String id) async {
     final next = GoldCashLedger.remove(settings.goldFundLedger, id);
-    if (next.length == settings.goldFundLedger.length) return;
+    if (GoldCashLedger.same(next, settings.goldFundLedger)) return;
     await saveSettings(settings.copyWith(goldFundLedger: next));
   }
 
@@ -169,8 +209,9 @@ extension AppStateGold on AppState {
     }
     final op = newGoldFundOpId();
     final day = (date != null && date.length >= 10) ? date.substring(0, 10) : todayIso();
+    GoldCashEntry? gap;
     if (gapDeposit >= 1) {
-      await addGoldCashEntry(
+      gap = await addGoldCashEntry(
         kind: GoldCashKind.deposit,
         amount: gapDeposit,
         date: day,
@@ -192,6 +233,14 @@ extension AppStateGold on AppState {
         currentPrice: assetId == null ? pricePerGram : null,
       );
     } catch (e) {
+      // The buy was refused: its gap deposit must not stay as cash.
+      if (gap != null) {
+        try {
+          await deleteGoldCashEntry(gap.id);
+        } catch (e2, st) {
+          logLocalFailure('gold-gap-rollback', e2, st);
+        }
+      }
       return GoldRecordResult(opId: op, total: 1, error: e);
     }
     final queued = _queuedWrites > before ? 1 : 0;
@@ -210,8 +259,14 @@ extension AppStateGold on AppState {
     if (!quote.canRecord) {
       throw ArgumentError('فروش قابل ثبت نیست؛ وزن و لات‌ها را بررسی کنید.');
     }
-    final op = newGoldFundOpId();
     final day = (date != null && date.length >= 10) ? date.substring(0, 10) : todayIso();
+    // The server refuses a sell dated before the lot's buy; check every lot
+    // first so a sale never stops half-way for that.
+    final early = goldSellDateConflict(quote, day);
+    if (early != null) {
+      throw ArgumentError('تاریخ فروش نمی‌تواند قبل از تاریخ خرید لات ($early) باشد.');
+    }
+    final op = newGoldFundOpId();
     final total = quote.takes.length;
     var done = 0, queued = 0;
     final fx = liveUsdt ?? settings.usdtTmnRate;

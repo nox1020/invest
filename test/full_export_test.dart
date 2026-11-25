@@ -36,7 +36,7 @@ void main() {
   ];
   Map<String, Sheet> build() {
     final a = Asset(id: 1, name: 'طلا', symbol: 'GOLD', quantity: 2, avgBuyPrice: 100, currentPrice: 150);
-    final open = Trade(assetId: 1, status: AppConfig.tradeOpen, quantity: 2, buyPrice: 100, buyDate: '2026-01-10', assetName: 'طلا', currentPrice: 150);
+    final open = Trade(assetId: 1, status: AppConfig.tradeOpen, quantity: 2, buyPrice: 100, buyDate: '2026-01-10', assetName: 'طلا', currentPrice: 150, buyNote: '[gf:abc] خرید ماهانه');
     final h = HoldingMetrics.activeHoldings(assets: [a], openTrades: [open]);
     final pwo = PwoLedger(target: 100)
       ..months[pwoMonthKey(1405, 8)] = PwoMonth(year: 1405, month: 8, amounts: {'p0': 40, 'p1': 70});
@@ -73,6 +73,12 @@ void main() {
   }
 
   Object? row(Sheet s, String label, [int col = 1]) => s.firstWhere((r) => r.first == label)[col];
+
+  test('open-lot note: free text only, the hidden «صندوق طلا» marker stays out', () {
+    final flat = jsonEncode(build().values.toList());
+    expect(flat, contains('خرید ماهانه'));
+    expect(flat, isNot(contains('[gf:')));
+  });
 
   test('summary totals: every realized source, once; labelled to this moment', () {
     final x = build();

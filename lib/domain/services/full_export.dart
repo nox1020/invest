@@ -199,7 +199,8 @@ Map<String, Sheet> buildFullExport({
         t.currentPrice,
         t.quantity * t.currentPrice,
         t.quantity * t.currentPrice - t.buyCost,
-        t.buyNote
+        // Free text only (no [buy_usd:…] / hidden «صندوق طلا» markers).
+        t.buyNoteDisplay
       ],
   ];
 

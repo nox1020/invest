@@ -33,6 +33,7 @@ class GoldCashEntry {
     this.createdAt = '',
     this.opId = '',
     this.withdrawalMirrored = false,
+    this.deleted = false,
   });
 
   /// Stable client id (never reused).
@@ -56,7 +57,12 @@ class GoldCashEntry {
   /// A matching profit withdrawal was also recorded on «نقدینگی».
   final bool withdrawalMirrored;
 
-  GoldCashEntry copyWith({double? amount, String? date, String? note}) => GoldCashEntry(
+  /// Tombstone: the row was deleted. Kept (hidden) in the synced list so a
+  /// delete wins over a stale copy on another device or in the offline
+  /// queue when lists are merged (see [GoldCashLedger.merge]).
+  final bool deleted;
+
+  GoldCashEntry copyWith({double? amount, String? date, String? note, bool? deleted}) => GoldCashEntry(
         id: id,
         kind: kind,
         amount: amount ?? this.amount,
@@ -65,6 +71,7 @@ class GoldCashEntry {
         createdAt: createdAt,
         opId: opId,
         withdrawalMirrored: withdrawalMirrored,
+        deleted: deleted ?? this.deleted,
       );
 
   Map<String, dynamic> toJson() => {
@@ -76,6 +83,7 @@ class GoldCashEntry {
         if (createdAt.isNotEmpty) 'created_at': createdAt,
         if (opId.isNotEmpty) 'op': opId,
         if (withdrawalMirrored) 'mirrored': true,
+        if (deleted) 'deleted': true,
       };
 
   /// Null when the row is unusable (no id, unknown kind, zero/NaN amount,
@@ -95,6 +103,7 @@ class GoldCashEntry {
       _ => amount,
     };
     final mirrored = m['mirrored'];
+    final del = m['deleted'];
     return GoldCashEntry(
       id: id,
       kind: kind,
@@ -104,6 +113,7 @@ class GoldCashEntry {
       createdAt: jsonText(m['created_at']).trim(),
       opId: jsonText(m['op']).trim(),
       withdrawalMirrored: mirrored == true || mirrored == 1 || '$mirrored' == 'true',
+      deleted: del == true || del == 1 || '$del' == 'true',
     );
   }
 }
@@ -156,10 +166,36 @@ class GoldCashLedger {
     return next;
   }
 
+  /// Marks [id] deleted (a tombstone stays in the list; see
+  /// [GoldCashEntry.deleted]). Unknown or already deleted ids: unchanged.
   static List<GoldCashEntry> remove(List<GoldCashEntry> rows, String id) => [
         for (final r in rows)
-          if (r.id != id) r
+          if (r.id == id && !r.deleted) r.copyWith(deleted: true) else r
       ];
+
+  /// Rows that count (tombstones dropped).
+  static List<GoldCashEntry> live(Iterable<GoldCashEntry> rows) => [
+        for (final r in rows)
+          if (!r.deleted) r
+      ];
+
+  /// Union by id of two copies of the ledger (this phone and the server).
+  /// Rows are never edited, only added or deleted, so a row present on
+  /// either side is kept and a delete on either side wins. Order: [sort].
+  static List<GoldCashEntry> merge(List<GoldCashEntry> a, List<GoldCashEntry> b) {
+    final byId = <String, GoldCashEntry>{};
+    for (final r in [...a, ...b]) {
+      final cur = byId[r.id];
+      if (cur == null) {
+        byId[r.id] = r;
+      } else if (r.deleted && !cur.deleted) {
+        byId[r.id] = cur.copyWith(deleted: true);
+      }
+    }
+    final out = byId.values.toList();
+    sort(out);
+    return out;
+  }
 
   static bool same(List<GoldCashEntry> a, List<GoldCashEntry> b) {
     if (identical(a, b)) return true;
@@ -170,12 +206,14 @@ class GoldCashLedger {
           x.kind != y.kind ||
           (x.amount - y.amount).abs() > 1e-6 ||
           x.date != y.date ||
-          x.note != y.note) {
+          x.note != y.note ||
+          x.deleted != y.deleted) {
         return false;
       }
     }
     return true;
   }
 
-  static double total(Iterable<GoldCashEntry> rows) => rows.fold(0.0, (s, e) => s + e.amount);
+  /// Σ of live rows.
+  static double total(Iterable<GoldCashEntry> rows) => rows.fold(0.0, (s, e) => e.deleted ? s : s + e.amount);
 }

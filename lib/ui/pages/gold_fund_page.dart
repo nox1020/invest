@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:invest/domain/models/gold_cash_entry.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/gold_calc.dart';
+import 'package:invest/domain/services/gold_calc_prefs.dart';
 import 'package:invest/domain/services/gold_fund_book.dart';
 import 'package:invest/domain/services/gold_price_log.dart';
 import 'package:invest/domain/services/trade_service.dart';
@@ -22,8 +23,8 @@ Future<void> openGoldFundPage(BuildContext context) => Navigator.of(context).pus
       MaterialPageRoute<void>(builder: (_) => const GoldFundPage()),
     );
 
-/// Sell fee assumed for break-even figures on the page (the calculator's
-/// last online fee is used when the page has it).
+/// Online fee assumed for break-even and buying power until the
+/// calculator's remembered online fee is loaded.
 const double kGoldDefaultSellFeePct = 0.5;
 
 /// Dashboard row inside the gold section: «صندوق طلا و ماشین‌حساب ›».
@@ -82,6 +83,22 @@ class _GoldFundPageState extends State<GoldFundPage> {
   bool _allLots = false;
   bool _allCash = false;
 
+  /// The calculator's last online fee (break-even, buying power).
+  double _feePct = kGoldDefaultSellFeePct;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFee();
+  }
+
+  Future<void> _loadFee() async {
+    try {
+      final p = await GoldCalcPrefs.load();
+      if (mounted && p.onlineFees.feePct != _feePct) setState(() => _feePct = p.onlineFees.feePct);
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
@@ -108,7 +125,7 @@ class _GoldFundPageState extends State<GoldFundPage> {
               key: const ValueKey('gf-calc-action'),
               tooltip: 'ماشین‌حساب طلا',
               icon: const Icon(Icons.calculate_outlined),
-              onPressed: () => showGoldCalcSheet(context, side: GoldSide.buy, calcOnly: true),
+              onPressed: () => showGoldCalcSheet(context, side: GoldSide.buy, calcOnly: true).then((_) => _loadFee()),
             ),
           ],
         ),
@@ -123,9 +140,9 @@ class _GoldFundPageState extends State<GoldFundPage> {
               const SizedBox(height: 10),
               _QuoteStrip(quote: q),
               const SizedBox(height: 10),
-              _Hero(book: book),
+              _Hero(book: book, feePct: _feePct),
               const SizedBox(height: 10),
-              _Actions(state: state, book: book),
+              _Actions(state: state, book: book, onSheetClosed: _loadFee),
               const SizedBox(height: 10),
               if (!book.hasAnything)
                 const Padding(
@@ -137,7 +154,7 @@ class _GoldFundPageState extends State<GoldFundPage> {
                     icon: Icons.info_outline,
                   ),
                 ),
-              _Stats(book: book),
+              _Stats(book: book, feePct: _feePct),
               const SizedBox(height: 10),
               _Flow(book: book),
               const SizedBox(height: 10),
@@ -292,14 +309,15 @@ class _QuoteStrip extends StatelessWidget {
 }
 
 class _Hero extends StatelessWidget {
-  const _Hero({required this.book});
+  const _Hero({required this.book, required this.feePct});
   final GoldFundBook book;
+  final double feePct;
 
   @override
   Widget build(BuildContext context) {
     final share = book.goldShare;
     final cash = book.cash;
-    final buyPower = book.buyingPowerG18(kGoldDefaultSellFeePct);
+    final buyPower = book.buyingPowerG18(feePct);
     return Container(
       key: const ValueKey('gf-hero'),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -441,9 +459,10 @@ class _Pocket extends StatelessWidget {
 }
 
 class _Actions extends StatelessWidget {
-  const _Actions({required this.state, required this.book});
+  const _Actions({required this.state, required this.book, required this.onSheetClosed});
   final AppState state;
   final GoldFundBook book;
+  final VoidCallback onSheetClosed;
 
   @override
   Widget build(BuildContext context) {
@@ -475,7 +494,8 @@ class _Actions extends StatelessWidget {
               foregroundColor: AppTheme.bg,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            onPressed: canWrite ? () => showGoldCalcSheet(context, side: GoldSide.buy) : null,
+            onPressed:
+                canWrite ? () => showGoldCalcSheet(context, side: GoldSide.buy).then((_) => onSheetClosed()) : null,
             icon: const Icon(Icons.add, size: 18),
             label: const FittedBox(fit: BoxFit.scaleDown, child: Text('خرید طلا', maxLines: 1)),
           ),
@@ -490,7 +510,8 @@ class _Actions extends StatelessWidget {
               foregroundColor: AppTheme.bg,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            onPressed: canSell ? () => showGoldCalcSheet(context, side: GoldSide.sell) : null,
+            onPressed:
+                canSell ? () => showGoldCalcSheet(context, side: GoldSide.sell).then((_) => onSheetClosed()) : null,
             icon: const Icon(Icons.remove, size: 18),
             label: const FittedBox(fit: BoxFit.scaleDown, child: Text('فروش طلا', maxLines: 1)),
           ),
@@ -510,20 +531,24 @@ class _Actions extends StatelessWidget {
             canWrite ? () => showGoldCashSheet(context, kind: GoldCashKind.withdraw) : null,
             const ValueKey('gf-withdraw')),
         const SizedBox(width: 6),
-        ghost('فقط محاسبه', Icons.calculate_outlined,
-            () => showGoldCalcSheet(context, side: GoldSide.buy, calcOnly: true), const ValueKey('gf-calc')),
+        ghost(
+            'فقط محاسبه',
+            Icons.calculate_outlined,
+            () => showGoldCalcSheet(context, side: GoldSide.buy, calcOnly: true).then((_) => onSheetClosed()),
+            const ValueKey('gf-calc')),
       ]),
     ]);
   }
 }
 
 class _Stats extends StatelessWidget {
-  const _Stats({required this.book});
+  const _Stats({required this.book, required this.feePct});
   final GoldFundBook book;
+  final double feePct;
 
   @override
   Widget build(BuildContext context) {
-    final be = book.breakEvenSell18(kGoldDefaultSellFeePct);
+    final be = book.breakEvenSell18(feePct);
     final bid = book.quote.bid;
     final beGap = be > 0 && bid > 0 ? (bid / be - 1) * 100 : null;
     Widget st(String k, String v, String s, {Color? c, Key? key}) => Expanded(
@@ -563,7 +588,7 @@ class _Stats extends StatelessWidget {
             'سربه‌سر فروش',
             be > 0 ? gToman(be) : '—',
             beGap == null
-                ? 'با کارمزد فروش ${gNum(kGoldDefaultSellFeePct)}٪'
+                ? 'با کارمزد فروش ${gNum(feePct)}٪'
                 : beGap >= 0
                     ? 'قیمت فروش فعلی ${gPct(beGap, sign: false)} بالاتر است'
                     : 'قیمت فروش فعلی ${gPct(-beGap, sign: false)} پایین‌تر است',

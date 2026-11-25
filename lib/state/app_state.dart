@@ -932,6 +932,18 @@ class AppState extends ChangeNotifier {
 
   Future<void> logout() async {
     _stopAutoRefreshTimer();
+    // The gold-fund cash book belongs to this account: keep its copy under
+    // the account and clear it here so the next login never adopts it.
+    try {
+      await _stashGoldLedger(_goldLedgerAccount, settings.goldFundLedger);
+      settings.goldFundLedger = [];
+      // Straight to the table: [_persistSettingsLocal] would also overwrite
+      // the stash just written with the empty list.
+      await _ensureLocalSettingsRepo();
+      await settingsRepo?.saveMap(settings.toStorageMap());
+    } catch (e, st) {
+      logLocalFailure('logout-gold-ledger', e, st);
+    }
     PwoStore.instance.unbind();
     BizStore.instance.unbind();
     ProjectsStore.instance.unbind();
@@ -1256,6 +1268,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _persistSettingsLocal(AppSettings s) async {
+    // Per-account copy of the gold-fund cash book (survives a logout and a
+    // server that does not store it yet; never handed to another account).
+    await _local('gold-ledger-stash', () => _stashGoldLedger(_goldLedgerAccount, s.goldFundLedger));
     await _ensureLocalSettingsRepo();
     final repo = settingsRepo;
     if (repo == null) return;
@@ -1386,20 +1401,21 @@ class AppState extends ChangeNotifier {
     RemoteSettingsBundle bundle, {
     required bool migrate,
   }) async {
-    final prevGoldLedger = List<GoldCashEntry>.from(settings.goldFundLedger);
+    final localGoldLedger = await _localGoldLedger();
     settings = bundle.settings;
     var filledGaps = false;
-    // A server without `gold_fund_ledger` (not deployed yet) must not wipe
-    // the book kept on this phone: keep memory, else the local table.
+    // «صندوق طلا» cash book: a server without `gold_fund_ledger` (not
+    // deployed yet) must not wipe the copy on this phone; a server that has
+    // it is merged with it (rows added or deleted here while offline, or
+    // on another device, survive) and the merged list is sent back.
+    var pushGoldLedger = false;
     if (!bundle.presentKeys.contains(AppConfig.settingGoldFundLedger)) {
-      if (prevGoldLedger.isNotEmpty) {
-        settings.goldFundLedger = prevGoldLedger;
-      } else {
-        await _local('settings-gold-ledger', () async {
-          await _ensureLocalSettingsRepo();
-          final map = await settingsRepo?.loadAll();
-          settings.goldFundLedger = GoldCashLedger.parse(map?[AppConfig.settingGoldFundLedger]);
-        });
+      settings.goldFundLedger = localGoldLedger;
+    } else {
+      final merged = GoldCashLedger.merge(localGoldLedger, settings.goldFundLedger);
+      if (!GoldCashLedger.same(merged, settings.goldFundLedger)) {
+        settings.goldFundLedger = merged;
+        pushGoldLedger = true;
       }
     }
     final gaps = await _local(
@@ -1435,7 +1451,7 @@ class AppState extends ChangeNotifier {
         bundle.appLockHash == null &&
         appLockHash != null &&
         appLockHash!.trim().isNotEmpty;
-    if (migrate && (filledGaps || shouldMigrateLock)) {
+    if (migrate && (filledGaps || shouldMigrateLock || pushGoldLedger)) {
       await _pushUserExtrasToServer();
     }
   }

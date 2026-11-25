@@ -117,7 +117,10 @@ void main() {
     await s.deleteGoldCashEntry(adj.id);
     expect(s.goldFundCash, 30000000);
     await s.deleteGoldCashEntry('missing');
-    expect(s.settings.goldFundLedger.length, 2);
+    // Deleted row stays as a hidden tombstone so the delete syncs.
+    expect(s.settings.goldFundLedger.length, 3);
+    expect(s.settings.goldFundLedger.where((e) => !e.deleted).length, 2);
+    expect(s.goldFund.cashRows.length, 2);
     // Settings wait in the outbox while offline.
     expect(s.coreOutbox.ops.any((o) => o.kind == 'settings.push'), isTrue);
   });

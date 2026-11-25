@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:invest/domain/models/gold_cash_entry.dart';
 import 'package:invest/domain/utils/dates.dart';
-import 'package:invest/domain/utils/money.dart';
+import 'package:invest/domain/utils/gold_number_input.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/gold/gold_format.dart';
+import 'package:invest/ui/gold/gold_input.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:invest/ui/widgets/dashboard_kit.dart';
@@ -53,7 +53,7 @@ class _GoldCashSheetState extends State<GoldCashSheet> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final cash = state.goldFundCash;
-    final v = parseFlexibleNumber(_amount.text) ?? 0;
+    final v = parseGoldToman(_amount.text) ?? 0;
     final withdraw = _kind == GoldCashKind.withdraw;
     final adjust = _kind == GoldCashKind.adjust;
     final after = switch (_kind) {
@@ -131,7 +131,7 @@ class _GoldCashSheetState extends State<GoldCashSheet> {
             key: const ValueKey('gcs-amount'),
             controller: _amount,
             keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9۰-۹٠-٩,٬]'))],
+            inputFormatters: const [GoldTomanFormatter()],
             textDirection: TextDirection.ltr,
             textAlign: TextAlign.right,
             style: const TextStyle(color: AppTheme.title, fontSize: 18, fontWeight: FontWeight.w900),
@@ -151,7 +151,7 @@ class _GoldCashSheetState extends State<GoldCashSheet> {
                   label: Text(l, style: const TextStyle(fontSize: 11.5)),
                   selected: (v - a).abs() < 0.5 && v > 0,
                   visualDensity: VisualDensity.compact,
-                  onSelected: (_) => setState(() => _amount.text = a.round().toString()),
+                  onSelected: (_) => setState(() => _amount.text = goldTomanText(a)),
                 ),
             ]),
           ],

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:invest/domain/models/asset.dart';
 import 'package:invest/domain/models/asset_meta.dart';
 import 'package:invest/domain/models/commodity_quote.dart';
@@ -8,10 +7,11 @@ import 'package:invest/domain/services/gold_calc_prefs.dart';
 import 'package:invest/domain/services/gold_fund_book.dart';
 import 'package:invest/domain/services/trade_service.dart';
 import 'package:invest/domain/utils/dates.dart';
+import 'package:invest/domain/utils/gold_number_input.dart';
 import 'package:invest/domain/utils/gold_purity.dart';
-import 'package:invest/domain/utils/money.dart';
 import 'package:invest/state/app_state.dart';
 import 'package:invest/ui/gold/gold_format.dart';
+import 'package:invest/ui/gold/gold_input.dart';
 import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/app_date_picker.dart';
 import 'package:invest/ui/widgets/dashboard_kit.dart';
@@ -50,8 +50,6 @@ class _Target {
 }
 
 enum _PriceSource { live, manual, mazaneh }
-
-final _numFormatter = FilteringTextInputFormatter.allow(RegExp(r'[0-9۰-۹٠-٩.,٬٫]'));
 
 class GoldCalcSheet extends StatefulWidget {
   const GoldCalcSheet({super.key, this.initialSide = GoldSide.buy, this.calcOnly = false, this.prefs});
@@ -136,7 +134,7 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
   }
 
   double _pct(TextEditingController c) {
-    final v = parseFlexibleNumber(c.text);
+    final v = parseGoldDecimal(c.text);
     return v == null || !v.isFinite || v < 0 ? 0 : v;
   }
 
@@ -224,9 +222,9 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
       case _PriceSource.live:
         return _side == GoldSide.buy ? q.ask : q.bid;
       case _PriceSource.manual:
-        return parseFlexibleNumber(_price.text) ?? 0;
+        return parseGoldToman(_price.text) ?? 0;
       case _PriceSource.mazaneh:
-        return gram18FromMazaneh(parseFlexibleNumber(_mazaneh.text) ?? 0);
+        return gram18FromMazaneh(parseGoldToman(_mazaneh.text) ?? 0);
     }
   }
 
@@ -245,7 +243,7 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
     final base18 = _base18(q);
     final price = convertGoldPrice(base18, k18GoldPurity, purity);
     final mode = buy ? _buyMode : _sellMode;
-    final input = parseFlexibleNumber(_input.text) ?? 0;
+    final input = _parseInput(mode);
     final fees = _fees;
     final bid = convertGoldPrice(q.bid, k18GoldPurity, purity);
     final mid = convertGoldPrice(q.mid, k18GoldPurity, purity);
@@ -278,7 +276,7 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
         order: _order,
         manualGrams: {
           for (final e in _manual.entries)
-            if ((parseFlexibleNumber(e.value.text) ?? 0) > 0) e.key: parseFlexibleNumber(e.value.text)!,
+            if ((parseGoldDecimal(e.value.text) ?? 0) > 0) e.key: parseGoldDecimal(e.value.text)!,
         },
         cashBefore: cash,
         holdingBefore: sellH.grams,
@@ -431,8 +429,12 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
     });
   }
 
+  /// Toman (grouped) in amount mode, a decimal weight otherwise.
+  double _parseInput(GoldInputMode mode) =>
+      (mode == GoldInputMode.amount ? parseGoldToman(_input.text) : parseGoldDecimal(_input.text)) ?? 0;
+
   Widget _inputField(bool buy, GoldInputMode mode, double purity, String karat) {
-    final v = parseFlexibleNumber(_input.text) ?? 0;
+    final v = _parseInput(mode);
     final String label;
     final String hint;
     if (mode == GoldInputMode.amount) {
@@ -446,8 +448,8 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
     return TextField(
       key: const ValueKey('gc-input'),
       controller: _input,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      inputFormatters: [_numFormatter],
+      keyboardType: TextInputType.numberWithOptions(decimal: mode == GoldInputMode.weight),
+      inputFormatters: [if (mode == GoldInputMode.amount) const GoldTomanFormatter() else goldDecimalFormatter],
       textDirection: TextDirection.ltr,
       textAlign: TextAlign.right,
       style: const TextStyle(color: AppTheme.title, fontSize: 18, fontWeight: FontWeight.w900),
@@ -470,14 +472,14 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
         chips.add(('همه ${gNum(sellH.grams)}', roundGrams(sellH.grams)));
       }
     }
-    final cur = parseFlexibleNumber(_input.text);
+    final cur = _input.text.trim().isEmpty ? null : _parseInput(mode);
     return Wrap(spacing: 6, runSpacing: 4, children: [
       for (final (l, v) in chips)
         ChoiceChip(
           label: Text(l, style: const TextStyle(fontSize: 11.5)),
           selected: cur != null && (cur - v).abs() < 1e-6,
           visualDensity: VisualDensity.compact,
-          onSelected: (_) => _touch(() => _input.text = _latin(v)),
+          onSelected: (_) => _touch(() => _input.text = mode == GoldInputMode.amount ? goldTomanText(v) : _latin(v)),
         ),
     ]);
   }
@@ -509,10 +511,10 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
             onSelected: (_) => _touch(() {
               _priceSource = _priceSource == s ? _PriceSource.live : s;
               if (_priceSource == _PriceSource.manual && _price.text.isEmpty && base18 > 0) {
-                _price.text = base18.round().toString();
+                _price.text = goldTomanText(base18);
               }
               if (_priceSource == _PriceSource.mazaneh && _mazaneh.text.isEmpty && q.hasPrice) {
-                _mazaneh.text = mazanehFromGram18(_side == GoldSide.buy ? q.ask : q.bid).round().toString();
+                _mazaneh.text = goldTomanText(mazanehFromGram18(_side == GoldSide.buy ? q.ask : q.bid));
               }
             }),
           ),
@@ -542,8 +544,8 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
           TextField(
             key: const ValueKey('gc-price-input'),
             controller: _price,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [_numFormatter],
+            keyboardType: TextInputType.number,
+            inputFormatters: const [GoldTomanFormatter()],
             textDirection: TextDirection.ltr,
             textAlign: TextAlign.right,
             decoration: const InputDecoration(labelText: 'قیمت هر گرم ۱۸ عیار (تومان)', isDense: true),
@@ -553,8 +555,8 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
           TextField(
             key: const ValueKey('gc-mazaneh-input'),
             controller: _mazaneh,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [_numFormatter],
+            keyboardType: TextInputType.number,
+            inputFormatters: const [GoldTomanFormatter()],
             textDirection: TextDirection.ltr,
             textAlign: TextAlign.right,
             decoration: const InputDecoration(labelText: 'مظنه (مثقال ۱۷، تومان)', isDense: true),
@@ -581,7 +583,7 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
         key: key,
         controller: c,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        inputFormatters: [_numFormatter],
+        inputFormatters: [goldDecimalFormatter],
         textDirection: TextDirection.ltr,
         textAlign: TextAlign.right,
         style: const TextStyle(color: AppTheme.title, fontSize: 13, fontWeight: FontWeight.w800),
@@ -736,7 +738,7 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
                   key: ValueKey('gc-manual-${l.id}'),
                   controller: _manual.putIfAbsent(l.id, TextEditingController.new),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [_numFormatter],
+                  inputFormatters: [goldDecimalFormatter],
                   textDirection: TextDirection.ltr,
                   textAlign: TextAlign.right,
                   decoration: InputDecoration(
@@ -997,6 +999,16 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
       ));
       out.add(const SizedBox(height: 8));
     }
+    final early = widget.calcOnly ? null : goldSellDateConflict(r, _date);
+    if (early != null) {
+      out.add(GNote(
+        'تاریخ فروش قبل از تاریخ خرید یکی از لات‌ها (${formatDisplayDate(early, cal)}) است؛ تاریخ را درست کنید.',
+        key: const ValueKey('gc-date-early'),
+        color: AppTheme.negative,
+        icon: Icons.event_busy_rounded,
+      ));
+      out.add(const SizedBox(height: 8));
+    }
     if (r.picksMismatch && !r.exceedsHolding) {
       out.add(const GNote('وزن انتخاب‌شده از لات‌ها با وزن فروش یکی نیست.',
           color: kWarn, icon: Icons.warning_amber_rounded));
@@ -1067,7 +1079,7 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
         label = 'ثبت خرید ${gGrams(bq.grams)}';
       }
       onRecord = () => _recordBuy(state, bq, target);
-    } else if (!buy && sq != null && sq.canRecord) {
+    } else if (!buy && sq != null && sq.canRecord && goldSellDateConflict(sq, _date) == null) {
       label = 'ثبت فروش ${gGrams(sq.grams)}';
       onRecord = () => _recordSell(state, sq, sellH!);
     }

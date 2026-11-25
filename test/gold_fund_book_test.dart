@@ -138,7 +138,15 @@ void main() {
       final replaced = GoldCashLedger.add(added, _e('c', GoldCashKind.deposit, 8, '2025-12-31'));
       expect(replaced.length, 3);
       expect(replaced.first.amount, 8);
-      expect(GoldCashLedger.remove(replaced, 'c').map((e) => e.id), ['a', 'b']);
+      // A delete leaves a hidden tombstone (so it syncs) and stops counting.
+      final removed = GoldCashLedger.remove(replaced, 'c');
+      expect(removed.map((e) => e.id), ['c', 'a', 'b']);
+      expect(removed.first.deleted, isTrue);
+      expect(GoldCashLedger.live(removed).map((e) => e.id), ['a', 'b']);
+      expect(GoldCashLedger.total(removed), 60);
+      expect(GoldCashLedger.same(removed, replaced), isFalse);
+      expect(GoldCashLedger.same(GoldCashLedger.remove(removed, 'c'), removed), isTrue);
+      expect(GoldCashLedger.parse(GoldCashLedger.encode(removed)).first.deleted, isTrue);
       expect(GoldCashLedger.same(rows, replaced), isFalse);
       expect(GoldCashKind.label(GoldCashKind.adjust), 'تنظیم مانده');
     });
