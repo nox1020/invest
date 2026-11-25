@@ -89,6 +89,18 @@ extension AppStateGold on AppState {
   /// daily holdings series.
   double get goldFundCash => goldFund.cash;
 
+  /// «ستون قیمت طلا»: 30-day low/high/average from the daily log plus the
+  /// current price, against the previous day.
+  GoldColumnModel goldColumn({DateTime? now}) {
+    final q = goldQuote;
+    return GoldColumnModel.compute(
+      log: goldPriceLog,
+      today: tehranTodayIso(now: now),
+      current: q.hasPrice ? q.mid : null,
+      change24hPct: liveGoldChange24h,
+    );
+  }
+
   Future<void> loadGoldPriceLog() async {
     try {
       goldPriceLog = await GoldPriceLog.load();
@@ -104,7 +116,7 @@ extension AppStateGold on AppState {
     if (!q.hasPrice) return;
     try {
       final next = await GoldPriceLog.record(
-        today: todayIso(),
+        today: tehranTodayIso(),
         mid: q.mid,
         bid: q.estimated ? null : q.bid,
         ask: q.estimated ? null : q.ask,
@@ -112,6 +124,42 @@ extension AppStateGold on AppState {
       if (next != null) goldPriceLog = next;
     } catch (e, st) {
       logLocalFailure('gold-price-log', e, st);
+    }
+  }
+
+  static const _goldSeedAtKey = 'vplus_gold_price_seed_at_v1';
+
+  /// Days in the last 30 at or above which no back-fill is tried.
+  static const goldSeedEnoughDays = 22;
+
+  /// Fills missing days of the last 30 from TGJU's free daily table (the
+  /// phone's own days always win). Runs after a live gold price arrived,
+  /// at most every 12 hours, only with live gold prices on; any failure
+  /// just leaves the on-device log as it is.
+  Future<void> seedGoldPriceLog({DateTime? now}) async {
+    if (_goldSeedBusy || !settings.goldApiEnabled || offline) return;
+    final at = now ?? DateTime.now();
+    final today = tehranTodayIso(now: at);
+    if (GoldPriceLog.window(goldPriceLog, today, 29).length >= goldSeedEnoughDays) return;
+    _goldSeedBusy = true;
+    try {
+      final prefs = await LocalPrefs.open();
+      final last = DateTime.tryParse(prefs?.getString(_goldSeedAtKey) ?? '');
+      if (last != null && at.difference(last).abs() < const Duration(hours: 12)) return;
+      if (prefs != null) await LocalPrefs.setString(prefs, _goldSeedAtKey, at.toUtc().toIso8601String());
+      goldHistorySeed ??= GoldHistorySeed();
+      final q = goldQuote;
+      final seed = await goldHistorySeed!.fetch(sanityPrice: q.hasPrice ? q.mid : null);
+      if (seed.isEmpty) return;
+      final next = await GoldPriceLog.saveFill(seed);
+      if (next != null) {
+        goldPriceLog = next;
+        notifyListeners();
+      }
+    } catch (e, st) {
+      logLocalFailure('gold-price-seed', e, st);
+    } finally {
+      _goldSeedBusy = false;
     }
   }
 

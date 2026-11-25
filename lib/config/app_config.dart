@@ -93,6 +93,10 @@ class AppConfig {
 
   /// Free TGJU ajax feeds used as gold fallback (tried in order).
   static const defaultTgjuAjaxUrl = 'https://call1.tgju.org/ajax.json';
+
+  /// Free TGJU daily 18k table (Rial; open/low/high/close per day) used to
+  /// back-fill the on-device gold price log.
+  static const tgjuGold18HistoryUrl = 'https://api.tgju.org/v1/market/indicator/summary-table-data/geram18';
   static const tgjuAjaxFallbackUrls = [
     'https://call1.tgju.org/ajax.json',
     'https://call2.tgju.org/ajax.json',

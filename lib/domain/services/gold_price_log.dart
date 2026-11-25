@@ -5,7 +5,7 @@ import 'package:invest/domain/models/metrics.dart';
 
 /// One day of the on-device 18k gold price log.
 class GoldPricePoint {
-  const GoldPricePoint({required this.date, required this.mid, this.bid, this.ask});
+  const GoldPricePoint({required this.date, required this.mid, this.bid, this.ask, this.source});
 
   /// ISO `yyyy-MM-dd` (device-local day).
   final String date;
@@ -13,11 +13,16 @@ class GoldPricePoint {
   final double? bid;
   final double? ask;
 
+  /// Where a back-filled day came from (`tgju`); null for prices this
+  /// phone saw itself.
+  final String? source;
+
   Map<String, dynamic> toJson() => {
         'd': date,
         'p': mid,
         if (bid != null) 'b': bid,
         if (ask != null) 'a': ask,
+        if (source != null) 's': source,
       };
 
   static GoldPricePoint? tryParse(Object? raw) {
@@ -27,13 +32,21 @@ class GoldPricePoint {
     if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(d)) return null;
     if (p is! num || !p.isFinite || p <= 0) return null;
     double? opt(Object? v) => v is num && v.isFinite && v > 0 ? v.toDouble() : null;
-    return GoldPricePoint(date: d, mid: p.toDouble(), bid: opt(raw['b']), ask: opt(raw['a']));
+    final src = raw['s'];
+    return GoldPricePoint(
+      date: d,
+      mid: p.toDouble(),
+      bid: opt(raw['b']),
+      ask: opt(raw['a']),
+      source: src is String && src.isNotEmpty ? src : null,
+    );
   }
 }
 
-/// Daily 18k gold price kept on the phone (the app has no gold history
-/// source). One point per day — the last price seen that day — capped at
-/// [maxDays]. Feeds the «روند قیمت گرم ۱۸» chart.
+/// Daily 18k gold price kept on the phone. One point per day — the last
+/// price seen that day — capped at [maxDays]; missing recent days can be
+/// back-filled from TGJU's daily table (see `GoldHistorySeed`). Feeds the
+/// «روند قیمت گرم ۱۸» chart and «ستون قیمت طلا».
 class GoldPriceLog {
   GoldPriceLog._();
 
@@ -86,6 +99,28 @@ class GoldPriceLog {
 
   static List<SeriesPoint> series(List<GoldPricePoint> points) =>
       [for (final p in points) SeriesPoint(date: p.date, value: p.mid)];
+
+  /// [points] plus the [seed] days it lacks; days the phone logged itself
+  /// always win.
+  static List<GoldPricePoint> fill(List<GoldPricePoint> points, List<GoldPricePoint> seed, {int max = maxDays}) {
+    final have = {for (final p in points) p.date};
+    final next = [
+      ...points,
+      for (final p in seed)
+        if (!have.contains(p.date)) p,
+    ]..sort((a, b) => a.date.compareTo(b.date));
+    if (next.length > max) next.removeRange(0, next.length - max);
+    return next;
+  }
+
+  /// Saves [seed] days the stored log lacks; returns the merged log.
+  static Future<List<GoldPricePoint>?> saveFill(List<GoldPricePoint> seed) async {
+    final prefs = await LocalPrefs.open();
+    if (prefs == null) return null;
+    final next = fill(decode(prefs.getString(prefsKey)), seed);
+    await LocalPrefs.setString(prefs, prefsKey, encode(next));
+    return next;
+  }
 
   static Future<List<GoldPricePoint>> load() async {
     final prefs = await LocalPrefs.open();

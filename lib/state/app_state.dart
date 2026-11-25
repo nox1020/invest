@@ -53,6 +53,8 @@ import 'package:invest/domain/services/quote_clients.dart';
 import 'package:invest/domain/utils/gold_fund_tag.dart';
 import 'package:invest/domain/services/gold_calc.dart';
 import 'package:invest/domain/services/gold_fund_book.dart';
+import 'package:invest/domain/services/gold_column.dart';
+import 'package:invest/domain/services/gold_history_seed.dart';
 import 'package:invest/domain/services/gold_price_log.dart';
 import 'package:invest/domain/services/gold_quote_parser.dart';
 import 'package:invest/domain/services/live_toman_price.dart';
@@ -246,6 +248,10 @@ class AppState extends ChangeNotifier {
 
   /// On-device daily 18k price log (see [GoldPriceLog]).
   List<GoldPricePoint> goldPriceLog = const [];
+
+  /// Back-fills the gold price log (TGJU daily table); tests swap it.
+  GoldHistorySeed? goldHistorySeed;
+  bool _goldSeedBusy = false;
 
   /// When a USDT rate last came from a live feed in this session. Null means
   /// [liveUsdt] is the stored rate (settings or offline cache), not live.
