@@ -85,6 +85,29 @@ class GKv extends StatelessWidget {
       );
 }
 
+/// «امروز» on the buy day, else «۴۲ روز».
+String gDays(int days) => days <= 0 ? 'امروز' : fa('${formatNumber(days)} روز');
+
+/// Small muted chip with how long a lot has been open.
+class GDaysChip extends StatelessWidget {
+  const GDaysChip(this.days, {super.key});
+  final int days;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5),
+        decoration: BoxDecoration(
+          color: AppTheme.muted.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: AppTheme.border),
+        ),
+        child: Text(gDays(days),
+            maxLines: 1,
+            softWrap: false,
+            style: const TextStyle(color: AppTheme.muted, fontSize: 9.5, fontWeight: FontWeight.w700, height: 1.5)),
+      );
+}
+
 /// Single line of text that shrinks instead of overflowing.
 class GFit extends StatelessWidget {
   const GFit(this.text, {super.key, required this.style, this.align = AlignmentDirectional.centerStart});

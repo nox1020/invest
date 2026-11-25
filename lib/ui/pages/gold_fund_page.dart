@@ -954,6 +954,7 @@ class _Row extends StatelessWidget {
     required this.amountColor,
     this.trailingSub,
     this.auto = false,
+    this.subLead,
     this.onTap,
     this.divider = true,
   });
@@ -965,6 +966,9 @@ class _Row extends StatelessWidget {
   final Color amountColor;
   final String? trailingSub;
   final bool auto;
+
+  /// Small widget before [sub] (the open-days chip of a lot).
+  final Widget? subLead;
   final VoidCallback? onTap;
   final bool divider;
 
@@ -1019,7 +1023,14 @@ class _Row extends StatelessWidget {
                   ],
                 ]),
                 const SizedBox(height: 1),
-                Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: mutedStyle(10)),
+                if (subLead == null)
+                  Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: mutedStyle(10))
+                else
+                  Row(children: [
+                    Flexible(flex: 0, child: FittedBox(fit: BoxFit.scaleDown, child: subLead)),
+                    const SizedBox(width: 4),
+                    Flexible(child: Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: mutedStyle(10))),
+                  ]),
               ]),
             ),
             const SizedBox(width: 8),
@@ -1075,6 +1086,7 @@ class _LotsSection extends StatelessWidget {
               final value = t.quantity * h.asset.currentPrice;
               final pnl = h.asset.currentPrice > 0 ? value - t.buyCost : 0.0;
               final pct = t.buyCost > 0 ? pnl / t.buyCost * 100 : 0.0;
+              final days = lotOpenDays(t.buyDate);
               return _Row(
                 key: ValueKey('gf-lot-${t.id}'),
                 icon: Icons.diamond_outlined,
@@ -1086,6 +1098,7 @@ class _LotsSection extends StatelessWidget {
                   if (t.id == oldest && lots.length > 1) 'قدیمی‌ترین',
                   if (t.buyFromGoldFund) 'از صندوق',
                 ].join(' · '),
+                subLead: days == null ? null : GDaysChip(days, key: ValueKey('gf-lot-days-${t.id}')),
                 amount: gSigned(pnl),
                 amountColor: toneOf(pnl),
                 trailingSub: gPct(pct),

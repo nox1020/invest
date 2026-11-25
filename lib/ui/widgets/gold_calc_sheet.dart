@@ -724,8 +724,16 @@ class _GoldCalcSheetState extends State<GoldCalcSheet> {
             child: Row(children: [
               Expanded(
                 flex: 3,
-                child: Text(
-                  '${gGrams(l.grams)} · ${formatDisplayDate(l.buyDate, cal)} · خرید ${gToman(l.buyPrice)}',
+                child: Text.rich(
+                  TextSpan(children: [
+                    TextSpan(text: '${gGrams(l.grams)} · ${formatDisplayDate(l.buyDate, cal)} '),
+                    if (lotOpenDays(l.buyDate) case final days?)
+                      WidgetSpan(
+                        alignment: PlaceholderAlignment.middle,
+                        child: GDaysChip(days, key: ValueKey('gc-manual-days-${l.id}')),
+                      ),
+                    TextSpan(text: ' · خرید ${gToman(l.buyPrice)}'),
+                  ]),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: mutedStyle(10.5),

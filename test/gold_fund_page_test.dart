@@ -7,7 +7,9 @@ import 'package:invest/domain/models/gold_cash_entry.dart';
 import 'package:invest/domain/models/metrics.dart';
 import 'package:invest/domain/models/trade.dart';
 import 'package:invest/domain/services/gold_price_log.dart';
+import 'package:invest/domain/utils/dates.dart';
 import 'package:invest/state/app_state.dart';
+import 'package:invest/ui/gold/gold_format.dart';
 import 'package:invest/ui/pages/capital_chart_page.dart';
 import 'package:invest/ui/pages/dashboard_page.dart';
 import 'package:invest/ui/pages/gold_fund_page.dart';
@@ -426,6 +428,55 @@ void main() {
     await tester.tap(find.text('asset'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('asset-delete-gold-fund')), findsOneWidget);
+  });
+
+  testWidgets('open lots show how many days they have been open, sheet picker too', (tester) async {
+    final s = _state();
+    // A lot bought today and the open remainder of a partly sold lot.
+    s.openTrades = [
+      ...s.openTrades,
+      Trade(
+          id: 15,
+          assetId: 1,
+          status: AppConfig.tradeOpen,
+          quantity: 1.25,
+          buyPrice: 14300000,
+          buyDate: todayIso(),
+          assetName: 'طلای آب‌شده'),
+    ];
+    await _pump(tester, s, const GoldFundPage());
+    expect(find.byKey(const ValueKey('gf-lot-15')), findsOneWidget); // 5 lots: all shown
+    String label(int id) =>
+        tester.widget<Text>(find.descendant(of: find.byKey(ValueKey('gf-lot-days-$id')), matching: find.byType(Text))).data!;
+    for (final t in s.openTrades.where((t) => t.assetId != 3)) {
+      expect(label(t.id!), gDays(lotOpenDays(t.buyDate)!), reason: 'lot ${t.id}');
+    }
+    expect(label(15), 'امروز');
+    expect(label(10), matches(RegExp(r'^[۰-۹٬]+ روز$'))); // Persian digits, about 500 days
+    // Closed lots and non-gold trades get no chip.
+    expect(find.byKey(const ValueKey('gf-lot-days-20')), findsNothing);
+    expect(find.byKey(const ValueKey('gf-lot-days-14')), findsNothing);
+    // The chip sits on the buy-date line of its row.
+    final chip = tester.getRect(find.byKey(const ValueKey('gf-lot-days-12')));
+    final row = tester.getRect(find.byKey(const ValueKey('gf-lot-12')));
+    expect(row.contains(chip.center), isTrue);
+    expect(tester.takeException(), isNull);
+
+    // Manual lot picker in the calculator.
+    await tester.ensureVisible(find.byKey(const ValueKey('gf-sell')));
+    await tester.tap(find.byKey(const ValueKey('gf-sell')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('gc-order')));
+    await tester.tap(find.byKey(const ValueKey('gc-order')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('انتخاب دستی').last);
+    await tester.pumpAndSettle();
+    for (final id in [10, 11, 12, 15]) {
+      expect(find.byKey(ValueKey('gc-manual-days-$id')), findsOneWidget, reason: 'picker lot $id');
+    }
+    expect(find.descendant(of: find.byKey(const ValueKey('gc-manual-days-15')), matching: find.text('امروز')),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   group('bottom area: system nav bar and keyboard', () {

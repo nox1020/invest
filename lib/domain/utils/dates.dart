@@ -127,6 +127,29 @@ String _asciiDateDigits(String raw) {
   return buf.toString();
 }
 
+/// Tehran is UTC+3:30 all year (Iran dropped daylight saving in 2022).
+const Duration kTehranUtcOffset = Duration(hours: 3, minutes: 30);
+
+/// Today's `YYYY-MM-DD` on the Tehran calendar, whatever the device zone.
+String tehranTodayIso({DateTime? now}) => toIsoDate((now ?? DateTime.now()).toUtc().add(kTehranUtcOffset));
+
+/// Whole Tehran calendar days an open lot has been held: 0 on its buy day,
+/// 1 from the next midnight in Tehran. Reads ISO (`2026-01-05`, with or
+/// without a time) and Jalali (`1404/10/15`, Persian digits) buy dates;
+/// null when the date can't be read. Never negative (a future date is 0).
+/// Counted on UTC dates, so device daylight-saving shifts can't drop a day.
+int? lotOpenDays(String? buyDate, {DateTime? now}) {
+  final iso = tryNormalizeToIso(buyDate);
+  if (iso == null) return null;
+  DateTime day(String s) {
+    final p = s.split('-');
+    return DateTime.utc(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
+  }
+
+  final d = day(tehranTodayIso(now: now)).difference(day(iso)).inDays;
+  return d < 0 ? 0 : d;
+}
+
 int openHoldingDays(String buyDate, {String? asOf}) {
   if (buyDate.trim().isEmpty) return 0;
   final days = holdingDays(buyDate, asOf ?? todayIso());
