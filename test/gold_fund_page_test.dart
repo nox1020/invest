@@ -17,6 +17,8 @@ import 'package:invest/ui/pages/trades_page.dart';
 import 'package:invest/ui/widgets/asset_delete.dart';
 import 'package:invest/ui/widgets/gold_calc_sheet.dart';
 import 'package:invest/ui/widgets/gold_cash_sheet.dart';
+import 'package:invest/ui/widgets/gold_price_column.dart';
+import 'package:invest/domain/services/gold_column.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -140,7 +142,7 @@ AppState _state({bool empty = false}) {
 }
 
 Future<void> _pump(WidgetTester tester, AppState s, Widget home,
-    {Size size = const Size(320, 5000), double text = 1.3}) async {
+    {Size size = const Size(320, 5000), double text = 1.3, bool settle = true}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
@@ -159,7 +161,11 @@ Future<void> _pump(WidgetTester tester, AppState s, Widget home,
       home: home,
     ),
   ));
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+  }
 }
 
 void main() {
@@ -479,6 +485,125 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  group('gold price column', () {
+    GoldPricePoint pt(int daysAgo, double mid) => GoldPricePoint(date: _daysAgo(daysAgo), mid: mid);
+    List<GoldPricePoint> month(double base) => [for (var i = 29; i >= 1; i--) pt(i, base + (i % 5) * 100000)];
+
+    Future<void> card(WidgetTester tester, GoldColumnModel m,
+        {double text = 1.3, double width = 320, bool settle = true}) async {
+      await _pump(
+        tester,
+        _state(empty: true),
+        Scaffold(body: ListView(padding: const EdgeInsets.all(14), children: [GoldPriceColumnCard(model: m)])),
+        size: Size(width, 900),
+        text: text,
+        settle: settle,
+      );
+    }
+
+    testWidgets('sits under the price strip and above the fund total', (tester) async {
+      await _pump(tester, _state(), const GoldFundPage());
+      final strip = tester.getRect(find.byKey(const ValueKey('gf-ask')));
+      final col = tester.getRect(find.byKey(const ValueKey('gpc-card')));
+      final hero = tester.getRect(find.byKey(const ValueKey('gf-hero')));
+      expect(col.top, greaterThan(strip.bottom));
+      expect(col.bottom, lessThan(hero.top));
+      expect(find.byKey(const ValueKey('gpc-high')), findsOneWidget);
+      expect(find.byKey(const ValueKey('gpc-low')), findsOneWidget);
+      expect(find.byKey(const ValueKey('gpc-avg')), findsOneWidget);
+      expect(find.text('میانگین ۳۰ روز'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('up day: green move, no below-average badge', (tester) async {
+      final m = GoldColumnModel.compute(log: month(24000000), today: todayIso(), current: 25569000);
+      expect(m.direction, GoldColumnDirection.up);
+      await card(tester, m);
+      expect(find.textContaining('+'), findsWidgets);
+      final change = find.descendant(of: find.byKey(const ValueKey('gpc-change')), matching: find.byType(Text));
+      expect(tester.widget<Text>(change).style!.color, const Color(0xFF3DDB7E));
+      expect(find.byKey(const ValueKey('gpc-below-avg')), findsNothing);
+      expect(find.text('دیروز'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('down day under the average: red move and the gold badge', (tester) async {
+      final m = GoldColumnModel.compute(log: month(24000000), today: todayIso(), current: 23900000);
+      expect(m.direction, GoldColumnDirection.down);
+      expect(m.belowAverage, isTrue);
+      await card(tester, m);
+      final change = find.descendant(of: find.byKey(const ValueKey('gpc-change')), matching: find.byType(Text));
+      expect(tester.widget<Text>(change).style!.color, const Color(0xFFFF6B6B));
+      expect(find.byKey(const ValueKey('gpc-below-avg')), findsOneWidget);
+      expect(find.textContaining('زیر میانگین ۳۰ روز · '), findsOneWidget);
+      // The badge stays clear of the bubble.
+      final bubble = tester.getRect(find.byKey(const ValueKey('gpc-bubble')));
+      final badge = tester.getRect(find.byKey(const ValueKey('gpc-below-avg')));
+      expect(bubble.overlaps(badge), isFalse);
+      final sem = tester.getSemantics(find.byKey(const ValueKey('gpc-card')));
+      expect(sem.label, contains('زیر میانگین'));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('first day: price and a note, no range labels', (tester) async {
+      await card(tester, GoldColumnModel.compute(log: const [], today: todayIso(), current: 25569000, change24hPct: 1));
+      expect(find.byKey(const ValueKey('gpc-partial')), findsOneWidget);
+      expect(find.byKey(const ValueKey('gpc-high')), findsNothing);
+      expect(find.byKey(const ValueKey('gpc-avg')), findsNothing);
+      expect(find.text('۲۵٬۵۶۹٬۰۰۰').evaluate().isNotEmpty || find.text('۲۵,۵۶۹,۰۰۰').evaluate().isNotEmpty, isTrue);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('no price: tidy empty note', (tester) async {
+      await card(tester, GoldColumnModel.compute(log: const [], today: todayIso()));
+      expect(find.byKey(const ValueKey('gpc-empty')), findsOneWidget);
+      expect(find.byKey(const ValueKey('gpc-column')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('flat range keeps only the ends', (tester) async {
+      await card(tester, GoldColumnModel.compute(log: [pt(2, 100), pt(1, 100)], today: todayIso(), current: 100));
+      expect(find.byKey(const ValueKey('gpc-high')), findsOneWidget);
+      expect(find.byKey(const ValueKey('gpc-ref')), findsNothing);
+      expect(find.byKey(const ValueKey('gpc-avg')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('labels never overlap and fit at 320 px / 1.3× with big prices', (tester) async {
+      // Yesterday and the average almost equal: their labels must not collide.
+      final log = [for (var i = 29; i >= 2; i--) pt(i, 240000000 + (i.isEven ? 1e6 : -1e6)), pt(1, 240000000)];
+      final m = GoldColumnModel.compute(log: log, today: todayIso(), current: 255690000);
+      await card(tester, m);
+      final keys = ['gpc-high', 'gpc-low', 'gpc-ref', 'gpc-avg'];
+      final rects = [for (final k in keys) tester.getRect(find.byKey(ValueKey(k)))];
+      for (var i = 0; i < rects.length; i++) {
+        for (var j = i + 1; j < rects.length; j++) {
+          expect(rects[i].overlaps(rects[j]), isFalse, reason: '${keys[i]} / ${keys[j]}');
+        }
+      }
+      final cardRect = tester.getRect(find.byKey(const ValueKey('gpc-card')));
+      for (final k in [...keys, 'gpc-bubble']) {
+        final r = tester.getRect(find.byKey(ValueKey(k)));
+        expect(cardRect.contains(r.topLeft) && cardRect.contains(r.bottomRight), isTrue, reason: k);
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the marker glides to a new price', (tester) async {
+      final log = month(24000000);
+      await card(tester, GoldColumnModel.compute(log: log, today: todayIso(), current: 24100000));
+      final y0 = tester.getRect(find.byKey(const ValueKey('gpc-bubble'))).center.dy;
+      await card(tester, GoldColumnModel.compute(log: log, today: todayIso(), current: 24250000), settle: false);
+      await tester.pump(const Duration(milliseconds: 100));
+      final mid = tester.getRect(find.byKey(const ValueKey('gpc-bubble'))).center.dy;
+      await tester.pumpAndSettle();
+      final y1 = tester.getRect(find.byKey(const ValueKey('gpc-bubble'))).center.dy;
+      expect(y1, lessThan(y0)); // higher price, higher marker
+      expect(mid, lessThan(y0));
+      expect(mid, greaterThan(y1));
+    });
+  });
+
   group('bottom area: system nav bar and keyboard', () {
     const navBar = 48.0;
     const keyboard = 300.0;
@@ -529,7 +654,10 @@ void main() {
         phone(tester);
         final s = _state();
         await _pump(tester, s, const GoldFundPage(), size: size, text: text);
+        await tester.scrollUntilVisible(find.byKey(const ValueKey('gf-buy')), 200,
+            scrollable: find.descendant(of: find.byKey(const ValueKey('gf-list')), matching: find.byType(Scrollable)).first);
         await tester.ensureVisible(find.byKey(const ValueKey('gf-buy')));
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('gf-buy')));
         await tester.pumpAndSettle();
         final close = find.byKey(const ValueKey('gc-close'));
@@ -555,7 +683,10 @@ void main() {
       testWidgets('cash sheet save clears the nav bar and the keyboard ($tag)', (tester) async {
         phone(tester);
         await _pump(tester, _state(), const GoldFundPage(), size: size, text: text);
+        await tester.scrollUntilVisible(find.byKey(const ValueKey('gf-deposit')), 200,
+            scrollable: find.descendant(of: find.byKey(const ValueKey('gf-list')), matching: find.byType(Scrollable)).first);
         await tester.ensureVisible(find.byKey(const ValueKey('gf-deposit')));
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('gf-deposit')));
         await tester.pumpAndSettle();
         final save = find.byKey(const ValueKey('gcs-save'));

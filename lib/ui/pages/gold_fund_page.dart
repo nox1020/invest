@@ -15,6 +15,7 @@ import 'package:invest/ui/theme/app_theme.dart';
 import 'package:invest/ui/widgets/dashboard_kit.dart';
 import 'package:invest/ui/widgets/gold_calc_sheet.dart';
 import 'package:invest/ui/widgets/gold_cash_sheet.dart';
+import 'package:invest/ui/widgets/gold_price_column.dart';
 import 'package:invest/ui/widgets/user_error.dart';
 import 'package:provider/provider.dart';
 
@@ -140,6 +141,8 @@ class _GoldFundPageState extends State<GoldFundPage> {
               _Ribbon(state: state, quote: q, pending: pending),
               const SizedBox(height: 10),
               _QuoteStrip(quote: q),
+              const SizedBox(height: 10),
+              GoldPriceColumnCard(model: state.goldColumn()),
               const SizedBox(height: 10),
               _Hero(book: book, feePct: _feePct),
               const SizedBox(height: 10),
