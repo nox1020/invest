@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:invest/ui/widgets/pending_sync_mark.dart';
 import 'package:flutter/services.dart';
 import 'package:invest/config/app_config.dart';
@@ -42,6 +43,12 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
   /// the IndexedStack): keeps this tab's position and lets a re-tap on the
   /// «نقدینگی» tab scroll back to the top.
   final ScrollController _scroll = ScrollController();
+
+  /// Measured heights of history rows. A lazy [SliverList] otherwise
+  /// re-guesses its scroll extent from whichever rows are on screen; after
+  /// the real bottom that guess swings by thousands of pixels and the scroll
+  /// activity never settles on the way back up.
+  final _HistoryExtentCache _historyExtent = _HistoryExtentCache();
 
   @override
   void initState() {
@@ -96,9 +103,20 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
     final allowance = state.withdrawalAllowance;
     final pad = shellPagePadding(extraForFab: state.canMutate);
     final side = EdgeInsets.only(left: pad.left, right: pad.right);
+    final scaler = MediaQuery.textScalerOf(context);
+    _historyExtent.sync(
+      count: history.isEmpty ? 0 : history.length * 2 - 1,
+      signature: _historyLayoutSignature(
+        history,
+        width: MediaQuery.sizeOf(context).width - side.horizontal,
+        textScale: scaler.scale(12),
+        canEdit: state.canMutate,
+      ),
+    );
 
-    // One lazy scroll view: the summary cards scroll away with the list and
-    // history rows are only built when they come into view.
+    // Summary cards are one box sliver (their height is whatever they
+    // actually lay out to). History rows stay lazy, but their scroll extent
+    // is the sum of measured heights instead of a window average.
     return RefreshIndicator(
       onRefresh: () => state.refreshAll(),
       child: FadeTransition(
@@ -112,84 +130,89 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
             slivers: [
               SliverPadding(
                 padding: side.copyWith(top: pad.top),
-                sliver: SliverList.list(
-                  children: [
-                    _StatusRibbon(
-                      offline:
-                          false, // connection state lives in the header line
-                      count: history.length,
-                      yearLabel: WithdrawalAllowance.yearCaption(
-                        allowance.yearKey,
-                        allowance.calendar,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const PeriodCashflowCard(),
-                    const SizedBox(height: 12),
-                    _CapacityHero(
-                      allowance: allowance,
-                      canEdit: state.canMutate,
-                      onEditAnnualPct: () =>
-                          _editAnnualWithdrawalPct(context, state),
-                    ),
-                    const SizedBox(height: 20),
-                    const _SectionLabel(
-                      eyebrow: 'تراز',
-                      title: 'سود و برداشت',
-                    ),
-                    const SizedBox(height: 10),
-                    _BalanceLedger(
-                        allowance: allowance,
-                        breakdown: state.realizedBreakdown),
-                    const SizedBox(height: 10),
-                    _CoveragePanel(allowance: allowance),
-                    if (PwoStore.instance.loaded) ...[
-                      const SizedBox(height: 10),
-                      DoubleCountPanel(
-                        withdrawals: history,
-                        ledger: PwoStore.instance.ledger,
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    _AnnualQuotaPanel(
-                      allowance: allowance,
-                      onEditBase: state.canMutate
-                          ? () => _editCapBase(context, state)
-                          : null,
-                    ),
-                    const SizedBox(height: 10),
-                    const PwoEntryCard(),
-                    const SizedBox(height: 10),
-                    const BizEntryCard(),
-                    const SizedBox(height: 22),
-                    _SectionLabel(
-                      eyebrow: 'دفتر',
-                      title: 'سابقه برداشت',
-                      trailing: Text(
-                        '${history.length} ردیف',
-                        style: const TextStyle(
-                          color: AppTheme.muted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _StatusRibbon(
+                        offline:
+                            false, // connection state lives in the header line
+                        count: history.length,
+                        yearLabel: WithdrawalAllowance.yearCaption(
+                          allowance.yearKey,
+                          allowance.calendar,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    if (history.isEmpty) const _EmptyHistory(),
-                  ],
+                      const SizedBox(height: 12),
+                      const PeriodCashflowCard(),
+                      const SizedBox(height: 12),
+                      _CapacityHero(
+                        allowance: allowance,
+                        canEdit: state.canMutate,
+                        onEditAnnualPct: () =>
+                            _editAnnualWithdrawalPct(context, state),
+                      ),
+                      const SizedBox(height: 20),
+                      const _SectionLabel(
+                        eyebrow: 'تراز',
+                        title: 'سود و برداشت',
+                      ),
+                      const SizedBox(height: 10),
+                      _BalanceLedger(
+                          allowance: allowance,
+                          breakdown: state.realizedBreakdown),
+                      const SizedBox(height: 10),
+                      _CoveragePanel(allowance: allowance),
+                      if (PwoStore.instance.loaded) ...[
+                        const SizedBox(height: 10),
+                        DoubleCountPanel(
+                          withdrawals: history,
+                          ledger: PwoStore.instance.ledger,
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      _AnnualQuotaPanel(
+                        allowance: allowance,
+                        onEditBase: state.canMutate
+                            ? () => _editCapBase(context, state)
+                            : null,
+                      ),
+                      const SizedBox(height: 10),
+                      const PwoEntryCard(),
+                      const SizedBox(height: 10),
+                      const BizEntryCard(),
+                      const SizedBox(height: 22),
+                      _SectionLabel(
+                        eyebrow: 'دفتر',
+                        title: 'سابقه برداشت',
+                        trailing: Text(
+                          '${history.length} ردیف',
+                          style: const TextStyle(
+                            color: AppTheme.muted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (history.isEmpty) const _EmptyHistory(),
+                    ],
+                  ),
                 ),
               ),
               if (history.isNotEmpty)
                 SliverPadding(
                   padding: side,
-                  sliver: SliverList.separated(
-                    itemCount: history.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, i) => _WithdrawalTile(
-                      key: ValueKey('withdrawal-tile-${i + 1}'),
-                      item: history[i],
-                      canEdit: state.canMutate,
-                      rank: i + 1,
+                  sliver: SliverList(
+                    delegate: _StableHistoryDelegate(
+                      cache: _historyExtent,
+                      itemCount: history.length,
+                      itemBuilder: (context, i) => _WithdrawalTile(
+                        item: history[i],
+                        canEdit: state.canMutate,
+                        rank: i + 1,
+                      ),
                     ),
                   ),
                 ),
@@ -199,6 +222,187 @@ class _WithdrawalsPageState extends State<WithdrawalsPage>
           ),
         ),
       ),
+    );
+  }
+}
+
+int _historyLayoutSignature(
+  List<Withdrawal> history, {
+  required double width,
+  required double textScale,
+  required bool canEdit,
+}) {
+  var sig = Object.hash(history.length, width, textScale, canEdit);
+  for (final item in history) {
+    sig = Object.hash(
+      sig,
+      item.id,
+      item.amount,
+      item.note,
+      item.status,
+      item.createdAt,
+    );
+  }
+  return sig;
+}
+
+/// Remembers each history child's laid-out height so the sliver can report
+/// one stable scroll extent after those children have been built once.
+class _HistoryExtentCache {
+  final Map<int, double> _heights = {};
+  int _count = -1;
+  int _signature = 0;
+
+  void sync({required int count, required int signature}) {
+    if (_count == count && _signature == signature) return;
+    _heights.clear();
+    _count = count;
+    _signature = signature;
+  }
+
+  void note(int index, double height) {
+    if (index < 0 || !height.isFinite || height <= 0) return;
+    final prev = _heights[index];
+    if (prev != null && (prev - height).abs() < 0.01) return;
+    _heights[index] = height;
+  }
+
+  /// Total scroll extent, or null to let the sliver extrapolate.
+  ///
+  /// Once every child has been measured the result no longer depends on
+  /// which slice is on screen.
+  double? estimate({
+    required int lastIndex,
+    required double leading,
+    required double trailing,
+    required int count,
+  }) {
+    if (count <= 0) return 0;
+    if (_heights.isEmpty) return null;
+
+    if (_heights.length >= count) {
+      var sum = 0.0;
+      for (var i = 0; i < count; i++) {
+        final h = _heights[i];
+        if (h == null) {
+          sum = -1;
+          break;
+        }
+        sum += h;
+      }
+      if (sum >= 0) {
+        final span = trailing - leading;
+        // A window taller than the cached sum means the cache is stale.
+        if (sum + 0.5 < span) return null;
+        return sum;
+      }
+    }
+
+    var known = 0.0;
+    var knownCount = 0;
+    for (final h in _heights.values) {
+      known += h;
+      knownCount++;
+    }
+    final avg = known / knownCount;
+    var after = 0.0;
+    for (var i = lastIndex + 1; i < count; i++) {
+      after += _heights[i] ?? avg;
+    }
+    final total = trailing + after;
+    final span = trailing - leading;
+    if (total + 0.5 < span) return null;
+    return total;
+  }
+}
+
+class _ReportExtent extends SingleChildRenderObjectWidget {
+  const _ReportExtent({
+    super.key,
+    required this.index,
+    required this.cache,
+    required super.child,
+  });
+
+  final int index;
+  final _HistoryExtentCache cache;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderReportExtent(index: index, cache: cache);
+
+  @override
+  void updateRenderObject(
+      BuildContext context, _RenderReportExtent renderObject) {
+    renderObject
+      ..index = index
+      ..cache = cache;
+  }
+}
+
+class _RenderReportExtent extends RenderProxyBox {
+  _RenderReportExtent({required this.index, required this.cache});
+
+  int index;
+  _HistoryExtentCache cache;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    cache.note(index, size.height);
+  }
+}
+
+class _StableHistoryDelegate extends SliverChildBuilderDelegate {
+  _StableHistoryDelegate({
+    required _HistoryExtentCache cache,
+    required int itemCount,
+    required NullableIndexedWidgetBuilder itemBuilder,
+  })  : _cache = cache,
+        super(
+          (context, index) {
+            final Widget child;
+            if (index.isOdd) {
+              child = const SizedBox(height: 8);
+            } else {
+              child = itemBuilder(context, index ~/ 2)!;
+            }
+            return _ReportExtent(
+              key: index.isEven
+                  ? ValueKey<String>('withdrawal-tile-${index ~/ 2 + 1}')
+                  : null,
+              index: index,
+              cache: cache,
+              child: child,
+            );
+          },
+          childCount: itemCount == 0 ? 0 : itemCount * 2 - 1,
+          findChildIndexCallback: (Key key) {
+            if (key is! ValueKey<String>) return null;
+            const prefix = 'withdrawal-tile-';
+            if (!key.value.startsWith(prefix)) return null;
+            final rank = int.tryParse(key.value.substring(prefix.length));
+            if (rank == null || rank <= 0) return null;
+            return (rank - 1) * 2;
+          },
+        );
+
+  final _HistoryExtentCache _cache;
+
+  @override
+  double? estimateMaxScrollOffset(
+    int firstIndex,
+    int lastIndex,
+    double leadingScrollOffset,
+    double trailingScrollOffset,
+  ) {
+    final n = childCount;
+    if (n == null) return null;
+    return _cache.estimate(
+      lastIndex: lastIndex,
+      leading: leadingScrollOffset,
+      trailing: trailingScrollOffset,
+      count: n,
     );
   }
 }
@@ -1069,7 +1273,6 @@ String _amountFieldText(double amount) {
 
 class _WithdrawalTile extends StatelessWidget {
   const _WithdrawalTile({
-    super.key,
     required this.item,
     required this.canEdit,
     required this.rank,

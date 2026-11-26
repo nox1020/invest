@@ -1,6 +1,7 @@
 // Vertical scrolling on the «نقدینگی» tab: reach the last row above the FAB,
 // pull-to-refresh with little content, no overflow on small / landscape
-// screens, position kept across rebuilds, scroll-to-top on tab re-tap.
+// screens, position kept across rebuilds, scroll-to-top on tab re-tap,
+// and a full trip to the bottom and back to the top.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:invest/config/app_config.dart';
@@ -27,7 +28,7 @@ class _RefreshCountingState extends AppState {
   }
 }
 
-_RefreshCountingState _state({int rows = 0}) {
+_RefreshCountingState _state({int rows = 0, bool variableNotes = false}) {
   final s = _RefreshCountingState()
     ..loading = false
     ..authenticated = true
@@ -37,7 +38,15 @@ _RefreshCountingState _state({int rows = 0}) {
         Withdrawal(
           id: i + 1,
           amount: 12345678900.0 + i, // 12 billion toman
-          note: 'یادداشت بلند برای ردیف شماره ${i + 1} که چند خط می‌شود ' * 2,
+          note: variableNotes
+              ? switch (i % 4) {
+                  0 => '',
+                  1 => 'کوتاه',
+                  _ =>
+                    'یادداشت بلند برای ردیف شماره ${i + 1} که چند خط می‌شود ' *
+                        (1 + i % 3),
+                }
+              : 'یادداشت بلند برای ردیف شماره ${i + 1} که چند خط می‌شود ' * 2,
           createdAt: '2026-04-01',
           status: i.isEven ? 'completed' : 'pending',
         ),
@@ -96,6 +105,25 @@ Finder get _scrollable => find
     .descendant(
         of: find.byType(WithdrawalsPage), matching: find.byType(Scrollable))
     .first;
+
+ScrollPosition _pos(WidgetTester t) =>
+    t.state<ScrollableState>(_scrollable).position;
+
+/// Fling, then correct onto the real bottom. Returns that max extent.
+Future<double> _scrollToBottom(WidgetTester t) async {
+  final pos = _pos(t);
+  for (var i = 0; i < 30 && pos.pixels < pos.maxScrollExtent - 1; i++) {
+    await t.fling(_scrollable, const Offset(0, -2500), 12000);
+    await t.pumpAndSettle();
+  }
+  if ((pos.maxScrollExtent - pos.pixels).abs() > 0.5) {
+    pos.jumpTo(pos.maxScrollExtent);
+    await t.pumpAndSettle();
+  }
+  expect(pos.pixels, closeTo(pos.maxScrollExtent, 1));
+  expect(t.takeException(), isNull);
+  return pos.maxScrollExtent;
+}
 
 void main() {
   setUp(() {
@@ -167,7 +195,8 @@ void main() {
     expect(t.state<ScrollableState>(_scrollable).position.pixels, 1500);
   });
 
-  testWidgets('re-tapping the «نقدینگی» tab scrolls back to the top', (t) async {
+  testWidgets('re-tapping the «نقدینگی» tab scrolls back to the top',
+      (t) async {
     await _size(t, const Size(360, 640));
     final state = _state(rows: 30);
     await t.pumpWidget(_shell(state));
@@ -182,6 +211,101 @@ void main() {
     await t.pumpAndSettle();
     expect(pos.pixels, 0);
   });
+
+  for (final c in [
+    (
+      name: 'phone 360×640, 48 similar rows',
+      size: const Size(360, 640),
+      scale: 1.0,
+      rows: 48,
+      variable: false,
+    ),
+    (
+      name: 'small phone 320×568, large text, variable rows',
+      size: const Size(320, 568),
+      scale: 1.3,
+      rows: 30,
+      variable: true,
+    ),
+    (
+      name: 'landscape 640×320, short variable ledger',
+      size: const Size(640, 320),
+      scale: 1.0,
+      rows: 12,
+      variable: true,
+    ),
+  ]) {
+    testWidgets('${c.name}: bottom then back to the top', (t) async {
+      await _size(t, c.size);
+      await t.pumpWidget(_shell(_state(rows: c.rows, variableNotes: c.variable),
+          textScale: c.scale));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+
+      final maxAtBottom = await _scrollToBottom(t);
+      expect(find.text('#${c.rows}'), findsOneWidget);
+
+      final pos = _pos(t);
+      var guard = 0;
+      while (pos.pixels > 0.5 && guard < 100) {
+        final before = pos.pixels;
+        final maxBefore = pos.maxScrollExtent;
+        await t.drag(_scrollable, const Offset(0, 320));
+        await t.pump();
+        expect(pos.pixels, lessThanOrEqualTo(before + 1),
+            reason: 'drag toward the top jumped the other way');
+        expect(pos.maxScrollExtent, closeTo(maxBefore, 1),
+            reason: 'scroll extent changed on the way up');
+        guard++;
+      }
+      await t.pumpAndSettle();
+      expect(pos.pixels, 0);
+      expect(pos.maxScrollExtent, closeTo(maxAtBottom, 1));
+      expect(find.text('میز برداشت').hitTestable(), findsOneWidget);
+      expect(t.takeException(), isNull);
+    }, timeout: const Timeout(Duration(seconds: 30)));
+  }
+
+  testWidgets('animating from the real bottom back to the top settles',
+      (t) async {
+    await _size(t, const Size(360, 640));
+    await t.pumpWidget(_shell(_state(rows: 60, variableNotes: true)));
+    await t.pumpAndSettle();
+    final pos = _pos(t);
+    final maxAtBottom = await _scrollToBottom(t);
+    // Start the animation, then pump. Awaiting the future first never
+    // schedules frames, so the test would hang.
+    final done = pos.animateTo(
+      0,
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutCubic,
+    );
+    await t.pumpAndSettle();
+    await done;
+    expect(pos.pixels, 0);
+    expect(pos.maxScrollExtent, closeTo(maxAtBottom, 1));
+    expect(find.text('میز برداشت').hitTestable(), findsOneWidget);
+    expect(t.takeException(), isNull);
+
+    // Fling back up the way a finger does, then re-tap from the bottom.
+    await _scrollToBottom(t);
+    expect(pos.maxScrollExtent, closeTo(maxAtBottom, 1));
+    for (var i = 0; i < 12 && pos.pixels > 0.5; i++) {
+      await t.fling(_scrollable, const Offset(0, 4000), 8000);
+      await t.pumpAndSettle();
+      expect(pos.maxScrollExtent, closeTo(maxAtBottom, 1));
+    }
+    expect(pos.pixels, 0);
+    expect(find.text('میز برداشت').hitTestable(), findsOneWidget);
+
+    await _scrollToBottom(t);
+    homeTabReselect.fire(HomeTabs.withdrawals);
+    await t.pumpAndSettle();
+    expect(pos.pixels, 0);
+    expect(pos.maxScrollExtent, closeTo(maxAtBottom, 1));
+    expect(find.text('میز برداشت').hitTestable(), findsOneWidget);
+    expect(t.takeException(), isNull);
+  }, timeout: const Timeout(Duration(seconds: 30)));
 
   testWidgets('long history is built lazily', (t) async {
     await _size(t, const Size(360, 640));
